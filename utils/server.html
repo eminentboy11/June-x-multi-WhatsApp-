@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JUNE ULTRA - Status</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .bg-grid {
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+            z-index: 0;
+        }
+
+        .glow-orb {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: .35;
+            z-index: 0;
+            animation: float 8s ease-in-out infinite alternate;
+        }
+        .orb-1 { width: 400px; height: 400px; background: #6c3ce9; top: -100px; left: -100px; }
+        .orb-2 { width: 350px; height: 350px; background: #00c9a7; bottom: -80px; right: -80px; animation-delay: -4s; }
+        .orb-3 { width: 250px; height: 250px; background: #e94560; top: 50%; left: 60%; animation-delay: -2s; }
+
+        @keyframes float {
+            to { transform: translate(30px, -20px) scale(1.08); }
+        }
+
+        .container {
+            position: relative;
+            z-index: 1;
+            max-width: 520px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .hero {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo {
+            width: 90px;
+            height: 90px;
+            border-radius: 24px;
+            background: linear-gradient(135deg, #6c3ce9, #00c9a7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            margin: 0 auto 16px;
+            box-shadow: 0 8px 32px rgba(108,60,233,.4);
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 8px 32px rgba(108,60,233,.4); }
+            50% { box-shadow: 0 8px 48px rgba(108,60,233,.6), 0 0 80px rgba(0,201,167,.2); }
+        }
+
+        .hero h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 30%, #00c9a7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero .tagline {
+            color: #888;
+            font-size: 14px;
+            margin-top: 4px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding: 6px 18px;
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: .5px;
+        }
+        .status-badge.online {
+            background: rgba(0,201,167,.12);
+            color: #00c9a7;
+            border: 1px solid rgba(0,201,167,.25);
+        }
+        .status-badge.offline {
+            background: rgba(233,69,96,.12);
+            color: #e94560;
+            border: 1px solid rgba(233,69,96,.25);
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+        .online .status-dot { background: #00c9a7; }
+        .offline .status-dot { background: #e94560; }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .3; }
+        }
+
+        .card {
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.07);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(12px);
+        }
+
+        .card-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #666;
+            margin-bottom: 14px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,.04);
+        }
+        .stat-row:last-child { border-bottom: none; }
+
+        .stat-label {
+            font-size: 13px;
+            color: #999;
+        }
+
+        .stat-value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e0e0e0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .progress-wrap {
+            margin-top: 4px;
+        }
+        .progress-bar {
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255,255,255,.06);
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            border-radius: 3px;
+            background: linear-gradient(90deg, #6c3ce9, #00c9a7);
+            transition: width .6s ease;
+        }
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #666;
+            margin-top: 4px;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .metric-box {
+            background: rgba(255,255,255,.03);
+            border: 1px solid rgba(255,255,255,.05);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+        .metric-box .val {
+            font-size: 22px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6c3ce9, #00c9a7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .metric-box .lbl {
+            font-size: 11px;
+            color: #666;
+            margin-top: 2px;
+            text-transform: uppercase;
+            letter-spacing: .8px;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 24px;
+            color: #444;
+            font-size: 12px;
+        }
+        .footer a {
+            color: #6c3ce9;
+            text-decoration: none;
+        }
+        .footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+
+    <div class="container">
+        <div class="hero">
+            <div class="logo">J</div>
+            <h1 id="botName">JUNE ULTRA</h1>
+            <p class="tagline">WhatsApp Multi-Device Bot</p>
+            <div class="status-badge offline" id="statusBadge">
+                <span class="status-dot"></span>
+                <span id="statusText">CHECKING...</span>
+            </div>
+        </div>
+
+        <div class="metric-grid">
+            <div class="metric-box">
+                <div class="val" id="uptime">--</div>
+                <div class="lbl">Uptime</div>
+            </div>
+            <div class="metric-box">
+                <div class="val" id="commands">--</div>
+                <div class="lbl">Commands</div>
+            </div>
+            <div class="metric-box">
+                <div class="val" id="speed">--</div>
+                <div class="lbl">Latency</div>
+            </div>
+            <div class="metric-box">
+                <div class="val" id="platform">--</div>
+                <div class="lbl">Platform</div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:16px">
+            <div class="card-title">System Resources</div>
+            <div class="stat-row">
+                <span class="stat-label">RAM Usage</span>
+                <span class="stat-value" id="ramText">-- / --</span>
+            </div>
+            <div class="progress-wrap">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="ramBar" style="width:0%"></div>
+                </div>
+                <div class="progress-label">
+                    <span id="ramPercent">0%</span>
+                    <span id="ramTotal">--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-title">Bot Details</div>
+            <div class="stat-row">
+                <span class="stat-label">Owner</span>
+                <span class="stat-value" id="owner">--</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Prefix</span>
+                <span class="stat-value" id="prefix">--</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Mode</span>
+                <span class="stat-value" id="mode">--</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Node.js</span>
+                <span class="stat-value" id="node">--</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Server Time</span>
+                <span class="stat-value" id="serverTime">--</span>
+            </div>
+        </div>
+
+        <div class="footer">
+            Powered by <strong>Supreme</strong><br>
+            <a href="https://github.com/Vinpink2" target="_blank">github.com/Vinpink2</a>
+        </div>
+    </div>
+
+    <script>
+        function fmtUptime(s) {
+            const d = Math.floor(s / 86400);
+            const h = Math.floor((s % 86400) / 3600);
+            const m = Math.floor((s % 3600) / 60);
+            if (d > 0) return d + 'd ' + h + 'h';
+            if (h > 0) return h + 'h ' + m + 'm';
+            return m + 'm ' + (Math.floor(s) % 60) + 's';
+        }
+
+        function fmtMB(bytes) {
+            return (bytes / 1024 / 1024).toFixed(0) + ' MB';
+        }
+
+        async function refresh() {
+            try {
+                const t0 = Date.now();
+                const r = await fetch('/health');
+                const latency = Date.now() - t0;
+                const d = await r.json();
+
+                document.getElementById('botName').textContent = d.bot || 'JUNE ULTRA';
+                document.getElementById('uptime').textContent = fmtUptime(d.uptime || 0);
+                document.getElementById('commands').textContent = d.commandCount || '--';
+                document.getElementById('speed').textContent = latency + 'ms';
+                document.getElementById('platform').textContent = d.platform || '--';
+
+                const badge = document.getElementById('statusBadge');
+                const stxt = document.getElementById('statusText');
+                if (d.connected) {
+                    badge.className = 'status-badge online';
+                    stxt.textContent = 'CONNECTED';
+                } else {
+                    badge.className = 'status-badge offline';
+                    stxt.textContent = 'DISCONNECTED';
+                }
+
+                if (d.memory) {
+                    const usedMB = d.memory.used;
+                    const totalMB = d.memory.total;
+                    const pct = ((usedMB / totalMB) * 100).toFixed(1);
+                    document.getElementById('ramText').textContent = fmtMB(usedMB * 1024 * 1024) + ' / ' + fmtMB(totalMB * 1024 * 1024);
+                    document.getElementById('ramBar').style.width = pct + '%';
+                    document.getElementById('ramPercent').textContent = pct + '%';
+                    document.getElementById('ramTotal').textContent = fmtMB(totalMB * 1024 * 1024);
+                }
+
+                document.getElementById('owner').textContent = d.owner || '--';
+                document.getElementById('prefix').textContent = d.prefix || '--';
+                document.getElementById('mode').textContent = d.mode || '--';
+                document.getElementById('node').textContent = d.nodeVersion || '--';
+                document.getElementById('serverTime').textContent = new Date(d.serverTime).toLocaleTimeString();
+
+            } catch (e) {
+                document.getElementById('statusBadge').className = 'status-badge offline';
+                document.getElementById('statusText').textContent = 'OFFLINE';
+            }
+        }
+
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+</body>
+</html>
