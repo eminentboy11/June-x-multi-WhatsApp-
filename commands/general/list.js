@@ -1,6 +1,6 @@
 /**
  * List Command
- * Show all commands with descriptions
+ * Show all commands with descriptions in a table format
  */
 
 const fs = require('fs');
@@ -29,49 +29,65 @@ module.exports = {
           if (!categories[category]) {
             categories[category] = [];
           }
+          // Build a nice command string with aliases
+          let cmdString = `${prefix}${cmd.name}`;
+          if (cmd.aliases && cmd.aliases.length > 0) {
+            cmdString += ` (${cmd.aliases.map(a => prefix + a).join(', ')})`;
+          }
           categories[category].push({
-            label: cmd.description || '',
-            names: [cmd.name].concat(cmd.aliases || []),
+            cmd: cmdString,
+            desc: cmd.description || 'No description'
           });
         }
       });
       
-      let menu = `*${config.botName} - Commands List*\n`;
-      menu += `Prefix: *${prefix}*\n\n`;
+      // Calculate max width for command column
+      let maxCmdLen = 0;
+      const allEntries = [];
+      for (const cat in categories) {
+        for (const entry of categories[cat]) {
+          maxCmdLen = Math.max(maxCmdLen, entry.cmd.length);
+          allEntries.push(entry);
+        }
+      }
+      // Add some padding
+      maxCmdLen = Math.min(maxCmdLen + 2, 40); // Cap at 40 characters
+      
+      // Build the table inside a code block
+      let table = '```\n';
+      // Header
+      table += `${'COMMAND'.padEnd(maxCmdLen)} | DESCRIPTION\n`;
+      table += `${'-'.repeat(maxCmdLen)}-+-${'-'.repeat(30)}\n`;
       
       const orderedCats = Object.keys(categories).sort();
-      
       for (const cat of orderedCats) {
-        menu += `*📂 ${cat.toUpperCase()}*\n`;
+        table += `\n📂 ${cat.toUpperCase()}\n`;
         for (const entry of categories[cat]) {
-          const cmdList = entry.names.map((n) => `${prefix}${n}`).join(', ');
-          const label = entry.label || '';
-          menu += label ? `• \`${cmdList}\` - ${label}\n` : `• ${cmdList}\n`;
+          const paddedCmd = entry.cmd.padEnd(maxCmdLen);
+          // Wrap description if too long? For simplicity, we keep it as is.
+          table += `${paddedCmd} | ${entry.desc}\n`;
         }
-        menu += '\n';
       }
-      
-      menu = menu.trimEnd();
-      
+      table += '```';
       
       // Send message with buttons using gifted-btns
       await sendButtons(sock, extra.from, {
-        title: '',
-        text: menu,
+        title: `*${config.botName} - Commands List*`,
+        text: table,
         footer: `> *Powered by ${config.botName}*`,
         buttons: [
           {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
               display_text: 'Youtube',
-              url: config.social?.youtube || 'http://youtube.com/@mr_unique_hacker'
+              url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
             })
           },
           {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
               display_text: 'Visit Bot Repo',
-              url: config.social?.github || 'https://github.com/mruniquehacker'
+              url: config.social?.github || 'https://github.com/vinpink2'
             })
           },
           {
@@ -90,4 +106,3 @@ module.exports = {
     }
   }
 };
-
