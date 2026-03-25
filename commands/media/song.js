@@ -31,6 +31,7 @@ module.exports = {
             let thumbnail = '';
             let author = '';
 
+            // --- Metadata extraction ---
             if (!isUrl) {
                 const { videos } = await yts(searchQuery);
                 if (!videos || videos.length === 0) {
@@ -61,25 +62,12 @@ module.exports = {
                 } catch (e) {}
             }
 
-            let info = `🎵 *${title}*`;
-            if (author) info += `\n👤 *Artist:* ${author}`;
-            if (duration) info += `\n⏱ *Duration:* ${duration}`;
-            if (views) info += `\n👁 *Views:* ${views}`;
-            info += `\n\n_Downloading..._`;
+            // --- Simple downloading message with title in italics ---
+            await sock.sendMessage(chatId, {
+                text: `_Downloading_\n_${title}_`
+            }, { quoted: msg });
 
-            if (thumbnail) {
-                try {
-                    await sock.sendMessage(chatId, {
-                        image: { url: thumbnail },
-                        caption: info
-                    }, { quoted: msg });
-                } catch (e) {
-                    await sock.sendMessage(chatId, { text: info }, { quoted: msg });
-                }
-            } else {
-                await sock.sendMessage(chatId, { text: info }, { quoted: msg });
-            }
-
+            // --- Audio download ---
             const apiFns = [
                 () => APIs.getApisKeithAudioByUrl(videoUrl),
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
@@ -109,11 +97,18 @@ module.exports = {
 
             const safeTitle = title.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
+            // --- Send as DOCUMENT (no caption) ---
             await sock.sendMessage(chatId, {
                 document: { url: audioData.download },
                 mimetype: 'audio/mpeg',
-                fileName: `${safeTitle}.mp3`,
-                caption: `🎵 *${title}*${author ? `\n👤 ${author}` : ''}${duration ? `\n⏱ ${duration}` : ''}`
+                fileName: `${safeTitle}.mp3`
+            }, { quoted: msg });
+
+            // --- Send as AUDIO (no caption, playable) ---
+            await sock.sendMessage(chatId, {
+                audio: { url: audioData.download },
+                mimetype: 'audio/mpeg',
+                ptt: false   // set true for voice note style
             }, { quoted: msg });
 
         } catch (error) {
