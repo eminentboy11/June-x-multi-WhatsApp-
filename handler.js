@@ -672,30 +672,6 @@ const handleMessage = async (sock, msg) => {
       }
     }
     
-    // Anti-group mention protection (check BEFORE prefix check, as these are non-command messages)
-    if (isGroup) {
-      // Debug logging to confirm we're trying to call the handler
-      const groupSettings = database.getGroupSettings(from);
-      if (groupSettings.antigroupmention) {
-        // Debug log removed
-      }
-      try {
-        await handleAntigroupmention(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antigroupmention handler:', error);
-      }
-      try {
-        await handleAntigroupstatus(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antigroupstatus handler:', error);
-      }
-      try {
-        await handleAntiMedia(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antiMedia handler:', error);
-      }
-    }
-    
     // AutoSticker feature - convert images/videos to stickers automatically
     if (isGroup) { // Process all messages in groups (including bot's own messages)
       const groupSettings = database.getGroupSettings(from);
@@ -1318,42 +1294,17 @@ const handleAntigroupmention = async (sock, msg, groupMetadata) => {
     let isForwardedStatus = false;
     
     if (msg.message) {
-      // Direct checks for known status mention message types
+      // Only detect actual group status mentions — NOT regular replies or forwards
       isForwardedStatus = isForwardedStatus || !!msg.message.groupStatusMentionMessage;
-      isForwardedStatus = isForwardedStatus || 
-        (msg.message.protocolMessage && msg.message.protocolMessage.type === 25); // STATUS_MENTION_MESSAGE
-      
-      // Check for forwarded newsletter info in various message types
-      isForwardedStatus = isForwardedStatus || 
-        (msg.message.extendedTextMessage && msg.message.extendedTextMessage.contextInfo && 
-         msg.message.extendedTextMessage.contextInfo.forwardedNewsletterMessageInfo);
-      isForwardedStatus = isForwardedStatus || 
-        (msg.message.conversation && msg.message.contextInfo && 
-         msg.message.contextInfo.forwardedNewsletterMessageInfo);
-      isForwardedStatus = isForwardedStatus || 
-        (msg.message.imageMessage && msg.message.imageMessage.contextInfo && 
-         msg.message.imageMessage.contextInfo.forwardedNewsletterMessageInfo);
-      isForwardedStatus = isForwardedStatus || 
-        (msg.message.videoMessage && msg.message.videoMessage.contextInfo && 
-         msg.message.videoMessage.contextInfo.forwardedNewsletterMessageInfo);
-      isForwardedStatus = isForwardedStatus || 
-        (msg.message.contextInfo && msg.message.contextInfo.forwardedNewsletterMessageInfo);
-      
-      // Generic check for any forwarded message
-      if (msg.message.contextInfo) {
-        const ctx = msg.message.contextInfo;
-        isForwardedStatus = isForwardedStatus || !!ctx.isForwarded;
-        isForwardedStatus = isForwardedStatus || !!ctx.forwardingScore;
-        // Additional check for forwarded status specifically
-        isForwardedStatus = isForwardedStatus || !!ctx.quotedMessageTimestamp;
-      }
-      
-      // Additional checks for forwarded messages
-      if (msg.message.extendedTextMessage && msg.message.extendedTextMessage.contextInfo) {
-        const extCtx = msg.message.extendedTextMessage.contextInfo;
-        isForwardedStatus = isForwardedStatus || !!extCtx.isForwarded;
-        isForwardedStatus = isForwardedStatus || !!extCtx.forwardingScore;
-      }
+      isForwardedStatus = isForwardedStatus ||
+        (msg.message.protocolMessage && msg.message.protocolMessage.type === 25);
+
+      // Check for forwarded newsletter info specifically (not general forwards)
+      const checkNewsletterCtx = (ctx) => !!ctx?.forwardedNewsletterMessageInfo;
+      isForwardedStatus = isForwardedStatus || checkNewsletterCtx(msg.message.extendedTextMessage?.contextInfo);
+      isForwardedStatus = isForwardedStatus || checkNewsletterCtx(msg.message.imageMessage?.contextInfo);
+      isForwardedStatus = isForwardedStatus || checkNewsletterCtx(msg.message.videoMessage?.contextInfo);
+      isForwardedStatus = isForwardedStatus || checkNewsletterCtx(msg.message.contextInfo);
     }
     
     // Additional debug logging for detection
