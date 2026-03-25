@@ -1,6 +1,6 @@
 /**
  * GetSession Command - Owner only
- * Generates a KnightBot:~<base64> session ID from the current creds.json
+ * Generates an Ultra-X:~<base64> session ID from the current creds.json
  * so the bot can be redeployed without scanning a QR code again.
  */
 
@@ -40,7 +40,7 @@ module.exports = {
       JSON.parse(credsJson);
 
       const base64Session = Buffer.from(credsJson, 'utf8').toString('base64');
-      const sessionID = `KnightBot:~${base64Session}`;
+      const sessionID = `Ultra-X:~${base64Session}`;
 
       const instructions =
         `╭━━『 *Session ID Generated* 』━━╮\n\n` +

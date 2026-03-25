@@ -27,8 +27,9 @@ function downloadFromUrl(url) {
 async function saveImage(buffer) {
   let finalBuffer = buffer;
   try {
-    const sharp = require('sharp');
-    finalBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+    const Jimp = require('jimp');
+    const image = await Jimp.read(buffer);
+    finalBuffer = await image.quality(90).getBufferAsync(Jimp.MIME_JPEG);
   } catch {}
   fs.writeFileSync(IMAGE_PATH, finalBuffer);
   try { fs.writeFileSync(MENU1_PATH, finalBuffer); } catch {}
