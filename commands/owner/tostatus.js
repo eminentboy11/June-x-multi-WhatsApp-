@@ -17,8 +17,8 @@ function randomBg() {
 
 async function extractMedia(content) {
     const map = {
-        imageMessage:   { type: 'image', ext: '.jpg' },
-        videoMessage:   { type: 'video', ext: '.mp4' },
+        imageMessage:   { type: 'image',   ext: '.jpg'  },
+        videoMessage:   { type: 'video',   ext: '.mp4'  },
         stickerMessage: { type: 'sticker', ext: '.webp' },
     };
     for (const [key, { type, ext }] of Object.entries(map)) {
@@ -39,12 +39,41 @@ async function extractMedia(content) {
     return null;
 }
 
+/**
+ * Build statusJidList from the bot's message store.
+ * Falls back to owner numbers if the store is empty.
+ */
+function getStatusJidList(sock) {
+    const jids = new Set();
+
+    // Primary: extract individual-chat JIDs from bot store message keys
+    try {
+        const messages = sock.botStore?.messages;
+        if (messages instanceof Map) {
+            for (const jid of messages.keys()) {
+                if (jid && jid.endsWith('@s.whatsapp.net')) jids.add(jid);
+            }
+        }
+    } catch (_) {}
+
+    // Fallback: include owner numbers so at least they can see the status
+    if (jids.size === 0) {
+        const owners = [].concat(config.ownerNumber || []);
+        for (const num of owners) {
+            const clean = String(num).replace(/\D/g, '');
+            if (clean) jids.add(`${clean}@s.whatsapp.net`);
+        }
+    }
+
+    return [...jids];
+}
+
 module.exports = {
     name: 'tostatus',
     aliases: ['tst', 'tostory', 'poststatus'],
     category: 'owner',
     description: 'Post a private story to WhatsApp status (owner only)',
-    usage: '.tostatus [text] or reply to an image/video with .tostatus [caption]',
+    usage: '.tostatus [text]  OR  reply to image/video with .tostatus [caption]',
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {
@@ -53,13 +82,13 @@ module.exports = {
             const footer = `> Powered by ${config.botName}`;
             const caption = args.join(' ').trim();
 
-            // ── Resolve media from quoted or direct attachment ─────────────────
+            // ── Resolve media from quoted message or direct attachment ──────────
             const quoted    = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage || null;
             const directMsg = msg.message;
 
             let media = null;
-            if (quoted)     media = await extractMedia(quoted).catch(() => null);
-            if (!media)     media = await extractMedia(directMsg).catch(() => null);
+            if (quoted)  media = await extractMedia(quoted).catch(() => null);
+            if (!media)  media = await extractMedia(directMsg).catch(() => null);
 
             // ── Show usage if nothing was provided ─────────────────────────────
             if (!media && !caption) {
@@ -67,28 +96,22 @@ module.exports = {
                     `📖 *tostatus — Post to WhatsApp Status*\n\n` +
                     `*Text story:*\n  ${config.prefix}tostatus Hello World!\n\n` +
                     `*Image/Video story:*\n  Reply to media with ${config.prefix}tostatus [caption]\n\n` +
-                    `_Aliases: ${config.prefix}tst · ${config.prefix}tostory · ${config.prefix}poststatus_\n\n` +
-                    `_Your story will be posted privately to your WhatsApp Status._`
+                    `_Aliases: ${config.prefix}tst · ${config.prefix}tostory · ${config.prefix}poststatus_`
                 );
             }
 
-            // ── Build the payload ──────────────────────────────────────────────
+            // ── Build the status payload ───────────────────────────────────────
             let payload;
             let typeLabel;
 
             if (media) {
                 const finalCaption = caption || media.caption;
-
-                if (media.type === 'image') {
-                    payload    = { image: media.buffer, caption: finalCaption };
-                    typeLabel  = '🖼️ Image';
+                if (media.type === 'image' || media.type === 'sticker') {
+                    payload   = { image: media.buffer, caption: finalCaption };
+                    typeLabel = media.type === 'sticker' ? '🎭 Sticker' : '🖼️ Image';
                 } else if (media.type === 'video') {
-                    payload    = { video: media.buffer, caption: finalCaption, gifPlayback: false };
-                    typeLabel  = '🎬 Video';
-                } else if (media.type === 'sticker') {
-                    // Convert sticker to image status
-                    payload    = { image: media.buffer, caption: finalCaption };
-                    typeLabel  = '🎭 Sticker';
+                    payload   = { video: media.buffer, caption: finalCaption, gifPlayback: false };
+                    typeLabel = '🎬 Video';
                 } else {
                     return extra.reply('❌ Only images, videos, and stickers can be posted as a story.');
                 }
@@ -97,36 +120,31 @@ module.exports = {
                 typeLabel = '📝 Text';
             }
 
-            // ── Get contacts for private status (statusJidList) ────────────────
-            let statusJidList = [];
-            try {
-                const contacts = sock.store?.contacts || {};
-                statusJidList = Object.keys(contacts).filter(j => j.endsWith('@s.whatsapp.net'));
-            } catch (_) {}
+            // ── Build statusJidList — required by Baileys to deliver the status ─
+            const statusJidList = getStatusJidList(sock);
 
-            // React to show it's working
+            if (statusJidList.length === 0) {
+                return extra.reply('❌ No contacts found to post the status to. Send the bot a message first so it can build its contact list.');
+            }
+
+            // React to show progress
             await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } }).catch(() => {});
 
             // ── Post to status@broadcast ───────────────────────────────────────
-            const sendOpts = statusJidList.length > 0 ? { statusJidList } : {};
-            await sock.sendMessage(STATUS_JID, payload, sendOpts);
+            await sock.sendMessage(STATUS_JID, payload, { statusJidList });
 
             // Success react
             await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } }).catch(() => {});
 
-            // ── Confirmation with button ───────────────────────────────────────
+            // ── Confirmation message with button ───────────────────────────────
             let confirmText =
                 `✅ *Story Posted to Status!*\n\n` +
                 `📋 *Type:* ${typeLabel}\n`;
 
-            const displayCaption = caption || (media?.caption || '');
-            if (displayCaption) {
-                confirmText += `💬 *Caption:* ${displayCaption}\n`;
-            }
+            const displayCaption = caption || media?.caption || '';
+            if (displayCaption) confirmText += `💬 *Caption:* ${displayCaption}\n`;
 
-            confirmText +=
-                `👥 *Visibility:* Private (contacts only)\n` +
-                `${statusJidList.length > 0 ? `📇 *Sent to:* ${statusJidList.length} contact(s)` : '📇 *Sent to:* All contacts'}`;
+            confirmText += `📇 *Delivered to:* ${statusJidList.length} contact(s)`;
 
             await sendButtons(sock, chatId, {
                 text: confirmText,
@@ -135,7 +153,7 @@ module.exports = {
                     {
                         name: 'cta_url',
                         buttonParamsJson: JSON.stringify({
-                            display_text: '📸 Open Status',
+                            display_text: '📸 Open WhatsApp',
                             url: 'https://wa.me'
                         })
                     }
