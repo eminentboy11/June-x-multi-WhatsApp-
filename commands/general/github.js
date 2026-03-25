@@ -1,5 +1,11 @@
-const axios = require('axios');
+const { sendButtons } = require('gifted-btns');
+const axios  = require('axios');
 const config = require('../../config');
+
+const GITHUB_USER = 'Vinpink2';
+const GITHUB_REPO = 'June-X-Ultra';
+const REPO_URL    = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
+const API_URL     = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}`;
 
 module.exports = {
     name: 'github',
@@ -12,66 +18,97 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         try {
             const chatId = extra.from;
-            
-            const repoUrl = 'https://github.com/vinpink2/june-x';
-            const apiUrl = 'https://api.github.com/repos/vinpink2/june-x';
-            
-            const loadingMsg = await extra.reply('🔍 Fetching GitHub repository information...');
-            
+            const footer = `> Powered by ${config.botName}`;
+
+            await extra.reply('🔍 Fetching GitHub repository info…');
+
+            let text;
+            let buttons;
+
             try {
-                const response = await axios.get(apiUrl, {
-                    headers: { 'User-Agent': 'June-Ultra' }
+                const { data: repo } = await axios.get(API_URL, {
+                    headers: { 'User-Agent': 'June-X-Ultra' },
+                    timeout: 10000
                 });
-                
-                const repo = response.data;
-                
-                let message = `╭━━『 *GitHub Repository* 』━━╮\n\n`;
-                message += `🤖 *Bot Name:* ${config.botName}\n`;
-                message += `🔗 *Repository:* ${repo.name}\n`;
-                message += `👨‍💻 *Owner:* ${repo.owner.login}\n`;
-                message += `📄 *Description:* ${repo.description || 'No description provided'}\n`;
-                message += `🌐 *URL:* ${repo.html_url}\n\n`;
-                
-                message += `📊 *Repository Statistics*\n`;
-                message += `⭐ *Stars:* ${repo.stargazers_count.toLocaleString()}\n`;
-                message += `🍴 *Forks:* ${repo.forks_count.toLocaleString()}\n`;
-                message += `👁️ *Watchers:* ${repo.watchers_count.toLocaleString()}\n`;
-                message += `📦 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n`;
-                
-                message += `🔗 *Quick Links*\n`;
-                message += `⭐ Star: ${repo.html_url}/stargazers\n`;
-                message += `🍴 Fork: ${repo.html_url}/fork\n`;
-                message += `📥 Clone: git clone ${repo.clone_url}\n\n`;
-                
-                message += `╰━━━━━━━━━━━━━━━╯\n\n`;
-                message += `> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${config.botName}*`;
-                
-                await sock.sendMessage(chatId, {
-                    text: message,
-                    edit: loadingMsg.key
-                });
-                
+
+                text =
+                    `╭━━『 *GitHub Repository* 』━━╮\n\n` +
+                    `🤖 *Bot Name:* ${config.botName}\n` +
+                    `🔗 *Repository:* ${repo.name}\n` +
+                    `👨‍💻 *Owner:* ${repo.owner.login}\n` +
+                    `📄 *Description:* ${repo.description || 'No description provided'}\n\n` +
+                    `📊 *Statistics*\n` +
+                    `⭐ *Stars:* ${repo.stargazers_count.toLocaleString()}\n` +
+                    `🍴 *Forks:* ${repo.forks_count.toLocaleString()}\n` +
+                    `👁️ *Watchers:* ${repo.watchers_count.toLocaleString()}\n` +
+                    `📦 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n` +
+                    `╰━━━━━━━━━━━━━━━╯`;
+
+                buttons = [
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '🔗 View Repository',
+                            url: repo.html_url
+                        })
+                    },
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '⭐ Star Repo',
+                            url: `${repo.html_url}/stargazers`
+                        })
+                    },
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '🍴 Fork Repo',
+                            url: `${repo.html_url}/fork`
+                        })
+                    }
+                ];
+
             } catch (apiError) {
-                console.error('GitHub API Error:', apiError.message);
-                
-                let fallbackMessage = `╭━━『 *GitHub Repository* 』━━╮\n\n`;
-                fallbackMessage += `🤖 *Bot Name:* ${config.botName}\n`;
-                fallbackMessage += `🔗 *Repository:* june-x\n`;
-                fallbackMessage += `👨‍💻 *Owner:* vinpink2\n`;
-                fallbackMessage += `🌐 *URL:* ${repoUrl}\n\n`;
-                fallbackMessage += `⚠️ *Note:* Unable to fetch real-time statistics.\n`;
-                fallbackMessage += `Please visit the repository directly for latest stats.\n\n`;
-                fallbackMessage += `╰━━━━━━━━━━━━━━━╯\n\n`;
-                fallbackMessage += `> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${config.botName}*`;
-                
-                await sock.sendMessage(chatId, {
-                    text: fallbackMessage,
-                    edit: loadingMsg.key
-                });
+                console.error('[GitHub] API error:', apiError.message);
+
+                text =
+                    `╭━━『 *GitHub Repository* 』━━╮\n\n` +
+                    `🤖 *Bot Name:* ${config.botName}\n` +
+                    `🔗 *Repository:* ${GITHUB_REPO}\n` +
+                    `👨‍💻 *Owner:* ${GITHUB_USER}\n` +
+                    `🌐 *URL:* ${REPO_URL}\n\n` +
+                    `⚠️ _Could not fetch live stats. Visit the repo for latest info._\n\n` +
+                    `╰━━━━━━━━━━━━━━━╯`;
+
+                buttons = [
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '🔗 View Repository',
+                            url: REPO_URL
+                        })
+                    },
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '⭐ Star Repo',
+                            url: `${REPO_URL}/stargazers`
+                        })
+                    },
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '🍴 Fork Repo',
+                            url: `${REPO_URL}/fork`
+                        })
+                    }
+                ];
             }
-            
+
+            await sendButtons(sock, chatId, { text, footer, buttons }, { quoted: msg });
+
         } catch (error) {
-            console.error('GitHub command error:', error);
+            console.error('[GitHub] command error:', error);
             await extra.reply(`❌ Error: ${error.message}`);
         }
     }
