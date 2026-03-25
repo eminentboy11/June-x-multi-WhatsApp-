@@ -283,6 +283,42 @@ const APIs = {
     throw new Error('Okatsu ytmp3 returned no download');
   },
   
+  getApisKeithAudioByUrl: async (youtubeUrl) => {
+    const res = await axios.get(`https://apiskeith.top/download/audio?url=${encodeURIComponent(youtubeUrl)}`, {
+      timeout: 60000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
+      }
+    });
+    if (res?.data?.status && res?.data?.result) {
+      return {
+        download: res.data.result,
+        title: res.data.title || null,
+        thumbnail: res.data.thumbnail || null
+      };
+    }
+    throw new Error('ApisKeith audio returned no download');
+  },
+
+  getApisKeithVideoByUrl: async (youtubeUrl) => {
+    const res = await axios.get(`https://apiskeith.top/download/video?url=${encodeURIComponent(youtubeUrl)}`, {
+      timeout: 60000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
+      }
+    });
+    if (res?.data?.status && res?.data?.result) {
+      return {
+        download: res.data.result,
+        title: res.data.title || null,
+        thumbnail: res.data.thumbnail || null
+      };
+    }
+    throw new Error('ApisKeith video returned no download');
+  },
+
   getEliteProTechDownloadByUrl: async (youtubeUrl) => {
     const AXIOS_DEFAULTS = {
       timeout: 60000,
