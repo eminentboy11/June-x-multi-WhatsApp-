@@ -13,7 +13,7 @@ module.exports = {
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '@newsletter', // Newsletter JID for menu forwarding
-    updateZipUrl: 'https://github.com/vinpink2/june-x/archive/refs/heads/main.zip', // URL to latest code zip for .update command
+    updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip', // URL to latest code zip for .update command
     
     // Sticker Configuration
     packname: 'June Ultra',
@@ -91,7 +91,7 @@ module.exports = {
     social: {
       github: 'https://github.com/vinpink2',
       instagram: 'https://instagram.com/activator_negative',
-      youtube: 'https://www.youtube.com/@suprem_e_lord'
+      youtube: 'http://youtube.com/@mr_unique_hacker'
     }
 };
   
