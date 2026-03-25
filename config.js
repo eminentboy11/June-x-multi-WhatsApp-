@@ -91,7 +91,7 @@ module.exports = {
     social: {
       github: 'https://github.com/vinpink2',
       instagram: 'https://instagram.com/activator_negative',
-      youtube: 'http://youtube.com/@mr_unique_hacker'
+      youtube: 'https://www.youtube.com/@suprem_e_lord'
     }
 };
   
