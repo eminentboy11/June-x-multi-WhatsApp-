@@ -63,6 +63,7 @@ module.exports = {
         } catch (e) {}
       }
 
+      // Validate YouTube URL
       const urls = videoUrl.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([a-zA-Z0-9_-]{11})/gi);
       if (!urls) {
         return await sock.sendMessage(chatId, {
@@ -70,28 +71,12 @@ module.exports = {
         }, { quoted: msg });
       }
 
-      let info = `🎬 *${videoTitle}*`;
-      if (author) info += `\n👤 *Channel:* ${author}`;
-      if (duration) info += `\n⏱ *Duration:* ${duration}`;
-      if (views) info += `\n👁 *Views:* ${views}`;
-      info += `\n\n_Downloading..._`;
+      // --- Send simple downloading message with title in italics ---
+      await sock.sendMessage(chatId, {
+        text: `_Downloading_\n_${videoTitle}_`
+      }, { quoted: msg });
 
-      const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
-      const thumb = videoThumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : null);
-
-      if (thumb) {
-        try {
-          await sock.sendMessage(chatId, {
-            image: { url: thumb },
-            caption: info
-          }, { quoted: msg });
-        } catch (e) {
-          await sock.sendMessage(chatId, { text: info }, { quoted: msg });
-        }
-      } else {
-        await sock.sendMessage(chatId, { text: info }, { quoted: msg });
-      }
-
+      // --- Download APIs ---
       const apiFns = [
         () => APIs.getApisKeithVideoByUrl(videoUrl),
         () => APIs.getEliteProTechVideoByUrl(videoUrl),
@@ -120,11 +105,19 @@ module.exports = {
 
       const safeTitle = videoTitle.replace(/[^\w\s\-()]/g, '').trim() || 'video';
 
+      // Build caption with metadata
+      let caption = `🎬 *${videoTitle}*`;
+      if (author) caption += `\n👤 *Channel:* ${author}`;
+      if (duration) caption += `\n⏱ *Duration:* ${duration}`;
+      if (views) caption += `\n👁 *Views:* ${views}`;
+      caption += `\n\n> *_Downloaded by ${config.botName}_*`;
+
+      // Send video with caption
       await sock.sendMessage(chatId, {
         video: { url: videoData.download },
         mimetype: 'video/mp4',
         fileName: `${safeTitle}.mp4`,
-        caption: `🎬 *${videoTitle}*${author ? `\n👤 ${author}` : ''}${duration ? `\n⏱ ${duration}` : ''}\n\n> *_Downloaded by ${config.botName}_*`
+        caption: caption
       }, { quoted: msg });
 
     } catch (error) {
