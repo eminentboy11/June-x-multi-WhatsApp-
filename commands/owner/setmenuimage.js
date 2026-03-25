@@ -5,8 +5,9 @@ const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const https = require('https');
 const http = require('http');
 
-const IMAGE_PATH = path.join(__dirname, '../../utils/bot_image.jpg');
-const MENU1_PATH = path.join(__dirname, '../../assets/menu1.jpg');
+const IMAGE_PATH    = path.join(__dirname, '../../utils/bot_image.jpg');
+const MENU1_PATH    = path.join(__dirname, '../../assets/menu1.jpg');
+const DEFAULT_IMAGE = path.join(__dirname, '../../assets/menu2.jpg'); // always present, used for reset
 
 function downloadFromUrl(url) {
   return new Promise((resolve, reject) => {
@@ -49,10 +50,21 @@ module.exports = {
       const prefix = config.prefix || '';
 
       if (args[0] && args[0].toLowerCase() === 'reset') {
-        let removed = false;
-        if (fs.existsSync(IMAGE_PATH)) { fs.unlinkSync(IMAGE_PATH); removed = true; }
-        if (fs.existsSync(MENU1_PATH)) { fs.unlinkSync(MENU1_PATH); removed = true; }
-        return extra.reply(removed ? '✅ Bot image has been reset to default.' : '📷 No custom bot image was set.');
+        // Restore default image from the permanent asset instead of just deleting
+        try {
+          if (fs.existsSync(DEFAULT_IMAGE)) {
+            const defaultBuf = fs.readFileSync(DEFAULT_IMAGE);
+            fs.writeFileSync(MENU1_PATH, defaultBuf);
+            fs.writeFileSync(IMAGE_PATH, defaultBuf);
+            return extra.reply('✅ Bot image has been reset to default.');
+          }
+          // Fallback: just delete if default asset is somehow missing
+          if (fs.existsSync(IMAGE_PATH)) fs.unlinkSync(IMAGE_PATH);
+          if (fs.existsSync(MENU1_PATH)) fs.unlinkSync(MENU1_PATH);
+          return extra.reply('✅ Bot image has been reset to default.');
+        } catch (e) {
+          return extra.reply(`❌ Reset failed: ${e.message}`);
+        }
       }
 
       if (args[0] && /^https?:\/\//i.test(args[0])) {
