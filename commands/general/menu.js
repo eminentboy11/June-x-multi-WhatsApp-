@@ -122,9 +122,16 @@ function getThumbnail() {
   const paths = [
     path.join(__dirname, '../../assets/menu1.jpg'),
     path.join(__dirname, '../../utils/bot_image.jpg'),
+    // Permanent fallbacks — never deleted by reset
+    path.join(__dirname, '../../assets/menu2.jpg'),
+    path.join(__dirname, '../../assets/menu3.jpg'),
+    path.join(__dirname, '../../assets/menu4.jpg'),
+    path.join(__dirname, '../../assets/menu5.jpg'),
   ];
   for (const p of paths) {
-    if (fs.existsSync(p)) return fs.readFileSync(p);
+    try {
+      if (fs.existsSync(p)) return fs.readFileSync(p);
+    } catch (_) {}
   }
   return null;
 }
