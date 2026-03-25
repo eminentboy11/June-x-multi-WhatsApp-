@@ -4,7 +4,7 @@
 
 module.exports = {
     // Bot Owner Configuration
-    ownerNumber: ['254798952773','447988505978'], // Add your number without + or spaces (e.g., 919876543210)
+    ownerNumber: ['254798952773','254792021944'], // Add your number without + or spaces (e.g., 919876543210)
     ownerName: ['Supreme', 'Agent Of Dusk'], // Owner names corresponding to ownerNumber array
     
     // Bot Configuration
@@ -12,7 +12,7 @@ module.exports = {
     prefix: '+',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
-    newsletterJid: '@newsletter', // Newsletter JID for menu forwarding
+    newsletterJid: '', // Newsletter JID for menu forwarding
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip', // URL to latest code zip for .update command
     
     // Sticker Configuration
@@ -43,10 +43,13 @@ module.exports = {
       antigroupstatus: false, // Anti-group status mention
       antigroupstatusAction: 'delete', // 'delete', 'kick', 'warn'
       welcome: false,
-      welcomeMessage: '╭╼━•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @user 👋\n┃Member count: #memberCount\n┃𝚃𝙸𝙼𝙴: time⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@user* Welcome to *@group*! 🎉\n*Group 𝙳𝙴𝚂𝙲𝚁𝙸𝙿𝚃𝙸𝙾𝙽*\ngroupDesc\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ botName*',
+      welcomeMessage: '╭╼━•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @user 👋\n┃Member count: #memberCount\n┃𝚃𝙸𝙼𝙴: time⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@user* Welcome to *@group*! 🎉\n*Group description*\ngroupDesc\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ botName*',
       goodbye: false,
       goodbyeMessage: 'Goodbye @user 👋 We will never miss you!',
       antiSpam: false,
+      antiSpamLimit: 5,   // messages
+      antiSpamWindow: 5,  // seconds
+      antiSpamAction: 'delete', // delete | warn | kick | mute
       antidelete: false,
       nsfw: false,
       detect: false,
@@ -89,9 +92,9 @@ module.exports = {
     
     // Social Links (optional)
     social: {
-      github: 'https://github.com/vinpink2',
+      github: 'https://github.com/Vinpink2/June-X-Ultra',
       instagram: 'https://instagram.com/activator_negative',
-      youtube: 'http://youtube.com/@mr_unique_hacker'
+      youtube: 'http://youtube.com/@suprem_e_lord'
     }
 };
   
