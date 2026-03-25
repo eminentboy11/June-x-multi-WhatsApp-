@@ -52,7 +52,7 @@ module.exports = {
         throw new Error('Empty image response');
       }
       
-      const maxImageSize = 5 * 1024 * 1024;
+      const maxImageSize = 10 * 1024 * 1024;
       if (imageBuffer.length > maxImageSize) {
         throw new Error(`Image too large: ${(imageBuffer.length / 1024 / 1024).toFixed(2)}MB (max 5MB)`);
       }
