@@ -3,7 +3,6 @@
  */
 
 const { Sticker, createSticker, StickerTypes } = require('wa-sticker-formatter');
-const sharp = require('sharp');
 const config = require('../config');
 
 /**
@@ -65,17 +64,30 @@ const createCircleSticker = async (media, options = {}) => {
 };
 
 /**
- * Convert sticker to image
+ * Convert sticker (WebP) to PNG image using webp-converter
  */
 const stickerToImage = async (stickerBuffer) => {
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+  const webp = require('webp-converter');
+  webp.grant_permission();
+
+  const ts = Date.now() + '_' + Math.random().toString(36).slice(2);
+  const tmpDir = os.tmpdir();
+  const inputPath = path.join(tmpDir, `sticker_${ts}.webp`);
+  const outputPath = path.join(tmpDir, `sticker_${ts}.png`);
+
   try {
-    const imageBuffer = await sharp(stickerBuffer)
-      .png()
-      .toBuffer();
-    
-    return imageBuffer;
+    fs.writeFileSync(inputPath, stickerBuffer);
+    await webp.dwebp(inputPath, outputPath, '-o');
+    if (!fs.existsSync(outputPath)) throw new Error('dwebp produced no output');
+    return fs.readFileSync(outputPath);
   } catch (error) {
     throw new Error(`Sticker to image conversion failed: ${error.message}`);
+  } finally {
+    try { fs.unlinkSync(inputPath); } catch {}
+    try { fs.unlinkSync(outputPath); } catch {}
   }
 };
 

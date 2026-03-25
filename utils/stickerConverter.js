@@ -3,7 +3,6 @@
  */
 
 const ffmpeg = require('fluent-ffmpeg');
-const sharp = require('sharp');
 const { exec } = require('child_process');
 const util = require('util');
 const fs = require('fs');
