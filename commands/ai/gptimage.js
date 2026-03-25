@@ -7,7 +7,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { webp2png } = require('../../utils/webp2mp4');
-const sharp = require('sharp');
+const Jimp = require('jimp');
 
 module.exports = {
   name: 'gptimage',
@@ -93,16 +93,12 @@ module.exports = {
       // Check if it's already JPEG, if not convert
       let finalImageBuffer = imageBuffer;
       try {
-        const metadata = await sharp(imageBuffer).metadata();
-        if (metadata.format !== 'jpeg' && metadata.format !== 'jpg') {
-          // Convert to JPEG
-          finalImageBuffer = await sharp(imageBuffer)
-            .jpeg({ quality: 90 })
-            .toBuffer();
+        const image = await Jimp.read(imageBuffer);
+        if (image.getMIME() !== Jimp.MIME_JPEG) {
+          finalImageBuffer = await image.quality(90).getBufferAsync(Jimp.MIME_JPEG);
         }
       } catch (error) {
-        // If sharp fails, use original buffer
-        console.error('Error processing image with sharp:', error);
+        console.error('Error processing image with jimp:', error);
         finalImageBuffer = imageBuffer;
       }
       
