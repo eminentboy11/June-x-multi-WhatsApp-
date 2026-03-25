@@ -93,16 +93,16 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const ping = speed.toFixed(3);
 
   let menu = `┏━━❐✧ ${bot} ✧❐\n`;
-  menu += `┃  Prefix: [${prefix}]\n`;
-  menu += `┃  Owner: ${ownerName}\n`;
-  menu += `┃  Mode: ${currentMode}\n`;
-  menu += `┃  Platform: ${hostName}\n`;
-  menu += `┃  Speed: ${ping} ms\n`;
-  menu += `┃  Uptime: ${uptimeFormatted}\n`;
-  menu += `┃  Version: v2.0\n`;
-  menu += `┃  Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  menu += `┃  RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  menu += `┃  Commands: ${totalCount}\n`;
+  menu += `┃✧ Prefix: [${prefix}]\n`;
+  menu += `┃✧ Owner: ${ownerName}\n`;
+  menu += `┃✧ Mode: ${currentMode}\n`;
+  menu += `┃✧ Platform: ${hostName}\n`;
+  menu += `┃✧ Speed: ${ping} ms\n`;
+  menu += `┃✧ Uptime: ${uptimeFormatted}\n`;
+  menu += `┃✧ Version: v2.0\n`;
+  menu += `┃✧ Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃✧ RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃✧ Commands: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
   // Build ordered list: known categories first (in preferred order), then any extras
@@ -120,7 +120,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
     menu += `┏━━❐ \`${label}\` ❐\n`;
     for (const cmd of cmds) {
-      menu += `┃ ✦${cmd.name}\n`;
+      menu += `┃✦ ${cmd.name}\n`;
     }
     menu += `┗❐\n`;
     sectionIndex++;
