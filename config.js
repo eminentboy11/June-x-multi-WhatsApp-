@@ -9,7 +9,7 @@ module.exports = {
     
     // Bot Configuration
     botName: 'June X Ultra',
-    prefix: '.',
+    prefix: '+',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '@newsletter', // Newsletter JID for menu forwarding

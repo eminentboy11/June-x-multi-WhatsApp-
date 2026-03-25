@@ -150,6 +150,16 @@ const isMod = isSudo;
 // LID mapping cache
 const lidMappingCache = new Map();
 
+// Periodically evict old groupMetadataCache entries (every 10 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of groupMetadataCache) {
+    if (now - val.timestamp > 10 * 60 * 1000) groupMetadataCache.delete(key);
+  }
+  // Clear lid mapping cache completely every 10 minutes to prevent unbounded growth
+  lidMappingCache.clear();
+}, 10 * 60 * 1000);
+
 // Helper to normalize JID to just the number part
 const normalizeJid = (jid) => {
   if (!jid) return null;
@@ -398,10 +408,6 @@ const handleMessage = async (sock, msg) => {
     
     // Auto-React System
     try {
-      // Clear cache to get fresh config values
-      delete require.cache[require.resolve('./config')];
-      const config = require('./config');
-
       if (config.autoReact && msg.message && !msg.key.fromMe) {
         const content = msg.message.ephemeralMessage?.message || msg.message;
         const text =

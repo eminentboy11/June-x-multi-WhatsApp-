@@ -6,6 +6,35 @@
 // --- Environment Setup ---
 require('dotenv').config();
 
+/*************************************
+ * Raw Output Suppression
+ *************************************/
+const originalWrite = process.stdout.write;
+process.stdout.write = function (chunk, encoding, callback) {
+    const message = chunk.toString();
+    if (message.includes('Closing session: SessionEntry') || message.includes('SessionEntry {')) {
+        return;
+    }
+    return originalWrite.apply(this, arguments);
+};
+
+const originalWriteError = process.stderr.write;
+process.stderr.write = function (chunk, encoding, callback) {
+    const message = chunk.toString();
+    if (message.includes('Closing session: SessionEntry')) {
+        return;
+    }
+    return originalWriteError.apply(this, arguments);
+};
+
+const originalLog = console.log;
+console.log = function (message, ...optionalParams) {
+    if (typeof message === 'string' && message.startsWith('Closing session: SessionEntry')) {
+        return;
+    }
+    originalLog.apply(console, [message, ...optionalParams]);
+};
+
 const fs = require('fs')
 const chalk = require('chalk')
 const path = require('path')
@@ -50,6 +79,9 @@ global.isBotConnected = false
 global.connectDebounceTimeout = null
 global.errorRetryCount = 0
 
+// Track active intervals so we can clear them on reconnect
+global._activeIntervals = []
+
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 const config = require('./config')
@@ -91,12 +123,18 @@ function loadStoredMessages() {
     return {}
 }
 
+let _saveMessagesTimer = null
 function saveStoredMessages(data) {
-    try {
-        fs.writeFileSync(MESSAGE_STORE_FILE, JSON.stringify(data, null, 2))
-    } catch (e) {
-        log(`Error saving message backup: ${e.message}`, 'red', true)
-    }
+    // Debounce: only write to disk at most once every 5 seconds
+    if (_saveMessagesTimer) return
+    _saveMessagesTimer = setTimeout(() => {
+        _saveMessagesTimer = null
+        try {
+            fs.writeFile(MESSAGE_STORE_FILE, JSON.stringify(data, null, 2), () => {})
+        } catch (e) {
+            log(`Error saving message backup: ${e.message}`, 'red', true)
+        }
+    }, 5000)
 }
 
 global.messageBackup = loadStoredMessages()
@@ -215,15 +253,17 @@ function sessionExists() {
 }
 
 // ─── Session Format Validator ─────────────────────────────────────────────────
-// Session ID format: KnightBot:~<base64_of_creds.json>
-// Legacy format:     KnightBot!<gzip+base64_of_creds.json>
+// Session ID format: Ultra-X:~<base64_of_creds.json>
+// Legacy formats:    KnightBot:~<base64> | KnightBot!<gzip+base64>
+
+const VALID_PREFIXES = ['Ultra-X:~', 'KnightBot:~', 'KnightBot!', 'KnightBot']
 
 async function checkAndHandleSessionFormat() {
     const sessionId = process.env.SESSION_ID
     if (sessionId && sessionId.trim() !== '') {
-        if (!sessionId.trim().startsWith('KnightBot')) {
+        if (!VALID_PREFIXES.some(p => sessionId.trim().startsWith(p))) {
             log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
-            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "KnightBot".'), 'white')
+            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "Ultra-X:~".'), 'white')
             log(chalk.black.bgYellowBright('Clearing invalid SESSION_ID and restarting...'), 'white')
             try {
                 if (fs.existsSync(envPath)) {
@@ -251,11 +291,15 @@ async function downloadSessionData() {
             const sid = global.SESSION_ID
             let sessionData
 
-            if (sid.startsWith('KnightBot:~')) {
-                // New format: plain base64
+            if (sid.startsWith('Ultra-X:~')) {
+                // Primary format: plain base64
+                const b64 = sid.split('Ultra-X:~')[1]
+                sessionData = Buffer.from(b64, 'base64')
+                JSON.parse(sessionData.toString('utf8'))
+            } else if (sid.startsWith('KnightBot:~')) {
+                // Legacy format: plain base64
                 const b64 = sid.split('KnightBot:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
-                // Validate JSON
                 JSON.parse(sessionData.toString('utf8'))
             } else if (sid.startsWith('KnightBot!')) {
                 // Legacy format: gzip + base64
@@ -295,7 +339,7 @@ async function getLoginMethod() {
     }
 
     log('1]  Enter WhatsApp Number  [Pairing Code]', 'blue')
-    log('2]  Paste Session ID       [KnightBot:~...]', 'blue')
+    log('2]  Paste Session ID       [Ultra-X:~...]', 'blue')
 
     let choice = await question(chalk.greenBright('Enter option (1 or 2): '))
     choice = choice.trim()
@@ -308,10 +352,10 @@ async function getLoginMethod() {
         await saveLoginMethod('number')
         return 'number'
     } else if (choice === '2') {
-        let sessionId = await question(chalk.greenBright('Paste your Session ID (KnightBot:~...): '))
+        let sessionId = await question(chalk.greenBright('Paste your Session ID (Ultra-X:~...): '))
         sessionId = sessionId.trim()
-        if (!sessionId.startsWith('KnightBot:~') && !sessionId.startsWith('KnightBot!')) {
-            log("Invalid Session ID! Must start with 'KnightBot:~' or 'KnightBot!'", 'red')
+        if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
+            log("Invalid Session ID! Must start with 'Ultra-X:~'", 'red')
             process.exit(1)
         }
         global.SESSION_ID = sessionId
@@ -535,6 +579,13 @@ async function devReact(sock, msg, ownerNumbers) {
 // ─── Start Bot (Main Socket) ──────────────────────────────────────────────────
 
 async function startKnightBot() {
+    // Clear any intervals from previous connection instances
+    if (global._activeIntervals && global._activeIntervals.length > 0) {
+        global._activeIntervals.forEach(id => clearInterval(id))
+        global._activeIntervals = []
+        log('[ CLEANUP ] Cleared stale intervals from previous connection.', 'yellow')
+    }
+
     log('Connecting to WhatsApp...', 'cyan')
     const { version } = await fetchLatestBaileysVersion()
     await fs.promises.mkdir(sessionDir, { recursive: true })
@@ -755,7 +806,7 @@ async function startKnightBot() {
     // ── Background Cleanup Intervals ───────────────────────────────────────────
 
     // Session file cleanup (every 2 hours)
-    setInterval(() => {
+    global._activeIntervals.push(setInterval(() => {
         if (!fs.existsSync(sessionDir)) return
         fs.readdir(sessionDir, (err, files) => {
             if (err) return
@@ -770,13 +821,13 @@ async function startKnightBot() {
             old.forEach(f => { try { fs.unlinkSync(path.join(sessionDir, f)) } catch (e) {} })
             if (old.length > 0) log(`[Session Cleanup] Removed ${old.length} old session file(s).`, 'yellow')
         })
-    }, 7200000)
+    }, 7200000))
 
     // Message backup cleanup (every hour)
-    setInterval(cleanupOldMessages, 60 * 60 * 1000)
+    global._activeIntervals.push(setInterval(cleanupOldMessages, 60 * 60 * 1000))
 
     // Junk file cleanup (every 30 seconds)
-    setInterval(() => cleanupJunkFiles(sock), 30000)
+    global._activeIntervals.push(setInterval(() => cleanupJunkFiles(sock), 30000))
 
     return sock
 }
@@ -795,7 +846,7 @@ async function main() {
     // 3. Priority: use SESSION_ID from env if present
     const envSessionID = process.env.SESSION_ID?.trim()
 
-    if (envSessionID && envSessionID.startsWith('KnightBot')) {
+    if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
         log('Found SESSION_ID in environment — loading session...', 'magenta')
 
         // Clear stale session so we load fresh
@@ -918,6 +969,16 @@ app.get('/health', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     log(`Status server running on port ${PORT}`, 'cyan')
 })
+
+// ─── Self-Ping Keep-Alive (prevents Replit from idling the process) ────────────
+
+const http = require('http')
+setInterval(() => {
+    http.get(`http://localhost:${PORT}/health`, (res) => {
+        // Consume response to free socket
+        res.resume()
+    }).on('error', () => {})
+}, 4 * 60 * 1000) // every 4 minutes
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 
