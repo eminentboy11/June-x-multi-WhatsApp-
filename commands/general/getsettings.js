@@ -1,4 +1,5 @@
-const config = require('../../config');
+const { sendButtons } = require('gifted-btns');
+const config   = require('../../config');
 const database = require('../../database');
 
 module.exports = {
@@ -10,20 +11,46 @@ module.exports = {
 
     async execute(sock, msg, args, extra) {
         try {
-            const isGroup = extra.from.endsWith('@g.us');
+            const chatId   = extra.from;
+            const isGroup  = chatId.endsWith('@g.us');
+            const footer   = `> Powered by ${config.botName}`;
+
+            // Build owner WhatsApp URL from first valid owner number
+            const ownerNums   = [].concat(config.ownerNumber || []).filter(n => String(n).replace(/\D/g, ''));
+            const ownerDigits = ownerNums.length ? String(ownerNums[0]).replace(/\D/g, '') : '';
+            const ownerUrl    = ownerDigits ? `https://wa.me/${ownerDigits}` : 'https://wa.me';
+            const repoUrl     = config.social?.github || 'https://github.com/Vinpink2/June-X-Ultra';
+
+            const buttons = [
+                {
+                    name: 'cta_url',
+                    buttonParamsJson: JSON.stringify({
+                        display_text: '👑 Contact Owner',
+                        url: ownerUrl
+                    })
+                },
+                {
+                    name: 'cta_url',
+                    buttonParamsJson: JSON.stringify({
+                        display_text: '🔗 Bot Repo',
+                        url: repoUrl
+                    })
+                }
+            ];
 
             if (isGroup) {
-                const gs = database.getGroupSettings(extra.from);
+                const gs = database.getGroupSettings(chatId);
                 let groupName = 'This Group';
                 try {
-                    const meta = await sock.groupMetadata(extra.from);
+                    const meta = await sock.groupMetadata(chatId);
                     groupName = meta?.subject || 'This Group';
                 } catch (_) {}
 
-                const on = '✅';
+                const on  = '✅';
                 const off = '❌';
 
-                const text = `⚙️ *Group Settings — ${groupName}*\n━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                const text =
+                    `⚙️ *Group Settings — ${groupName}*\n━━━━━━━━━━━━━━━━━━━━━\n\n` +
                     `🔗 *Protection*\n` +
                     `${gs.antilink ? on : off} Antilink (${gs.antilinkAction || 'delete'})\n` +
                     `${gs.antitag ? on : off} Antitag (${gs.antitagAction || 'delete'})\n` +
@@ -45,47 +72,47 @@ module.exports = {
                     `${gs.chatbot ? on : off} Chatbot\n` +
                     `${gs.autosticker ? on : off} Auto Sticker\n` +
                     `${gs.nsfw ? on : off} NSFW\n` +
-                    `${gs.detect ? on : off} Detect\n\n` +
-                    `> *${config.botName}* — Powered by Supreme`;
+                    `${gs.detect ? on : off} Detect`;
 
-                await sock.sendMessage(extra.from, { text }, { quoted: msg });
+                await sendButtons(sock, chatId, { text, footer, buttons }, { quoted: msg });
 
             } else {
-                const prefix = config.prefix === '' ? 'none' : (config.prefix || '.');
+                const prefix    = config.prefix === '' ? 'none' : (config.prefix || '.');
                 const ownerName = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName;
-                const ownerNums = [].concat(config.ownerNumber || []).join(', ');
 
                 let asvStatus = 'OFF';
                 try {
                     const asv = require('../owner/autostatusview');
                     const asvSettings = asv.loadSettings();
-                    asvStatus = asvSettings.enabled ? `ON (react: ${asvSettings.react ? asvSettings.emoji : 'off'})` : 'OFF';
+                    asvStatus = asvSettings.enabled
+                        ? `ON (react: ${asvSettings.react ? asvSettings.emoji : 'off'})`
+                        : 'OFF';
                 } catch (_) {}
 
-                const text = `⚙️ *Bot Settings*\n━━━━━━━━━━━━━━━━━━━━━\n\n` +
+                const text =
+                    `⚙️ *Bot Settings*\n━━━━━━━━━━━━━━━━━━━━━\n\n` +
                     `🤖 *General*\n` +
                     `📛 Bot Name: *${config.botName}*\n` +
                     `🔧 Prefix: *${prefix}*\n` +
                     `👑 Owner: *${ownerName}*\n` +
-                    `📞 Owner Numbers: ${ownerNums}\n` +
+                    `📞 Owner Number: ${ownerDigits || 'N/A'}\n` +
                     `🕐 Timezone: *${config.timezone || 'UTC'}*\n` +
                     `🎨 Pack Name: *${config.packname || 'N/A'}*\n\n` +
-                    `📌 *Bot Behavior*\n` +
+                    `📌 *Bot Behaviour*\n` +
                     `${config.selfMode ? '🔒' : '🔓'} Mode: ${config.selfMode ? 'Self (Private)' : 'Public'}\n` +
-                    `${config.autoRead ? '✅' : '❌'} Auto Read\n` +
-                    `${config.autoTyping ? '✅' : '❌'} Auto Typing\n` +
-                    `${config.autoBio ? '✅' : '❌'} Auto Bio\n` +
-                    `${config.autoSticker ? '✅' : '❌'} Auto Sticker\n` +
-                    `${config.autoReact ? '✅' : '❌'} Auto React (${config.autoReactMode || 'bot'})\n` +
+                    `${config.autoRead     ? '✅' : '❌'} Auto Read\n` +
+                    `${config.autoTyping   ? '✅' : '❌'} Auto Typing\n` +
+                    `${config.autoBio      ? '✅' : '❌'} Auto Bio\n` +
+                    `${config.autoSticker  ? '✅' : '❌'} Auto Sticker\n` +
+                    `${config.autoReact    ? '✅' : '❌'} Auto React (${config.autoReactMode || 'bot'})\n` +
                     `${config.autoDownload ? '✅' : '❌'} Auto Download\n\n` +
                     `👁️ *Status*\n` +
                     `📡 Auto Status View: *${asvStatus}*\n\n` +
                     `🔗 *Links*\n` +
-                    `🐙 GitHub: ${config.social?.github || 'N/A'}\n` +
-                    `📺 YouTube: ${config.social?.youtube || 'N/A'}\n\n` +
-                    `> *${config.botName}* — Powered by Supreme`;
+                    `🐙 GitHub: ${repoUrl}\n` +
+                    `📺 YouTube: ${config.social?.youtube || 'N/A'}`;
 
-                await sock.sendMessage(extra.from, { text }, { quoted: msg });
+                await sendButtons(sock, chatId, { text, footer, buttons }, { quoted: msg });
             }
 
         } catch (error) {
