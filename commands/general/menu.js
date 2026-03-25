@@ -123,7 +123,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     for (const cmd of cmds) {
       cmdList += `┃ ${prefix}${cmd.name}\n`;
     }
-    cmdList += `┗━━━━━━━━━━━━━━━━━━━━━━━━━━━╯\n`;
+    cmdList += `┗❐\n`;
   }
 
   // header → readmore → full command list (all visible after tapping "read more")
