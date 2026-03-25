@@ -604,6 +604,7 @@ async function startKnightBot() {
     })
 
     store.bind(sock.ev)
+    sock.botStore = store   // expose store to commands for statusJidList etc.
 
     // ── Connection Updates ──────────────────────────────────────────────────────
     sock.ev.on('connection.update', async (update) => {
