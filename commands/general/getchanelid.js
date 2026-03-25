@@ -1,3 +1,6 @@
+const { sendButtons } = require('gifted-btns');
+const config = require('../../config');
+
 module.exports = {
     name: 'getchanelid',
     aliases: ['chanelid', 'jidch', 'chatid', 'getjid', 'chjid'],
@@ -9,6 +12,7 @@ module.exports = {
         try {
             const chatId = extra.from;
             const input  = args.join(' ').trim();
+            const footer = `> Powered by ${config.botName}`;
 
             // ── Handle WhatsApp channel URL input ──────────────────────────────
             if (input) {
@@ -22,28 +26,52 @@ module.exports = {
                     }, { quoted: msg });
                 }
 
-                const channelCode    = channelMatch[1];
-                const newsletterJid  = `${channelCode}@newsletter`;
+                const channelCode   = channelMatch[1];
+                const newsletterJid = `${channelCode}@newsletter`;
+                const channelUrl    = `https://whatsapp.com/channel/${channelCode}`;
 
                 // Fetch live metadata from WhatsApp
                 let res;
                 try {
                     res = await sock.newsletterMetadata('invite', channelCode);
                 } catch (e) {
-                    // Fallback: show just the JID if metadata fetch fails
                     console.error('[getchanelid] newsletterMetadata error:', e.message);
+
+                    // Fallback with buttons
                     const fallback =
                         `📡 *WhatsApp Channel JID*\n\n` +
                         `⚠️ _Could not fetch live metadata_\n\n` +
-                        `🔗 *URL:* ${input}\n` +
+                        `🔗 *URL:* ${channelUrl}\n` +
                         `📂 *Type:* Channel / Newsletter\n` +
                         `🔑 *Full JID:*\n\`\`\`${newsletterJid}\`\`\`\n` +
                         `🔢 *Channel Code:*\n\`\`\`${channelCode}\`\`\``;
-                    return sock.sendMessage(chatId, { text: fallback }, { quoted: msg });
+
+                    return sendButtons(sock, chatId, {
+                        text: fallback,
+                        footer,
+                        buttons: [
+                            {
+                                name: 'cta_url',
+                                buttonParamsJson: JSON.stringify({
+                                    display_text: '📡 Open Channel',
+                                    url: channelUrl
+                                })
+                            },
+                            {
+                                name: 'cta_copy',
+                                buttonParamsJson: JSON.stringify({
+                                    display_text: '📋 Copy JID',
+                                    copy_code: newsletterJid
+                                })
+                            }
+                        ]
+                    }, { quoted: msg });
                 }
 
-                const isVerified   = res.verification === 'VERIFIED';
-                const subscriberFmt = res.subscribers?.toLocaleString?.() ?? res.subscribers ?? 'N/A';
+                const isVerified     = res.verification === 'VERIFIED';
+                const subscriberFmt  = res.subscribers?.toLocaleString?.() ?? res.subscribers ?? 'N/A';
+                const resolvedJid    = res.id || newsletterJid;
+                const resolvedCode   = resolvedJid.split('@')[0];
 
                 const text =
                     `📡 *WhatsApp Channel Info*\n\n` +
@@ -51,10 +79,29 @@ module.exports = {
                     `👥 *Followers:* ${subscriberFmt}\n` +
                     `📊 *Status:* ${res.state || 'N/A'}\n` +
                     `✅ *Verified:* ${isVerified ? 'Yes ✔️' : 'No'}\n\n` +
-                    `🔑 *Full JID:*\n\`\`\`${res.id || newsletterJid}\`\`\`\n` +
-                    `🔢 *Channel ID:*\n\`\`\`${(res.id || newsletterJid).split('@')[0]}\`\`\``;
+                    `🔑 *Full JID:*\n\`\`\`${resolvedJid}\`\`\`\n` +
+                    `🔢 *Channel ID:*\n\`\`\`${resolvedCode}\`\`\``;
 
-                return sock.sendMessage(chatId, { text }, { quoted: msg });
+                return sendButtons(sock, chatId, {
+                    text,
+                    footer,
+                    buttons: [
+                        {
+                            name: 'cta_url',
+                            buttonParamsJson: JSON.stringify({
+                                display_text: '📡 Open Channel',
+                                url: channelUrl
+                            })
+                        },
+                        {
+                            name: 'cta_copy',
+                            buttonParamsJson: JSON.stringify({
+                                display_text: '📋 Copy JID',
+                                copy_code: resolvedJid
+                            })
+                        }
+                    ]
+                }, { quoted: msg });
             }
 
             // ── No input — return current chat JID ─────────────────────────────
@@ -62,7 +109,7 @@ module.exports = {
             const isNewsletter = chatId.endsWith('@newsletter');
 
             let type = 'Private Chat';
-            if (isGroup)      type = 'Group';
+            if (isGroup)           type = 'Group';
             else if (isNewsletter) type = 'Channel / Newsletter';
 
             const jidNum = chatId.split('@')[0];
@@ -79,7 +126,26 @@ module.exports = {
                 `🔑 *Full JID:*\n\`\`\`${chatId}\`\`\`\n` +
                 `🔢 *ID / Number:*\n\`\`\`${jidNum}\`\`\``;
 
-            await sock.sendMessage(chatId, { text }, { quoted: msg });
+            await sendButtons(sock, chatId, {
+                text,
+                footer,
+                buttons: [
+                    {
+                        name: 'cta_copy',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '📋 Copy JID',
+                            copy_code: chatId
+                        })
+                    },
+                    {
+                        name: 'cta_copy',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '🔢 Copy ID',
+                            copy_code: jidNum
+                        })
+                    }
+                ]
+            }, { quoted: msg });
 
         } catch (error) {
             console.error('Error in getchanelid command:', error);
