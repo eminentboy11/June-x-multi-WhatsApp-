@@ -488,6 +488,18 @@ const handleMessage = async (sock, msg) => {
       } catch (error) {
         console.error('Error in antiMedia handler:', error);
       }
+      try {
+        const antispam = commands.get('antispam');
+        if (antispam?.handleAntispam) await antispam.handleAntispam(sock, msg, groupMetadata);
+      } catch (error) {
+        console.error('Error in antispam handler:', error);
+      }
+      try {
+        const antiviewonce = commands.get('antiviewonce');
+        if (antiviewonce?.handleAntiviewonce) await antiviewonce.handleAntiviewonce(sock, msg);
+      } catch (error) {
+        console.error('Error in antiviewonce handler:', error);
+      }
     }
     
     // Track group message statistics
