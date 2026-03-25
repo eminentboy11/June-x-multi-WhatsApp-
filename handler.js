@@ -1498,11 +1498,17 @@ const handleAntigroupstatus = async (sock, msg, groupMetadata) => {
 
 // Anti-call feature initializer
 const initializeAntiCall = (sock) => {
-  // AntiDelete — listen for message deletions
-  sock.ev.on('messages.delete', async (update) => {
+  // AntiDelete — Baileys v7 signals deletions via messages.update with stubType REVOKE (1)
+  // messages.delete does NOT fire in this version
+  sock.ev.on('messages.update', async (updates) => {
     try {
+      const { WAMessageStubType } = require('@whiskeysockets/baileys');
+      const revokeUpdates = updates.filter(
+        item => item.update?.messageStubType === WAMessageStubType.REVOKE
+      );
+      if (!revokeUpdates.length) return;
       const antidelete = commands.get('antidelete');
-      if (antidelete?.handleDelete) await antidelete.handleDelete(sock, update);
+      if (antidelete?.handleDelete) await antidelete.handleDelete(sock, revokeUpdates);
     } catch (_) {}
   });
 
