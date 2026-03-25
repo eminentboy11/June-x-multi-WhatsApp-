@@ -1,9 +1,61 @@
+/**
+ * AntiViewOnce — auto-reveals view-once images/videos/audio in groups.
+ *
+ * Baileys v7 view-once message structures (any combination):
+ *   msg.message.viewOnceMessageV2Extension.message.<type>Message
+ *   msg.message.viewOnceMessageV2.message.<type>Message
+ *   msg.message.viewOnceMessage.message.<type>Message
+ *   msg.message.ephemeralMessage.message.viewOnceMessageV2.message.<type>Message
+ *   msg.message.<type>Message.viewOnce === true   (rare direct flag)
+ */
+
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const database = require('../../database');
 
+// All known viewOnce wrappers, in priority order
+const VO_WRAPPERS = [
+    'viewOnceMessageV2Extension',
+    'viewOnceMessageV2',
+    'viewOnceMessage',
+];
+
+const MEDIA_DL_TYPES = {
+    imageMessage:    'image',
+    videoMessage:    'video',
+    audioMessage:    'audio',
+};
+
 /**
- * Detects and re-sends view-once messages in groups where antiviewonce is enabled.
+ * Tries to extract the inner media message from any viewOnce wrapper.
+ * Returns { innerMsg, mtype, dlType } or null.
+ */
+function extractViewOnce(rawMsg) {
+    // Also unwrap ephemeral layer first
+    const layers = [rawMsg];
+    if (rawMsg.ephemeralMessage?.message) layers.push(rawMsg.ephemeralMessage.message);
+
+    for (const layer of layers) {
+        // Check wrappers
+        for (const wrapper of VO_WRAPPERS) {
+            const inner = layer[wrapper]?.message;
+            if (inner) {
+                const mtype = Object.keys(inner).find(k => MEDIA_DL_TYPES[k]);
+                if (mtype) return { innerMsg: inner, mtype, dlType: MEDIA_DL_TYPES[mtype] };
+            }
+        }
+        // Direct viewOnce flag on media
+        for (const [mtype, dlType] of Object.entries(MEDIA_DL_TYPES)) {
+            if (layer[mtype]?.viewOnce === true) {
+                return { innerMsg: { [mtype]: { ...layer[mtype], viewOnce: false } }, mtype, dlType };
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * Called from handler.js for every group message.
+ * Downloads and re-sends view-once media when antiviewonce is enabled.
  */
 async function handleAntiviewonce(sock, msg) {
     try {
@@ -14,55 +66,41 @@ async function handleAntiviewonce(sock, msg) {
         const gs = database.getGroupSettings(from);
         if (!gs.antiviewonce) return false;
 
-        const rawMsg = msg.message;
+        const result = extractViewOnce(msg.message);
+        if (!result) return false;
 
-        // Locate the view-once wrapper in the message
-        const voWrappers = [
-            'viewOnceMessageV2Extension',
-            'viewOnceMessageV2',
-            'viewOnceMessage',
-        ];
+        const { innerMsg, mtype, dlType } = result;
 
-        let innerMsg = null;
-        for (const wrapper of voWrappers) {
-            if (rawMsg[wrapper]?.message) {
-                innerMsg = rawMsg[wrapper].message;
-                break;
-            }
-        }
-
-        // Also check direct media with viewOnce flag
-        if (!innerMsg) {
-            if (rawMsg.imageMessage?.viewOnce) {
-                innerMsg = { imageMessage: { ...rawMsg.imageMessage, viewOnce: false } };
-            } else if (rawMsg.videoMessage?.viewOnce) {
-                innerMsg = { videoMessage: { ...rawMsg.videoMessage, viewOnce: false } };
-            } else if (rawMsg.audioMessage?.viewOnce) {
-                innerMsg = { audioMessage: { ...rawMsg.audioMessage, viewOnce: false } };
-            }
-        }
-
-        if (!innerMsg) return false;
-
-        const mtype = Object.keys(innerMsg)[0];
-        const mediaTypes = { imageMessage: 'image', videoMessage: 'video', audioMessage: 'audio' };
-        const dlType = mediaTypes[mtype];
-        if (!dlType) return false;
-
+        // Download
         const stream = await downloadContentFromMessage(innerMsg[mtype], dlType);
         const chunks = [];
         for await (const chunk of stream) chunks.push(chunk);
         const buffer = Buffer.concat(chunks);
 
-        const senderNum = (msg.key.participant || msg.key.remoteJid).split('@')[0].split(':')[0];
-        const caption   = (innerMsg[mtype]?.caption || '') + `\n\n👁️ _View-once revealed · sent by @${senderNum}_`;
+        const senderJid = msg.key.participant || msg.key.remoteJid;
+        const senderNum = senderJid.split('@')[0].split(':')[0];
+        const caption   =
+            (innerMsg[mtype]?.caption ? innerMsg[mtype].caption + '\n\n' : '') +
+            `👁️ _View-once revealed · sent by @${senderNum}_`;
 
         if (dlType === 'image') {
-            await sock.sendMessage(from, { image: buffer, caption, mentions: [msg.key.participant || msg.key.remoteJid] }, { quoted: msg });
+            await sock.sendMessage(
+                from,
+                { image: buffer, caption, mentions: [senderJid] },
+                { quoted: msg }
+            );
         } else if (dlType === 'video') {
-            await sock.sendMessage(from, { video: buffer, caption, mimetype: 'video/mp4', mentions: [msg.key.participant || msg.key.remoteJid] }, { quoted: msg });
+            await sock.sendMessage(
+                from,
+                { video: buffer, caption, mimetype: 'video/mp4', mentions: [senderJid] },
+                { quoted: msg }
+            );
         } else if (dlType === 'audio') {
-            await sock.sendMessage(from, { audio: buffer, ptt: false, mimetype: 'audio/mp4' }, { quoted: msg });
+            await sock.sendMessage(
+                from,
+                { audio: buffer, ptt: false, mimetype: 'audio/mp4' },
+                { quoted: msg }
+            );
         }
 
         return true;
@@ -101,7 +139,7 @@ module.exports = {
 
         if (sub === 'on') {
             database.updateGroupSettings(from, { antiviewonce: true });
-            return reply('✅ *Anti View-Once* enabled — view-once media will be auto-revealed.');
+            return reply('✅ *Anti View-Once* enabled — view-once media will be auto-revealed in this group.');
         }
 
         if (sub === 'off') {
