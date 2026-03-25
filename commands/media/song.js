@@ -1,5 +1,5 @@
 const yts = require('yt-search');
-const axios = require('axios');
+const APIs = require('../../utils/api');
 
 module.exports = {
     name: 'song',
@@ -23,46 +23,63 @@ module.exports = {
                 react: { text: '🎼', key: msg.key }
             });
 
-            const { videos } = await yts(searchQuery);
-            if (!videos || videos.length === 0) {
+            const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://');
+            let audioData = null;
+
+            if (!isUrl) {
+                try {
+                    audioData = await APIs.getIzumiDownloadByQuery(searchQuery);
+                } catch (e) {}
+            }
+
+            if (!audioData) {
+                let videoUrl = searchQuery;
+
+                if (!isUrl) {
+                    const { videos } = await yts(searchQuery);
+                    if (!videos || videos.length === 0) {
+                        return await sock.sendMessage(chatId, {
+                            text: 'No songs found!'
+                        }, { quoted: msg });
+                    }
+                    videoUrl = videos[0].url;
+                }
+
+                const apiFns = [
+                    () => APIs.getApisKeithAudioByUrl(videoUrl),
+                    () => APIs.getIzumiDownloadByUrl(videoUrl),
+                    () => APIs.getEliteProTechDownloadByUrl(videoUrl),
+                    () => APIs.getYupraDownloadByUrl(videoUrl),
+                    () => APIs.getOkatsuDownloadByUrl(videoUrl),
+                ];
+
+                for (const fn of apiFns) {
+                    try {
+                        const result = await fn();
+                        if (result && result.download) {
+                            audioData = result;
+                            break;
+                        }
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            }
+
+            if (!audioData || !audioData.download) {
                 return await sock.sendMessage(chatId, {
-                    text: 'No songs found!'
+                    text: 'Failed to fetch audio. Please try again later.'
                 }, { quoted: msg });
             }
 
-            const video = videos[0];
-            const urlYt = video.url;
-            const title = video.title;
+            const title = audioData.title || searchQuery;
 
             await sock.sendMessage(chatId, {
                 text: `_Downloading 🎵_\n_${title} 🎶_`
             }, { quoted: msg });
 
-            const apis = [
-                { url: `https://apiskeith.top/download/audio?url=${encodeURIComponent(urlYt)}`, parse: (d) => d.status ? d.result : null },
-                { url: `https://apis.xwolf.space/download/audio?url=${encodeURIComponent(urlYt)}`, parse: (d) => d.success ? d.downloadUrl : null },
-                { url: `https://api.giftedtech.co.ke/api/download/dlmp3?apikey=gifted&url=${encodeURIComponent(urlYt)}`, parse: (d) => d.status && d.result ? d.result.download_url : null }
-            ];
-
-            let audioUrl = null;
-            for (const api of apis) {
-                try {
-                    const response = await axios.get(api.url, { timeout: 30000 });
-                    audioUrl = api.parse(response.data);
-                    if (audioUrl) break;
-                } catch (e) {
-                    continue;
-                }
-            }
-
-            if (!audioUrl) {
-                return await sock.sendMessage(chatId, {
-                    text: 'Failed to fetch audio from the API. Please try again later.'
-                }, { quoted: msg });
-            }
-
             await sock.sendMessage(chatId, {
-                document: { url: audioUrl },
+                document: { url: audioData.download },
                 mimetype: 'audio/mpeg',
                 fileName: `${title}.mp3`,
                 caption: `🎵 *${title}*`

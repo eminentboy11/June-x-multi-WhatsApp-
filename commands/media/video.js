@@ -1,7 +1,3 @@
-/**
- * Video Downloader - Download video from YouTube
- */
-
 const yts = require('yt-search');
 const APIs = require('../../utils/api');
 const config = require('../../config');
@@ -13,14 +9,12 @@ module.exports = {
   description: 'Download video from YouTube',
   usage: '.video <video name or URL>',
 
-  async execute(sock, msg, args) {
+  async execute(sock, msg, args, extra) {
     try {
-      // Get instance-specific config
-      const instanceConfig = config.getConfigFromSocket(sock);
+      const instanceConfig = config;
 
       const text = args.join(' ');
       const chatId = msg.key.remoteJid;
-
       const searchQuery = text.trim();
 
       if (!searchQuery) {
@@ -29,15 +23,19 @@ module.exports = {
         }, { quoted: msg });
       }
 
-      // Determine if input is a YouTube link
+      await sock.sendMessage(chatId, {
+        react: { text: '🎬', key: msg.key }
+      });
+
       let videoUrl = '';
       let videoTitle = '';
       let videoThumbnail = '';
 
-      if (searchQuery.startsWith('http://') || searchQuery.startsWith('https://')) {
+      const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://');
+
+      if (isUrl) {
         videoUrl = searchQuery;
       } else {
-        // Search YouTube for the video
         const { videos } = await yts(searchQuery);
         if (!videos || videos.length === 0) {
           return await sock.sendMessage(chatId, {
@@ -49,7 +47,6 @@ module.exports = {
         videoThumbnail = videos[0].thumbnail;
       }
 
-      // Send thumbnail immediately
       try {
         const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
         const thumb = videoThumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : undefined);
@@ -64,27 +61,40 @@ module.exports = {
         console.error('[VIDEO] thumb error:', e?.message || e);
       }
 
-      // Validate YouTube URL
-      let urls = videoUrl.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([a-zA-Z0-9_-]{11})/gi);
+      const urls = videoUrl.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([a-zA-Z0-9_-]{11})/gi);
       if (!urls) {
         return await sock.sendMessage(chatId, {
           text: 'This is not a valid YouTube link!'
         }, { quoted: msg });
       }
 
-      // Get video: try EliteProTech first, then Yupra, then Okatsu fallback
-      let videoData;
-      try {
-        videoData = await APIs.getEliteProTechVideoByUrl(videoUrl);
-      } catch (e1) {
+      let videoData = null;
+
+      const apiFns = [
+        () => APIs.getApisKeithVideoByUrl(videoUrl),
+        () => APIs.getEliteProTechVideoByUrl(videoUrl),
+        () => APIs.getYupraVideoByUrl(videoUrl),
+        () => APIs.getOkatsuVideoByUrl(videoUrl),
+      ];
+
+      for (const fn of apiFns) {
         try {
-          videoData = await APIs.getYupraVideoByUrl(videoUrl);
-        } catch (e2) {
-          videoData = await APIs.getOkatsuVideoByUrl(videoUrl);
+          const result = await fn();
+          if (result && result.download) {
+            videoData = result;
+            break;
+          }
+        } catch (e) {
+          continue;
         }
       }
 
-      // Send video directly using the download URL
+      if (!videoData || !videoData.download) {
+        return await sock.sendMessage(chatId, {
+          text: 'Failed to fetch video. Please try again later.'
+        }, { quoted: msg });
+      }
+
       await sock.sendMessage(chatId, {
         video: { url: videoData.download },
         mimetype: 'video/mp4',
