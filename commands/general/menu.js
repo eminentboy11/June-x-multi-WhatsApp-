@@ -248,7 +248,7 @@ module.exports = {
               },
             },
           }, { quoted: msg });
-          await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id });
+          await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id, quoted: msg });
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
