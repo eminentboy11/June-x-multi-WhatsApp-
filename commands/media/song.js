@@ -6,7 +6,7 @@ module.exports = {
     aliases: ['play', 'music', 'yta'],
     category: 'media',
     description: 'Download audio from YouTube',
-    usage: '.play <song name>',
+    usage: '.play <song name or URL>',
 
     async execute(sock, msg, args, extra) {
         try {
@@ -15,7 +15,7 @@ module.exports = {
 
             if (!searchQuery) {
                 return await sock.sendMessage(chatId, {
-                    text: 'What song do you want to download?'
+                    text: '🎵 Please provide a song name or YouTube URL.'
                 }, { quoted: msg });
             }
 
@@ -24,71 +24,102 @@ module.exports = {
             });
 
             const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://');
-            let audioData = null;
+            let videoUrl = searchQuery;
+            let title = searchQuery;
+            let duration = '';
+            let views = '';
+            let thumbnail = '';
+            let author = '';
 
             if (!isUrl) {
+                const { videos } = await yts(searchQuery);
+                if (!videos || videos.length === 0) {
+                    return await sock.sendMessage(chatId, {
+                        text: '❌ No songs found for that search.'
+                    }, { quoted: msg });
+                }
+                const found = videos[0];
+                videoUrl = found.url;
+                title = found.title;
+                duration = found.timestamp || '';
+                views = found.views ? found.views.toLocaleString() : '';
+                thumbnail = found.thumbnail || '';
+                author = found.author?.name || '';
+            } else {
                 try {
-                    audioData = await APIs.getIzumiDownloadByQuery(searchQuery);
+                    const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
+                    if (ytId) {
+                        const result = await yts({ videoId: ytId });
+                        if (result && result.title) {
+                            title = result.title;
+                            duration = result.timestamp || '';
+                            views = result.views ? result.views.toLocaleString() : '';
+                            thumbnail = result.thumbnail || '';
+                            author = result.author?.name || '';
+                        }
+                    }
                 } catch (e) {}
             }
 
-            if (!audioData) {
-                let videoUrl = searchQuery;
+            let info = `🎵 *${title}*`;
+            if (author) info += `\n👤 *Artist:* ${author}`;
+            if (duration) info += `\n⏱ *Duration:* ${duration}`;
+            if (views) info += `\n👁 *Views:* ${views}`;
+            info += `\n\n_Downloading..._`;
 
-                if (!isUrl) {
-                    const { videos } = await yts(searchQuery);
-                    if (!videos || videos.length === 0) {
-                        return await sock.sendMessage(chatId, {
-                            text: 'No songs found!'
-                        }, { quoted: msg });
-                    }
-                    videoUrl = videos[0].url;
+            if (thumbnail) {
+                try {
+                    await sock.sendMessage(chatId, {
+                        image: { url: thumbnail },
+                        caption: info
+                    }, { quoted: msg });
+                } catch (e) {
+                    await sock.sendMessage(chatId, { text: info }, { quoted: msg });
                 }
+            } else {
+                await sock.sendMessage(chatId, { text: info }, { quoted: msg });
+            }
 
-                const apiFns = [
-                    () => APIs.getApisKeithAudioByUrl(videoUrl),
-                    () => APIs.getIzumiDownloadByUrl(videoUrl),
-                    () => APIs.getEliteProTechDownloadByUrl(videoUrl),
-                    () => APIs.getYupraDownloadByUrl(videoUrl),
-                    () => APIs.getOkatsuDownloadByUrl(videoUrl),
-                ];
+            const apiFns = [
+                () => APIs.getApisKeithAudioByUrl(videoUrl),
+                () => APIs.getIzumiDownloadByUrl(videoUrl),
+                () => APIs.getEliteProTechDownloadByUrl(videoUrl),
+                () => APIs.getYupraDownloadByUrl(videoUrl),
+                () => APIs.getOkatsuDownloadByUrl(videoUrl),
+            ];
 
-                for (const fn of apiFns) {
-                    try {
-                        const result = await fn();
-                        if (result && result.download) {
-                            audioData = result;
-                            break;
-                        }
-                    } catch (e) {
-                        continue;
+            let audioData = null;
+            for (const fn of apiFns) {
+                try {
+                    const result = await fn();
+                    if (result && result.download) {
+                        audioData = result;
+                        break;
                     }
+                } catch (e) {
+                    continue;
                 }
             }
 
             if (!audioData || !audioData.download) {
                 return await sock.sendMessage(chatId, {
-                    text: 'Failed to fetch audio. Please try again later.'
+                    text: '❌ Failed to fetch audio. Please try again later.'
                 }, { quoted: msg });
             }
 
-            const title = audioData.title || searchQuery;
-
-            await sock.sendMessage(chatId, {
-                text: `_Downloading 🎵_\n_${title} 🎶_`
-            }, { quoted: msg });
+            const safeTitle = title.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
             await sock.sendMessage(chatId, {
                 document: { url: audioData.download },
                 mimetype: 'audio/mpeg',
-                fileName: `${title}.mp3`,
-                caption: `🎵 *${title}*`
+                fileName: `${safeTitle}.mp3`,
+                caption: `🎵 *${title}*${author ? `\n👤 ${author}` : ''}${duration ? `\n⏱ ${duration}` : ''}`
             }, { quoted: msg });
 
         } catch (error) {
             console.error('Error in play/song command:', error);
             await sock.sendMessage(msg.key.remoteJid, {
-                text: 'Download failed. Please try again later.'
+                text: '❌ Download failed. Please try again later.'
             }, { quoted: msg });
         }
     }

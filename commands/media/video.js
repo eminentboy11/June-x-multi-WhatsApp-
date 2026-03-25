@@ -11,15 +11,13 @@ module.exports = {
 
   async execute(sock, msg, args, extra) {
     try {
-      const instanceConfig = config;
-
       const text = args.join(' ');
       const chatId = msg.key.remoteJid;
       const searchQuery = text.trim();
 
       if (!searchQuery) {
         return await sock.sendMessage(chatId, {
-          text: 'What video do you want to download?'
+          text: '🎬 Please provide a video name or YouTube URL.'
         }, { quoted: msg });
       }
 
@@ -27,48 +25,72 @@ module.exports = {
         react: { text: '🎬', key: msg.key }
       });
 
-      let videoUrl = '';
-      let videoTitle = '';
-      let videoThumbnail = '';
-
       const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://');
+      let videoUrl = searchQuery;
+      let videoTitle = searchQuery;
+      let videoThumbnail = '';
+      let duration = '';
+      let views = '';
+      let author = '';
 
-      if (isUrl) {
-        videoUrl = searchQuery;
-      } else {
+      if (!isUrl) {
         const { videos } = await yts(searchQuery);
         if (!videos || videos.length === 0) {
           return await sock.sendMessage(chatId, {
-            text: 'No videos found!'
+            text: '❌ No videos found for that search.'
           }, { quoted: msg });
         }
-        videoUrl = videos[0].url;
-        videoTitle = videos[0].title;
-        videoThumbnail = videos[0].thumbnail;
-      }
-
-      try {
-        const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
-        const thumb = videoThumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : undefined);
-        const captionTitle = videoTitle || searchQuery;
-        if (thumb) {
-          await sock.sendMessage(chatId, {
-            image: { url: thumb },
-            caption: `*${captionTitle}*\nDownloading...`
-          }, { quoted: msg });
-        }
-      } catch (e) {
-        console.error('[VIDEO] thumb error:', e?.message || e);
+        const found = videos[0];
+        videoUrl = found.url;
+        videoTitle = found.title;
+        videoThumbnail = found.thumbnail || '';
+        duration = found.timestamp || '';
+        views = found.views ? found.views.toLocaleString() : '';
+        author = found.author?.name || '';
+      } else {
+        try {
+          const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
+          if (ytId) {
+            const result = await yts({ videoId: ytId });
+            if (result && result.title) {
+              videoTitle = result.title;
+              videoThumbnail = result.thumbnail || '';
+              duration = result.timestamp || '';
+              views = result.views ? result.views.toLocaleString() : '';
+              author = result.author?.name || '';
+            }
+          }
+        } catch (e) {}
       }
 
       const urls = videoUrl.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([a-zA-Z0-9_-]{11})/gi);
       if (!urls) {
         return await sock.sendMessage(chatId, {
-          text: 'This is not a valid YouTube link!'
+          text: '❌ This is not a valid YouTube link!'
         }, { quoted: msg });
       }
 
-      let videoData = null;
+      let info = `🎬 *${videoTitle}*`;
+      if (author) info += `\n👤 *Channel:* ${author}`;
+      if (duration) info += `\n⏱ *Duration:* ${duration}`;
+      if (views) info += `\n👁 *Views:* ${views}`;
+      info += `\n\n_Downloading..._`;
+
+      const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
+      const thumb = videoThumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : null);
+
+      if (thumb) {
+        try {
+          await sock.sendMessage(chatId, {
+            image: { url: thumb },
+            caption: info
+          }, { quoted: msg });
+        } catch (e) {
+          await sock.sendMessage(chatId, { text: info }, { quoted: msg });
+        }
+      } else {
+        await sock.sendMessage(chatId, { text: info }, { quoted: msg });
+      }
 
       const apiFns = [
         () => APIs.getApisKeithVideoByUrl(videoUrl),
@@ -77,6 +99,7 @@ module.exports = {
         () => APIs.getOkatsuVideoByUrl(videoUrl),
       ];
 
+      let videoData = null;
       for (const fn of apiFns) {
         try {
           const result = await fn();
@@ -91,21 +114,23 @@ module.exports = {
 
       if (!videoData || !videoData.download) {
         return await sock.sendMessage(chatId, {
-          text: 'Failed to fetch video. Please try again later.'
+          text: '❌ Failed to fetch video. Please try again later.'
         }, { quoted: msg });
       }
+
+      const safeTitle = videoTitle.replace(/[^\w\s\-()]/g, '').trim() || 'video';
 
       await sock.sendMessage(chatId, {
         video: { url: videoData.download },
         mimetype: 'video/mp4',
-        fileName: `${(videoData.title || videoTitle || 'video').replace(/[^\w\s-]/g, '')}.mp4`,
-        caption: `*${videoData.title || videoTitle || 'Video'}*\n\n> *_Downloaded by ${instanceConfig.botName}_*`
+        fileName: `${safeTitle}.mp4`,
+        caption: `🎬 *${videoTitle}*${author ? `\n👤 ${author}` : ''}${duration ? `\n⏱ ${duration}` : ''}\n\n> *_Downloaded by ${config.botName}_*`
       }, { quoted: msg });
 
     } catch (error) {
       console.error('[VIDEO] Command Error:', error?.message || error);
       await sock.sendMessage(msg.key.remoteJid, {
-        text: 'Download failed: ' + (error?.message || 'Unknown error')
+        text: '❌ Download failed: ' + (error?.message || 'Unknown error')
       }, { quoted: msg });
     }
   }
