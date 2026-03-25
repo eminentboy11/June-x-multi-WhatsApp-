@@ -80,54 +80,58 @@ const CATEGORY_LABELS = {
 };
 
 function buildMenuText(categories, extra, totalCount, speed) {
-  const prefix    = config.prefix;
-  const bot       = config.botName || 'June Ultra';
+  const prefix = config.prefix;
+  const bot = config.botName || 'June Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
-  const hostName  = detectPlatform();
-  const ping      = speed.toFixed(3);
-  const currentMode   = config.selfMode ? 'Self' : 'Public';
-  const totalMemory   = os.totalmem();
+  const hostName = detectPlatform();
+  const uptimeFormatted = formatUptime();
+  const currentMode = config.selfMode ? 'Self' : 'Public';
+  const totalMemory = os.totalmem();
   const botUsedMemory = process.memoryUsage().rss;
-  const sysUsedMemory = totalMemory - os.freemem();
-
-  // Single readmore — folds the bot-info header; command list stays fully visible
+  const systemUsedMemory = totalMemory - os.freemem();
   const readmore = String.fromCharCode(8206).repeat(4001);
+  const ping = speed.toFixed(3);
 
-  // ── Bot info header (gets folded behind "read more") ──────────────────────
-  let header = `┏━━❐✧ ${bot} ✧❐\n`;
-  header += `┃✦ Prefix: [${prefix}]\n`;
-  header += `┃✦ Owner: ${ownerName}\n`;
-  header += `┃✦ Mode: ${currentMode}\n`;
-  header += `┃✦ Platform: ${hostName}\n`;
-  header += `┃✦ Speed: ${ping} ms\n`;
-  header += `┃✦ Uptime: ${formatUptime()}\n`;
-  header += `┃✦ Version: v2.0\n`;
-  header += `┃✦ Usage: ${formatMemory(botUsedMemory)} / ${formatMemory(totalMemory)}\n`;
-  header += `┃✦ RAM: ${progressBar(sysUsedMemory, totalMemory)}\n`;
-  header += `┃✦ Commands: ${totalCount}\n`;
-  header += `┗❐`;
+  let menu = `┏━━❐✧ ${bot} ✧❐\n`;
+  menu += `┃✦ Prefix: [${prefix}]\n`;
+  menu += `┃✦ Owner: ${ownerName}\n`;
+  menu += `┃✦ Mode: ${currentMode}\n`;
+  menu += `┃✦ Platform: ${hostName}\n`;
+  menu += `┃✦ Speed: ${ping} ms\n`;
+  menu += `┃✦ Uptime: ${uptimeFormatted}\n`;
+  menu += `┃✦ Version: v2.0\n`;
+  menu += `┃✦ Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃✦ RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃✦ Commands: ${totalCount}\n`;
+  menu += `┗❐\n${readmore}\n`;
 
-  // ── Command list (plain text — no font transform — so nothing gets inflated) ─
+  // Build ordered list: known categories first (in preferred order), then any extras
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
   const ordered = [
     ...CATEGORY_ORDER.filter(k => allCategoryKeys.includes(k)),
     ...allCategoryKeys.filter(k => !CATEGORY_ORDER.includes(k)).sort(),
   ];
 
-  let cmdList = '';
+  let sectionIndex = 0;
   for (const key of ordered) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
-    const label = CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`;
-    cmdList += `\n┏━━❐ \`${label}\` [${cmds.length}] ❐\n`;
+
+    const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
+    menu += `┏━━❐ \`${label}\` ❐\n`;
     for (const cmd of cmds) {
-      cmdList += `┃ ${prefix}${cmd.name}\n`;
+      menu += `┃ ${prefix}${cmd.name}\n`;
     }
-    cmdList += `┗❐\n`;
+    menu += `┗❐\n`;
+    sectionIndex++;
+    if (sectionIndex % 3 === 0) {
+      menu += `${readmore}\n`;
+    } else {
+      menu += `\n`;
+    }
   }
 
-  // header → readmore → full command list (all visible after tapping "read more")
-  return `${header}\n${readmore}\n${cmdList}`;
+  return menu;
 }
 
 function getThumbnail() {
@@ -195,10 +199,7 @@ module.exports = {
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
-      // Apply font only to the footer signature — NOT the full command list
-      // (applying font to 175 command names in Unicode triples the text size and causes truncation)
-      const footer = applyFont(`\n> *${botname}* v2.0 — Powered by Supreme\n> github.com/Vinpink2`);
-      const fullMenu = menulist + footer;
+      const fullMenu = applyFont(menulist + `\n> *${botname}* v2.0 — Powered by Supreme`);
 
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
@@ -222,7 +223,7 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '2') {
-        const footer = `Powered by Supreme\ngithub.com/Vinpink2`;
+        const footer = `Powered by Supreme`;
         const menuTextClean = applyFont(menulist);
         await sendButtons(sock, chatId, {
           title: '',
