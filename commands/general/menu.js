@@ -58,6 +58,27 @@ const progressBar = (used, total, size = 10) => {
   return `[${bar}] ${Math.round((used / total) * 100)}%`;
 };
 
+// Preferred display order for known categories; unknown ones are appended after
+const CATEGORY_ORDER = [
+  'general', 'ai', 'admin', 'owner', 'media',
+  'sports', 'fun', 'utility', 'anime', 'textmaker',
+];
+
+// Human-friendly labels for known categories
+const CATEGORY_LABELS = {
+  general:   'GENERAL-CMD',
+  ai:        'AI-CMD',
+  admin:     'ADMIN-CMD',
+  owner:     'OWNER-CMD',
+  media:     'MEDIA-CMD',
+  sports:    'SPORTS-CMD',
+  fun:       'FUN-CMD',
+  utility:   'UTILITY-CMD',
+  anime:     'ANIME-CMD',
+  textmaker: 'TEXTMAKER-CMD',
+  group:     'GROUP-CMD',
+};
+
 function buildMenuText(categories, extra, totalCount, speed) {
   const prefix = config.prefix;
   const bot = config.botName || 'June Ultra';
@@ -69,7 +90,6 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const botUsedMemory = process.memoryUsage().rss;
   const systemUsedMemory = totalMemory - os.freemem();
   const readmore = String.fromCharCode(8206).repeat(4001);
-
   const ping = speed.toFixed(3);
 
   let menu = `┏━━❐✧ ${bot} ✧❐\n`;
@@ -85,33 +105,29 @@ function buildMenuText(categories, extra, totalCount, speed) {
   menu += `┃✦ Commands: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
-  const sections = [
-    { key: 'general',   label: 'GENERAL-CMD' },
-    { key: 'ai',        label: 'AI-CMD' },
-    { key: 'admin',     label: 'ADMIN-CMD' },
-    { key: 'owner',     label: 'OWNER-CMD' },
-    { key: 'media',     label: 'MEDIA-CMD' },
-    { key: 'sports',    label: 'SPORTS-CMD' },
-    { key: 'fun',       label: 'FUN-CMD' },
-    { key: 'utility',   label: 'UTILITY-CMD' },
-    { key: 'anime',     label: 'ANIME-CMD' },
-    { key: 'textmaker', label: 'TEXTMAKER-CMD' },
+  // Build ordered list: known categories first (in preferred order), then any extras
+  const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
+  const ordered = [
+    ...CATEGORY_ORDER.filter(k => allCategoryKeys.includes(k)),
+    ...allCategoryKeys.filter(k => !CATEGORY_ORDER.includes(k)).sort(),
   ];
 
   let sectionIndex = 0;
-  for (const s of sections) {
-    if (categories[s.key] && categories[s.key].length > 0) {
-      menu += `┏━━❐ \`${s.label}\` ❐\n`;
-      for (const cmd of categories[s.key]) {
-        menu += `┃ ${prefix}${cmd.name}\n`;
-      }
-      menu += `┗❐\n`;
-      sectionIndex++;
-      if (sectionIndex % 3 === 0) {
-        menu += `${readmore}\n`;
-      } else {
-        menu += `\n`;
-      }
+  for (const key of ordered) {
+    const cmds = categories[key];
+    if (!cmds || cmds.length === 0) continue;
+
+    const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
+    menu += `┏━━❐ \`${label}\` ❐\n`;
+    for (const cmd of cmds) {
+      menu += `┃ ${prefix}${cmd.name}\n`;
+    }
+    menu += `┗❐\n`;
+    sectionIndex++;
+    if (sectionIndex % 3 === 0) {
+      menu += `${readmore}\n`;
+    } else {
+      menu += `\n`;
     }
   }
 
@@ -142,14 +158,14 @@ function getButtons() {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '💻 Bot Repo',
-        url: config.social?.github || 'https://github.com/vinpink2'
+        url: config.social?.github || 'https://github.com/mruniquehacker'
       })
     },
     {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '📺 YouTube',
-        url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
+        url: config.social?.youtube || 'http://youtube.com/@mr_unique_hacker'
       })
     }
   ];
