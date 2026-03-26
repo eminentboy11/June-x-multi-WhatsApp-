@@ -68,10 +68,10 @@ module.exports = {
                 footer: `> Powered by ${config.botName}`,
                 buttons: [
                     {
-                        name: 'cta_copy',
+                        name: 'cta_reply',
                         buttonParamsJson: JSON.stringify({
-                            display_text: '📋 Copy Menu Cmd',
-                            copy_code: `${config.prefix}menu`
+                            display_text: '📋 Show Menu',
+                            reply_text: `${config.prefix}menu`
                         })
                     }
                 ]
