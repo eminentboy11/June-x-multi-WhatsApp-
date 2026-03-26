@@ -34,6 +34,7 @@ function tmp(suffix, ts) {
  */
 async function loadWebP(webpBuffer) {
     const { Image } = require('node-webpmux');
+    await Image.initLib();          // required before getImageData / getFrameData
     const img = new Image();
     await img.load(webpBuffer);
     const frameCount = Array.isArray(img.frames) ? img.frames.length : 0;
