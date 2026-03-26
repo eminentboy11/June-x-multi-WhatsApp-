@@ -406,34 +406,30 @@ const handleMessage = async (sock, msg) => {
       return; // Silently ignore system messages
     }
     
-    // Auto-React System
+    // Auto-React System — reads fresh from data/autoreact.json every time
     try {
-      if (config.autoReact && msg.message && !msg.key.fromMe) {
+      const arSettings = require('./utils/autoReact').load();
+      if (arSettings.enabled && msg.message && !msg.key.fromMe) {
         const content = msg.message.ephemeralMessage?.message || msg.message;
         const text =
           content.conversation ||
           content.extendedTextMessage?.text ||
           '';
 
-        const jid = msg.key.remoteJid;
+        const jid  = msg.key.remoteJid;
+        const mode = arSettings.mode || 'bot';
         const emojis = ['❤️','🔥','👌','💀','😁','✨','👍','🤨','😎','😂','🤝','💫'];
-        
-        const mode = config.autoReactMode || 'bot';
 
         if (mode === 'bot') {
           const prefixList = ['.', '/', '#'];
           if (prefixList.includes(text?.trim()[0])) {
-            await sock.sendMessage(jid, {
-              react: { text: '⏳', key: msg.key }
-            });
+            await sock.sendMessage(jid, { react: { text: '⏳', key: msg.key } });
           }
         }
 
         if (mode === 'all') {
           const rand = emojis[Math.floor(Math.random() * emojis.length)];
-          await sock.sendMessage(jid, {
-            react: { text: rand, key: msg.key }
-          });
+          await sock.sendMessage(jid, { react: { text: rand, key: msg.key } });
         }
       }
     } catch (e) {
@@ -473,6 +469,23 @@ const handleMessage = async (sock, msg) => {
           sock.sendPresenceUpdate('composing', from).catch(() => {});
         }
       } catch (_pErr) {}
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── Auto Read (blue-tick) on ANY incoming message ─────────────────────────
+    if (!msg.key.fromMe) {
+      try {
+        const fs = require('fs'), path = require('path');
+        const arData = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/autoread.json'), 'utf8'));
+        const arMode = arData.mode || 'off';
+        if (
+          arMode === 'on' ||
+          (arMode === 'pm'    && !isGroup) ||
+          (arMode === 'group' &&  isGroup)
+        ) {
+          await sock.readMessages([msg.key]);
+        }
+      } catch (_arErr) {}
     }
     // ─────────────────────────────────────────────────────────────────────────
 
