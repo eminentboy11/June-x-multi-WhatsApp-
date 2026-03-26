@@ -1,20 +1,4 @@
-const fs   = require('fs');
-const path = require('path');
-const config = require('../../config');
-
-const configPath = path.join(__dirname, '../../config.js');
-
-function saveConfigKey(key, value) {
-    let src = fs.readFileSync(configPath, 'utf-8');
-    const regex = new RegExp(`(${key}:\\s*)(true|false)`);
-    if (regex.test(src)) {
-        src = src.replace(regex, `$1${value}`);
-    } else {
-        src = src.replace(/(autoDownload:\s*(?:true|false))/, `$1,\n    ${key}: ${value}`);
-    }
-    fs.writeFileSync(configPath, src);
-    config[key] = value;
-}
+const { getMode, setMode } = require('../../utils/presenceSettings');
 
 module.exports = {
     name: 'autotyping',
@@ -25,13 +9,14 @@ module.exports = {
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {
-        const sub = (args[0] || '').toLowerCase();
+        const sub     = (args[0] || '').toLowerCase();
+        const current = getMode();
 
         if (!sub) {
             return extra.reply(
                 `⌨️ *Auto Typing*\n` +
                 `━━━━━━━━━━━━━━━\n` +
-                `Status: *${config.autoTyping ? '✅ ON' : '❌ OFF'}*\n\n` +
+                `Status: *${current === 'typing' ? '✅ ON' : '❌ OFF'}*\n\n` +
                 `When ON the bot shows a _"typing…"_ indicator before every response.\n\n` +
                 `  .autotyping on\n` +
                 `  .autotyping off`
@@ -39,14 +24,12 @@ module.exports = {
         }
 
         if (sub === 'on') {
-            saveConfigKey('autoTyping', true);
-            if (config.autoRecording)  saveConfigKey('autoRecording', false);
-            if (config.autoRecordType) saveConfigKey('autoRecordType', false);
-            return extra.reply('✅ *Auto Typing* enabled — bot will show _typing…_ before responses.');
+            setMode('typing');
+            return extra.reply('✅ *Auto Typing* enabled — bot will show _typing…_ before responses.\n_Disables recording & record+type modes._');
         }
 
         if (sub === 'off') {
-            saveConfigKey('autoTyping', false);
+            if (current === 'typing') setMode('off');
             return extra.reply('❌ *Auto Typing* disabled.');
         }
 

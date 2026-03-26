@@ -1,21 +1,4 @@
-const fs   = require('fs');
-const path = require('path');
-const config = require('../../config');
-
-const configPath = path.join(__dirname, '../../config.js');
-
-function saveConfigKey(key, value) {
-    let src = fs.readFileSync(configPath, 'utf-8');
-    const regex = new RegExp(`(${key}:\\s*)(true|false)`);
-    if (regex.test(src)) {
-        src = src.replace(regex, `$1${value}`);
-    } else {
-        // Insert before closing brace of top-level exports
-        src = src.replace(/(autoDownload:\s*(?:true|false))/, `$1,\n    ${key}: ${value}`);
-    }
-    fs.writeFileSync(configPath, src);
-    config[key] = value;
-}
+const { getMode, setMode } = require('../../utils/presenceSettings');
 
 module.exports = {
     name: 'autorecording',
@@ -26,29 +9,27 @@ module.exports = {
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {
-        const sub = (args[0] || '').toLowerCase();
+        const sub     = (args[0] || '').toLowerCase();
+        const current = getMode();
 
         if (!sub) {
             return extra.reply(
                 `🎙️ *Auto Recording*\n` +
                 `━━━━━━━━━━━━━━━\n` +
-                `Status: *${config.autoRecording ? '✅ ON' : '❌ OFF'}*\n\n` +
-                `When ON the bot shows a _"recording…"_ presence indicator before every response, making it look like it's sending a voice note.\n\n` +
+                `Status: *${current === 'recording' ? '✅ ON' : '❌ OFF'}*\n\n` +
+                `When ON the bot shows a _"recording…"_ presence indicator before every response.\n\n` +
                 `  .autorecording on\n` +
                 `  .autorecording off`
             );
         }
 
         if (sub === 'on') {
-            saveConfigKey('autoRecording', true);
-            // Turn off conflicting presences
-            if (config.autoRecordType) saveConfigKey('autoRecordType', false);
-            if (config.autoTyping)     saveConfigKey('autoTyping', false);
-            return extra.reply('✅ *Auto Recording* enabled — bot will show _recording…_ before responses.');
+            setMode('recording');
+            return extra.reply('✅ *Auto Recording* enabled — bot will show _recording…_ before responses.\n_Disables typing & record+type modes._');
         }
 
         if (sub === 'off') {
-            saveConfigKey('autoRecording', false);
+            if (current === 'recording') setMode('off');
             return extra.reply('❌ *Auto Recording* disabled.');
         }
 
