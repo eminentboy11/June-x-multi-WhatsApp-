@@ -16,7 +16,6 @@ module.exports = {
   description: 'Post replied media or text as a WhatsApp group status (new Group Status feature).',
   usage: '.groupstatus [caption]  (reply to image/video/audio) OR .groupstatus your text',
   category: 'owner',
-  groupOnly: true,
   ownerOnly: true,
 
   async execute(sock, msg, args, extra) {
@@ -46,14 +45,14 @@ module.exports = {
           );
         }
 
-        await extra.reply('⏳ Posting text group status...');
+        await extra.reply('...');
 
         try {
           await groupStatus(sock, from, {
             text: caption,
             backgroundColor: PURPLE_COLOR,
           });
-          return extra.reply('✅ Text group status posted!');
+          return extra.reply('💯');
         } catch (e) {
           console.error('groupstatus text error:', e);
           return extra.reply('❌ Failed to post text group status: ' + (e.message || e));
@@ -127,7 +126,6 @@ module.exports = {
 
       // AUDIO (voice-style group status)
       if (/audio/i.test(mtype)) {
-        await extra.reply('⏳ Posting audio group status...');
         let buf;
         try {
           buf = await downloadBuf();
