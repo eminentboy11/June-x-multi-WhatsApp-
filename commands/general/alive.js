@@ -46,14 +46,11 @@ module.exports = {
         const memTotal = (mem.heapTotal / 1024 / 1024).toFixed(1);
 
         const text = [
-            `✅ *${config.botName} is alive!*`,
+            ` *${config.botName}*`,
             ``,
-            `⏱️ *Uptime:* ${formatUptime(uptime)}`,
-            `🌐 *Platform:* ${detectPlatform()}`,
-            `💾 *Memory:* ${memUsed}MB / ${memTotal}MB`,
-            `⚡ *Prefix:* ${config.prefix}`,
-            ``,
-            `> Powered by *${config.botName}*`
+            ` *Uptime:* ${formatUptime(uptime)}`,
+            ` *Platform:* ${detectPlatform()}`,
+            ` *Memory:* ${memUsed}MB / ${memTotal}MB`
         ].join('\n');
 
         await reply(text);
