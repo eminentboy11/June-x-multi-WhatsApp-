@@ -846,17 +846,29 @@ const handleMessage = async (sock, msg) => {
       }
     }
     
-    // Auto presence indicators before responding
-    if (config.autoRecordType) {
-      // recording → pause → typing (most natural looking)
-      await sock.sendPresenceUpdate('recording', from);
-      await new Promise(r => setTimeout(r, 1200));
-      await sock.sendPresenceUpdate('composing', from);
-      await new Promise(r => setTimeout(r, 500));
-    } else if (config.autoRecording) {
-      await sock.sendPresenceUpdate('recording', from);
-    } else if (config.autoTyping) {
-      await sock.sendPresenceUpdate('composing', from);
+    // Auto presence indicators — read fresh from data/presence.json every time
+    try {
+      const { getMode } = require('./utils/presenceSettings');
+      const presenceMode = getMode();
+      if (presenceMode === 'recordtype') {
+        await sock.sendPresenceUpdate('recording', from);
+        await new Promise(r => setTimeout(r, 1500));
+        await sock.sendPresenceUpdate('composing', from);
+        await new Promise(r => setTimeout(r, 800));
+      } else if (presenceMode === 'recording') {
+        await sock.sendPresenceUpdate('recording', from);
+        await new Promise(r => setTimeout(r, 1000));
+      } else if (presenceMode === 'typing') {
+        await sock.sendPresenceUpdate('composing', from);
+        await new Promise(r => setTimeout(r, 800));
+      } else if (config.autoTyping) {
+        // legacy config.js flag fallback
+        await sock.sendPresenceUpdate('composing', from);
+        await new Promise(r => setTimeout(r, 800));
+      }
+    } catch (presenceErr) {
+      // Never let presence failure block the command
+      console.error('[PRESENCE] error:', presenceErr.message);
     }
     
     // Colored command execution log
