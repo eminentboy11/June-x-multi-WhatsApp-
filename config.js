@@ -12,7 +12,7 @@ module.exports = {
     prefix: '+',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
-    newsletterJid: '', // Newsletter JID for menu forwarding
+    newsletterJid: '@newsletter', // Newsletter JID for menu forwarding
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip', // URL to latest code zip for .update command
     
     // Sticker Configuration
@@ -27,6 +27,8 @@ module.exports = {
     autoReact: false,
     autoReactMode: 'bot', // set bot or all via cmd
     autoDownload: false,
+    autoRecording: false,   // fake recording presence before responses
+    autoRecordType: false,  // fake recording → typing presence before responses
     
     // Group Settings Defaults
     defaultGroupSettings: {
@@ -43,7 +45,7 @@ module.exports = {
       antigroupstatus: false, // Anti-group status mention
       antigroupstatusAction: 'delete', // 'delete', 'kick', 'warn'
       welcome: false,
-      welcomeMessage: '╭╼━•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @user 👋\n┃Member count: #memberCount\n┃𝚃𝙸𝙼𝙴: time⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@user* Welcome to *@group*! 🎉\n*Group description*\ngroupDesc\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ botName*',
+      welcomeMessage: '╭╼━•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @user 👋\n┃Member count: #memberCount\n┃𝚃𝙸𝙼𝙴: time⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@user* Welcome to *@group*! 🎉\n*Group 𝙳𝙴𝚂𝙲𝚁𝙸𝙿𝚃𝙸𝙾𝙽*\ngroupDesc\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ botName*',
       goodbye: false,
       goodbyeMessage: 'Goodbye @user 👋 We will never miss you!',
       antiSpam: false,
@@ -94,7 +96,7 @@ module.exports = {
     social: {
       github: 'https://github.com/Vinpink2/June-X-Ultra',
       instagram: 'https://instagram.com/activator_negative',
-      youtube: 'http://youtube.com/@suprem_e_lord'
+      youtube: 'http://youtube.com/suprem_e_lord'
     }
 };
   
