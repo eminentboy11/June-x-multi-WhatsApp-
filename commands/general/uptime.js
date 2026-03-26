@@ -82,9 +82,8 @@ module.exports = {
         ``,
         `⏰ *Running on* ${platform} *for:*`,
         `  *${uptime}*`,
-        ``,
+        
         `💾 *Memory:* ${memUsed}MB / ${memTotal}MB`
-        ``
       ].join('\n');
       
       await extra.reply(message);
