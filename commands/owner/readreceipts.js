@@ -1,42 +1,107 @@
-const config = require('../../config');
+/**
+ * Read Receipts Command - Manage read receipts privacy (Owner Only)
+ */
+
+const fs   = require('fs');
+const path = require('path');
+
+const CONFIG_PATH = path.join(__dirname, '../../data/autoreadreceipts.json');
+const DEFAULT_CONFIG = { readReceipts: 'all' };
+
+function loadConfig() {
+    try {
+        if (!fs.existsSync(CONFIG_PATH)) saveConfig(DEFAULT_CONFIG);
+        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    } catch {
+        return { ...DEFAULT_CONFIG };
+    }
+}
+
+function saveConfig(cfg) {
+    try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
+    } catch (err) {
+        console.error('⚠️ Failed to save readreceipts config:', err);
+    }
+}
+
+const STATUS_LABEL = {
+    all:      '✅ ON — Everyone sees your blue ticks',
+    contacts: '👥 CONTACTS — Only contacts see your blue ticks',
+    none:     '❌ OFF — No one sees your blue ticks'
+};
 
 module.exports = {
     name: 'readreceipts',
     aliases: ['rr', 'bluemark', 'bluetick', 'readreceipt'],
     category: 'owner',
-    description: 'Toggle read receipts (blue ticks) on or off',
-    usage: '.readreceipts <on/off>',
+    description: 'Toggle read receipts (blue ticks) — on, off, or contacts only',
+    usage: '.readreceipts <on | off | contacts>',
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {
+        const chatId = extra.from;
+
         try {
-            if (!args[0]) {
-                return extra.reply(
-                    `👁️ *Read Receipts*\n━━━━━━━━━━━━━━━\n\n` +
-                    `Toggle blue ticks visibility.\n\n` +
-                    `*Usage:*\n` +
-                    `  .readreceipts on — Others see your blue ticks\n` +
-                    `  .readreceipts off — Hide blue ticks from others`
-                );
+            const cfg = loadConfig();
+            const opt = args[0]?.toLowerCase();
+
+            // ── No args: show current status ──────────────────────────────
+            if (!opt) {
+                const current = cfg.readReceipts || 'all';
+                return await sock.sendMessage(chatId, {
+                    text: [
+                        `👁️ *Read Receipts*`,
+                        ``,
+                        `📊 *Current Status:* ${STATUS_LABEL[current] || current}`,
+                        ``,
+                        `*Options:*`,
+                        `  • \`.readreceipts on\` — Send to everyone`,
+                        `  • \`.readreceipts contacts\` — Send to contacts only`,
+                        `  • \`.readreceipts off\` — Send to no one`
+                    ].join('\n')
+                }, { quoted: msg });
             }
 
-            const opt = args[0].toLowerCase();
-
+            // ── on ────────────────────────────────────────────────────────
             if (opt === 'on') {
+                cfg.readReceipts = 'all';
+                saveConfig(cfg);
                 await sock.updateReadReceiptsPrivacy('all');
-                return extra.reply('✅ *Read Receipts turned ON*\n\nOthers will see blue ticks when you read messages.');
+                return await sock.sendMessage(chatId, {
+                    text: `✅ *Read Receipts turned ON*\n\nEveryone will see blue ticks when you read messages.`
+                }, { quoted: msg });
             }
 
+            // ── contacts ──────────────────────────────────────────────────
+            if (opt === 'contacts') {
+                cfg.readReceipts = 'contacts';
+                saveConfig(cfg);
+                await sock.updateReadReceiptsPrivacy('contacts');
+                return await sock.sendMessage(chatId, {
+                    text: `👥 *Read Receipts set to CONTACTS*\n\nOnly your contacts will see blue ticks.`
+                }, { quoted: msg });
+            }
+
+            // ── off ───────────────────────────────────────────────────────
             if (opt === 'off') {
+                cfg.readReceipts = 'none';
+                saveConfig(cfg);
                 await sock.updateReadReceiptsPrivacy('none');
-                return extra.reply('✅ *Read Receipts turned OFF*\n\nBlue ticks are now hidden from others.');
+                return await sock.sendMessage(chatId, {
+                    text: `❌ *Read Receipts turned OFF*\n\nNo one will see blue ticks when you read messages.`
+                }, { quoted: msg });
             }
 
-            return extra.reply('⚠️ Use: .readreceipts on/off');
+            return await sock.sendMessage(chatId, {
+                text: `⚠️ Invalid option.\n\nUsage: \`.readreceipts on | off | contacts\``
+            }, { quoted: msg });
 
         } catch (error) {
             console.error('readreceipts error:', error);
-            await extra.reply(`❌ Error: ${error.message}`);
+            await sock.sendMessage(chatId, {
+                text: `❌ Failed to update read receipts: ${error.message}`
+            }, { quoted: msg });
         }
     }
 };
