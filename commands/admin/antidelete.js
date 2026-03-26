@@ -16,7 +16,6 @@
 
 const fs       = require('fs');
 const path     = require('path');
-const config   = require('../../config');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 const CONFIG_PATH = path.join(__dirname, '../../data/antidelete.json');
@@ -217,9 +216,10 @@ const handleDelete = async (sock, revokeItems) => {
             // Resolve target JID
             let targetJid = chatId; // default: 'chat' mode
             if (chatCfg.mode === 'private') {
-                const ownerNum = (config.ownerNumber || []).find(n => n);
-                if (!ownerNum) continue;
-                targetJid = ownerNum.includes('@') ? ownerNum : `${ownerNum}@s.whatsapp.net`;
+                // Send to the bot's own number (sock.user) so it appears in the bot's DM/Saved Messages
+                const botId = sock.user?.id;
+                if (!botId) continue;
+                targetJid = botId.includes(':') ? botId.split(':')[0] + '@s.whatsapp.net' : botId;
             }
 
             await sendRecovered(sock, targetJid, stored);
