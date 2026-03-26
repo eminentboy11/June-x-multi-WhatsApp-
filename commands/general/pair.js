@@ -85,11 +85,8 @@ module.exports = {
                             }
                         ]
                     }, { quoted: msg });
-                    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+                 await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
-                    await sock.sendMessage(chatId, {
-                        text: `📌 *How to Link ${number}*\n\n1️⃣ Copy the code above 🔝\n2️⃣ Open WhatsApp 📱\n3️⃣ Go to *Settings > Linked Devices* ⚙️\n4️⃣ Tap *Link a Device* 🔗\n5️⃣ Enter the code 🔑\n6️⃣ Wait for it to load ⏳\n7️⃣ Done! 🎉 Your device is now linked.\n\n💡 Use the *session_id* in your DM to deploy 🚀`
-                    }, { quoted: msg });
 
                 } catch (apiError) {
                     console.error('Pair API Error:', apiError.message);
