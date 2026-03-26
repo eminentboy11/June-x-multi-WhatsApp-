@@ -42,27 +42,18 @@ async function loadWebP(webpBuffer) {
 }
 
 /**
- * Convert WebP to PNG (first frame only — works for static and animated).
+ * Convert static WebP to PNG.
+ * ffmpeg-static handles static WebP perfectly — only animated WebP is broken.
  * @param {Buffer} webpBuffer
  * @returns {Promise<Buffer>} PNG buffer
  */
 async function webp2png(webpBuffer) {
-    const ts      = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const rawPath = tmp('_rgba.bin', ts);
+    const ts     = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const inPath = tmp('_in.webp', ts);
     const outPath = tmp('_out.png', ts);
     try {
-        const { img } = await loadWebP(webpBuffer);
-        const w    = img.width;
-        const h    = img.height;
-        const rgba = await img.getImageData();   // RGBA of first / only frame
-        fs.writeFileSync(rawPath, rgba);
-
-        await run(
-            `"${ffmpegPath}" -y ` +
-            `-f rawvideo -pix_fmt rgba -video_size ${w}x${h} -framerate 1 -i "${rawPath}" ` +
-            `-frames:v 1 "${outPath}"`
-        );
-
+        fs.writeFileSync(inPath, webpBuffer);
+        await run(`"${ffmpegPath}" -y -i "${inPath}" -frames:v 1 "${outPath}"`);
         if (!fs.existsSync(outPath)) throw new Error('PNG output not produced');
         return fs.readFileSync(outPath);
     } catch (err) {
@@ -70,7 +61,7 @@ async function webp2png(webpBuffer) {
         if (err.ffmpegStderr) console.error('[webp2png] ffmpeg:', err.ffmpegStderr.slice(0, 400));
         throw err;
     } finally {
-        try { fs.unlinkSync(rawPath); } catch {}
+        try { fs.unlinkSync(inPath); } catch {}
         try { fs.unlinkSync(outPath); } catch {}
     }
 }
