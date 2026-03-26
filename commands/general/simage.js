@@ -49,35 +49,28 @@ module.exports = {
         return await extra.reply('❌ Failed to download sticker. Please try again.');
       }
       
-      // Check if sticker is animated
-      const isAnimated = stickerMessage.isAnimated || stickerMessage.mimetype?.includes('animated');
-      
+      // Detect animated sticker — check flag OR sniff the WebP bytes for ANIM chunk
+      let isAnimated = !!(stickerMessage.isAnimated);
+      if (!isAnimated) {
+        // ANIM chunk marker in animated WebP: bytes 12-15 = 0x41 0x4E 0x49 0x4D ("ANIM")
+        // ANMF chunk marker: 0x41 0x4E 0x4D 0x46 ("ANMF")
+        const hex = stickerBuffer.toString('hex');
+        isAnimated = hex.includes('414e494d') || hex.includes('414e4d46');
+      }
+
       if (isAnimated) {
-        // For animated stickers, convert directly to MP4 video
+        // Animated sticker → MP4 (FFmpeg decodes animated WebP natively)
         const { webp2mp4 } = require('../../utils/webp2mp4');
         const mp4Buffer = await webp2mp4(stickerBuffer);
-        
-        if (!mp4Buffer || mp4Buffer.length === 0) {
-          throw new Error('MP4 buffer is empty or null');
-        }
-        
-        // Check file size (WhatsApp has limits)
-        const maxSize = 16 * 1024 * 1024; // 16MB for videos
-        if (mp4Buffer.length > maxSize) {
-          throw new Error(`MP4 file too large: ${(mp4Buffer.length / 1024 / 1024).toFixed(2)}MB`);
-        }
-        
-        // Send as MP4 video
+        if (!mp4Buffer || mp4Buffer.length === 0) throw new Error('MP4 buffer is empty');
         await sock.sendMessage(extra.from, {
           video: mp4Buffer,
           mimetype: 'video/mp4',
           gifPlayback: true
         }, { quoted: msg });
       } else {
-        // Convert static WebP to PNG
+        // Static sticker → PNG (FFmpeg grabs first frame)
         const imageBuffer = await webp2png(stickerBuffer);
-        
-        // Send as image (no caption)
         await sock.sendMessage(extra.from, {
           image: imageBuffer
         }, { quoted: msg });
