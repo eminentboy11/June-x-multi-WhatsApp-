@@ -2,6 +2,8 @@
  * Instagram to Sticker Commands
  * igs - Convert Instagram media to sticker (with padding, maintains aspect ratio)
  * igsc - Convert Instagram media to cropped square sticker
+ * 
+ * Updated to generate larger stickers (up to 1024×1024) while staying under 1MB.
  */
 
 const { igdl } = require('ruhend-scraper');
@@ -89,16 +91,18 @@ function pickMediaUrl(media) {
   return null;
 }
 
-// Max file size: 50MB
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
+// Max file size: 50MB (input)
+const MAX_INPUT_SIZE = 50 * 1024 * 1024;
 // Max media duration: 5 minutes
 const MAX_DURATION_SECONDS = 5 * 60;
+// Target sticker size (larger than default)
+const TARGET_SIZE = 1024; // 1024×1024 – produces larger stickers
 
-// Convert buffer to sticker webp
+// Convert buffer to sticker webp with larger target size
 async function convertBufferToStickerWebp(inputBuffer, isAnimated, cropSquare) {
   // Check file size
-  if (inputBuffer.length > MAX_FILE_SIZE) {
-    throw new Error(`File too large: ${(inputBuffer.length / 1024 / 1024).toFixed(2)}MB (max: ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
+  if (inputBuffer.length > MAX_INPUT_SIZE) {
+    throw new Error(`File too large: ${(inputBuffer.length / 1024 / 1024).toFixed(2)}MB (max: ${MAX_INPUT_SIZE / 1024 / 1024}MB)`);
   }
 
   const tmpDir = getTempDir();
@@ -111,24 +115,26 @@ async function convertBufferToStickerWebp(inputBuffer, isAnimated, cropSquare) {
   try {
     fs.writeFileSync(tempInput, inputBuffer);
 
-    // Image filters
-    const vfCropSquareImg = "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512";
-    const vfPadSquareImg = "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000";
+    // Use TARGET_SIZE instead of hardcoded 512
+    const size = TARGET_SIZE;
+    // Image filters with dynamic size
+    const vfCropSquareImg = `crop=min(iw\\,ih):min(iw\\,ih),scale=${size}:${size}`;
+    const vfPadSquareImg = `scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=${size}:${size}:(ow-iw)/2:(oh-ih)/2:color=#00000000`;
 
     let ffmpegCommand;
     if (isAnimated) {
-    // For videos/GIFs - aggressive compression from start
-    const isLargeVideo = inputBuffer.length > (3 * 1024 * 1024); // >3MB threshold lowered
-    // Always use max 2 seconds, lower fps, lower quality
-    if (cropSquare) {
-      ffmpegCommand = `ffmpeg -y -i "${tempInput}" -t 2 -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,fps=6" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 25 -compression_level 6 -b:v 60k -max_muxing_queue_size 1024 "${tempOutput}"`;
+      // For videos – try with higher resolution first
+      const isLargeVideo = inputBuffer.length > (3 * 1024 * 1024); // >3MB threshold
+      // Use max 2 seconds, fps=6, moderate quality
+      if (cropSquare) {
+        ffmpegCommand = `ffmpeg -y -i "${tempInput}" -t 2 -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=${size}:${size},fps=6" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 80k -max_muxing_queue_size 1024 "${tempOutput}"`;
+      } else {
+        ffmpegCommand = `ffmpeg -y -i "${tempInput}" -t 2 -vf "scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=${size}:${size}:(ow-iw)/2:(oh-ih)/2:color=#00000000,fps=6" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 80k -max_muxing_queue_size 1024 "${tempOutput}"`;
+      }
     } else {
-      ffmpegCommand = `ffmpeg -y -i "${tempInput}" -t 2 -vf "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000,fps=6" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 25 -compression_level 6 -b:v 60k -max_muxing_queue_size 1024 "${tempOutput}"`;
-    }
-  } else {
-    // For images - lower quality
-    const vf = `${cropSquare ? vfCropSquareImg : vfPadSquareImg},format=rgba`;
-      ffmpegCommand = `ffmpeg -y -i "${tempInput}" -vf "${vf}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 60 -compression_level 6 "${tempOutput}"`;
+      // For images – higher quality, larger size
+      const vf = `${cropSquare ? vfCropSquareImg : vfPadSquareImg},format=rgba`;
+      ffmpegCommand = `ffmpeg -y -i "${tempInput}" -vf "${vf}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 70 -compression_level 6 "${tempOutput}"`;
     }
 
     await new Promise((resolve, reject) => {
@@ -141,53 +147,57 @@ async function convertBufferToStickerWebp(inputBuffer, isAnimated, cropSquare) {
     // Check file size and re-encode with more aggressive settings if needed
     let webpBuffer = fs.readFileSync(tempOutput);
     
-    // Progressive compression: keep reducing until under 1MB
+    // Progressive compression: start with target size, then reduce if still too large
     let attempts = 0;
-    const maxAttempts = 8; // Increased attempts
+    const maxAttempts = 10;
+    let currentSize = TARGET_SIZE;
     while (webpBuffer.length > 950 * 1024 && attempts < maxAttempts) {
-    attempts++;
-    try {
-      const tempOutput2 = path.join(tmpDir, `igs_out${attempts}_${Date.now()}_${Math.random().toString(36).slice(2)}.webp`);
-      tempFiles.push(tempOutput2);
-      let harsherCmd;
+      attempts++;
+      // Reduce size by ~20% each attempt
+      currentSize = Math.floor(currentSize * 0.8);
+      if (currentSize < 128) currentSize = 128; // absolute minimum
       
-      if (isAnimated) {
-        // Progressively reduce more aggressively
-        const fps = Math.max(3, 6 - attempts);
-        const quality = Math.max(10, 25 - (attempts * 3));
-        const bitrate = Math.max(30, 60 - (attempts * 5));
-        const duration = Math.max(0.5, 2 - (attempts * 0.25));
-        const size = attempts <= 2 ? 512 : (attempts <= 4 ? 400 : (attempts <= 6 ? 320 : 256));
+      try {
+        const tempOutput2 = path.join(tmpDir, `igs_out${attempts}_${Date.now()}_${Math.random().toString(36).slice(2)}.webp`);
+        tempFiles.push(tempOutput2);
+        let harsherCmd;
         
-        if (cropSquare) {
-          harsherCmd = `ffmpeg -y -i "${tempInput}" -t ${duration} -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=${size}:${size},fps=${fps}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${quality} -compression_level 6 -b:v ${bitrate}k -max_muxing_queue_size 1024 "${tempOutput2}"`;
+        if (isAnimated) {
+          // Reduce quality, fps, bitrate, and duration
+          const fps = Math.max(3, 6 - Math.floor(attempts / 2));
+          const quality = Math.max(10, 30 - (attempts * 2));
+          const bitrate = Math.max(30, 80 - (attempts * 5));
+          const duration = Math.max(1, 2 - (attempts * 0.2));
+          
+          if (cropSquare) {
+            harsherCmd = `ffmpeg -y -i "${tempInput}" -t ${duration} -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=${currentSize}:${currentSize},fps=${fps}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${quality} -compression_level 6 -b:v ${bitrate}k -max_muxing_queue_size 1024 "${tempOutput2}"`;
+          } else {
+            harsherCmd = `ffmpeg -y -i "${tempInput}" -t ${duration} -vf "scale=${currentSize}:${currentSize}:force_original_aspect_ratio=decrease,pad=${currentSize}:${currentSize}:(ow-iw)/2:(oh-ih)/2:color=#00000000,fps=${fps}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${quality} -compression_level 6 -b:v ${bitrate}k -max_muxing_queue_size 1024 "${tempOutput2}"`;
+          }
         } else {
-          harsherCmd = `ffmpeg -y -i "${tempInput}" -t ${duration} -vf "scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=${size}:${size}:(ow-iw)/2:(oh-ih)/2:color=#00000000,fps=${fps}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${quality} -compression_level 6 -b:v ${bitrate}k -max_muxing_queue_size 1024 "${tempOutput2}"`;
+          // For images: reduce quality and resolution progressively
+          const quality = Math.max(30, 70 - (attempts * 5));
+          const vf = cropSquare
+            ? `crop=min(iw\\,ih):min(iw\\,ih),scale=${currentSize}:${currentSize},format=rgba`
+            : `scale=${currentSize}:${currentSize}:force_original_aspect_ratio=decrease,pad=${currentSize}:${currentSize}:(ow-iw)/2:(oh-ih)/2:color=#00000000,format=rgba`;
+          harsherCmd = `ffmpeg -y -i "${tempInput}" -vf "${vf}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${quality} -compression_level 6 "${tempOutput2}"`;
         }
-      } else {
-        // For images: reduce quality and resolution progressively
-        const quality = Math.max(30, 60 - (attempts * 5));
-        const size = attempts === 1 ? 512 : (attempts === 2 ? 400 : (attempts === 3 ? 320 : (attempts === 4 ? 256 : 200)));
-        const vf = cropSquare
-          ? `crop=min(iw\\,ih):min(iw\\,ih),scale=${size}:${size},format=rgba`
-          : `scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=${size}:${size}:(ow-iw)/2:(oh-ih)/2:color=#00000000,format=rgba`;
-        harsherCmd = `ffmpeg -y -i "${tempInput}" -vf "${vf}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${quality} -compression_level 6 "${tempOutput2}"`;
-      }
-      
-      await new Promise((resolve, reject) => {
-        exec(harsherCmd, (error) => error ? reject(error) : resolve());
-      });
-      
-      if (fs.existsSync(tempOutput2)) {
-        const newBuffer = fs.readFileSync(tempOutput2);
-        webpBuffer = newBuffer; // Always use new buffer if it exists
-      }
-    } catch (e) {
-      // Continue trying even on error
-      if (attempts >= maxAttempts) break;
+        
+        await new Promise((resolve, reject) => {
+          exec(harsherCmd, (error) => error ? reject(error) : resolve());
+        });
+        
+        if (fs.existsSync(tempOutput2)) {
+          const newBuffer = fs.readFileSync(tempOutput2);
+          webpBuffer = newBuffer; // Always use new buffer if it exists
+        }
+      } catch (e) {
+        // Continue trying even on error
+        if (attempts >= maxAttempts) break;
       }
     }
 
+    // Add EXIF metadata
     const img = new webp.Image();
     await img.load(webpBuffer);
 
@@ -206,41 +216,11 @@ async function convertBufferToStickerWebp(inputBuffer, isAnimated, cropSquare) {
 
     // Absolute final safety: if still too large, force ultra-mini sticker
     if (finalBuffer.length > 950 * 1024) {
-    try {
-      // Try progressively smaller sizes until under 1MB
-      const sizes = [256, 200, 180, 160, 128];
-      for (const size of sizes) {
-        const tempOutput3 = path.join(tmpDir, `igs_mini_${size}_${Date.now()}_${Math.random().toString(36).slice(2)}.webp`);
-        tempFiles.push(tempOutput3);
-        const vfSmall = cropSquare
-          ? `crop=min(iw\\,ih):min(iw\\,ih),scale=${size}:${size}${isAnimated ? ',fps=3' : ''}`
-          : `scale=${size}:${size}:force_original_aspect_ratio=decrease,pad=${size}:${size}:(ow-iw)/2:(oh-ih)/2:color=#00000000${isAnimated ? ',fps=3' : ''}`;
-        const cmdSmall = `ffmpeg -y -i "${tempInput}" ${isAnimated ? '-t 0.5' : ''} -vf "${vfSmall}" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality ${isAnimated ? 15 : 30} -compression_level 6 -b:v 30k -max_muxing_queue_size 1024 "${tempOutput3}"`;
-        await new Promise((resolve, reject) => {
-          exec(cmdSmall, (error) => error ? reject(error) : resolve());
-        });
-        if (fs.existsSync(tempOutput3)) {
-          const smallWebp = fs.readFileSync(tempOutput3);
-          const img2 = new webp.Image();
-          await img2.load(smallWebp);
-          const json2 = {
-            'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-            'sticker-pack-name': config.packname || 'Made by',
-            'emojis': ['📸']
-          };
-          const exifAttr2 = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
-          const jsonBuffer2 = Buffer.from(JSON.stringify(json2), 'utf8');
-          const exif2 = Buffer.concat([exifAttr2, jsonBuffer2]);
-          exif2.writeUIntLE(jsonBuffer2.length, 14, 4);
-          img2.exif = exif2;
-          const newFinalBuffer = await img2.save(null);
-          if (newFinalBuffer.length <= 950 * 1024) {
-            finalBuffer = newFinalBuffer;
-            break; // Found a size that works
-          }
-        }
+      // Use forceMiniSticker with progressive sizes
+      const miniBuffer = await forceMiniSticker(inputBuffer, isAnimated, cropSquare);
+      if (miniBuffer) {
+        finalBuffer = miniBuffer;
       }
-    } catch {}
     }
 
     return finalBuffer;
@@ -374,14 +354,15 @@ async function fetchBufferFromUrl(url, itemIndex = 0) {
   throw new Error(`Failed to download media after ${maxRetries} attempts: ${lastError?.message || lastError}`);
 }
 
-// Extreme fallback to force very small stickers when needed
+// Extreme fallback to force very small stickers when needed (now starts from 512 and goes down)
 async function forceMiniSticker(inputBuffer, isVideo, cropSquare) {
   const tmpDir = getTempDir();
   const tempFiles = [];
 
   try {
-    // Try multiple sizes progressively
-    for (const size of [256, 200, 180, 160]) {
+    // Try multiple sizes progressively, starting from 512 (which is still larger than old fallback)
+    const sizes = [512, 400, 320, 256, 200, 180, 160];
+    for (const size of sizes) {
       const tempInput = path.join(tmpDir, `mini_${size}_${Date.now()}.${isVideo ? 'mp4' : 'jpg'}`);
       const tempOutput = path.join(tmpDir, `mini_out_${size}_${Date.now()}.webp`);
       tempFiles.push(tempInput, tempOutput);
@@ -452,7 +433,6 @@ async function igsCommand(sock, msg, args, extra, crop = false) {
     }
     
     // Get all media items from scraper - process in order without URL deduplication
-    // The scraper returns items in sequence, so we should process them as-is
     const mediaData = downloadData.data || [];
     const rawItems = mediaData.filter(m => m && pickMediaUrl(m));
     
@@ -554,7 +534,7 @@ async function igsCommand(sock, msg, args, extra, crop = false) {
           }
         }
 
-        // Send the sticker (even if slightly over, WhatsApp might accept it)
+        // Send the sticker
         try {
           await sock.sendMessage(extra.from, { sticker: finalSticker }, { quoted: msg });
           successCount++;
@@ -572,6 +552,12 @@ async function igsCommand(sock, msg, args, extra, crop = false) {
         // Continue with next item - don't stop processing
       }
     }
+
+    // Optional: send summary if multiple items were processed
+    if (maxItems > 1) {
+      const summary = `✅ Stickers: ${successCount} sent | ❌ Failed: ${failCount} | ⏭️ Skipped: ${skippedCount}`;
+      await extra.reply(summary);
+    }
   } catch (err) {
     console.error('Error in igs command:', err);
     await extra.reply('❌ Failed to create sticker from Instagram link.');
@@ -581,7 +567,7 @@ async function igsCommand(sock, msg, args, extra, crop = false) {
 module.exports = {
   name: 'igs',
   aliases: ['igsticker'],
-  description: 'Convert Instagram post/reel to sticker (maintains aspect ratio with padding)',
+  description: 'Convert Instagram post/reel to sticker (maintains aspect ratio with padding) – now produces larger stickers up to 1024×1024!',
   usage: '.igs <Instagram URL>',
   category: 'media',
   
@@ -589,4 +575,3 @@ module.exports = {
     await igsCommand(sock, msg, args, extra, false);
   }
 };
-
