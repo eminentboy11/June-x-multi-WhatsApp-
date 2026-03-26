@@ -158,14 +158,14 @@ function getButtons() {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '💻 Bot Repo',
-        url: config.social?.github || 'https://github.com/mruniquehacker'
+        url: config.social?.github || 'https://github.com/Vinpink2'
       })
     },
     {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '📺 YouTube',
-        url: config.social?.youtube || 'http://youtube.com/@mr_unique_hacker'
+        url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
       })
     }
   ];
@@ -233,51 +233,21 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '3') {
-        const style3Buttons = [
-          {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-              display_text: '🗂️ Bot Repo',
-              url: config.social?.github || 'https://github.com/mruniquehacker'
-            })
-          }
-        ];
-        const style3Footer = `> *${botname}* v2.0 — Powered by Supreme`;
-        try {
-          await sendButtons(sock, chatId, {
-            title: '',
-            text: applyFont(menulist),
-            footer: style3Footer,
-            buttons: style3Buttons,
-            contextInfo: {
-              externalAdReply: {
-                showAdAttribution: false,
-                title: botname,
-                body: ownername,
-                thumbnail: tylorkids,
-                sourceUrl: plink,
-                mediaType: 1,
-                renderLargerThumbnail: true,
-              },
+        await sock.sendMessage(chatId, {
+          text: fullMenu,
+          mentions: [extra.sender],
+          contextInfo: {
+            externalAdReply: {
+              showAdAttribution: false,
+              title: botname,
+              body: ownername,
+              thumbnail: tylorkids,
+              sourceUrl: plink,
+              mediaType: 1,
+              renderLargerThumbnail: true,
             },
-          }, { quoted: msg });
-        } catch {
-          await sock.sendMessage(chatId, {
-            text: fullMenu,
-            mentions: [extra.sender],
-            contextInfo: {
-              externalAdReply: {
-                showAdAttribution: false,
-                title: botname,
-                body: ownername,
-                thumbnail: tylorkids,
-                sourceUrl: plink,
-                mediaType: 1,
-                renderLargerThumbnail: true,
-              },
-            },
-          }, { quoted: msg });
-        }
+          },
+        }, { quoted: msg });
 
       } else if (menustyle === '4') {
         await sock.sendMessage(chatId, {
