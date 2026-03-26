@@ -96,7 +96,7 @@ module.exports = {
     social: {
       github: 'https://github.com/Vinpink2/June-X-Ultra',
       instagram: 'https://instagram.com/activator_negative',
-      youtube: 'http://youtube.com/suprem_e_lord'
+      youtube: 'http://youtube.com/@suprem_e_lord'
     }
 };
   
