@@ -46,12 +46,8 @@ module.exports = {
         const memTotal = (mem.heapTotal / 1024 / 1024).toFixed(1);
 
         const text = [
-            `   *${config.botName}*`,
-            ``,
-            ` 🍎 *Uptime:* ${formatUptime(uptime)}`,
-            
-            ` 🔹 *Platform:* ${detectPlatform()}`,
-        
+            ` 🍎 *Uptime:* ${formatUptime(uptime)}`,            
+            ` 🔹 *Platform:* ${detectPlatform()}`,        
             ` 🔹 *Memory:* ${memUsed}MB / ${memTotal}MB`
         ].join('\n');
 
