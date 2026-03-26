@@ -39,9 +39,9 @@ module.exports = {
           return extra.reply(
             '📝 *Group Status Usage*\n\n' +
             '• Reply to image/video/audio with:\n' +
-            '  `.groupstatus [optional caption]`\n' +
+            '  .groupstatus [optional caption]\n' +
             '• Or send text status only:\n' +
-            '  `.groupstatus Your text here`\n\n' +
+            '  .groupstatus Your text here\n\n' +
             'Text statuses use a single purple background color by default.'
           );
         }
@@ -83,7 +83,6 @@ module.exports = {
 
       // IMAGE (also handles stickers)
       if (/image|sticker/i.test(mtype)) {
-        await extra.reply('⏳ Posting image group status...');
         let buf;
         try {
           buf = await downloadBuf();
@@ -97,7 +96,7 @@ module.exports = {
             image: buf,
             caption: caption || '',
           });
-          return extra.reply('✅ Image group status posted!');
+          return extra.reply('✅');
         } catch (e) {
           console.error('groupstatus image error:', e);
           return extra.reply('❌ Failed to post image group status: ' + (e.message || e));
@@ -106,7 +105,6 @@ module.exports = {
 
       // VIDEO
       if (/video/i.test(mtype)) {
-        await extra.reply('⏳ Posting video group status...');
         let buf;
         try {
           buf = await downloadBuf();
@@ -120,7 +118,7 @@ module.exports = {
             video: buf,
             caption: caption || '',
           });
-          return extra.reply('✅ Video group status posted!');
+          return extra.reply('✅');
         } catch (e) {
           console.error('groupstatus video error:', e);
           return extra.reply('❌ Failed to post video group status: ' + (e.message || e));
@@ -159,7 +157,7 @@ module.exports = {
             ptt: true,
             waveform,
           });
-          return extra.reply('✅ Audio group status posted!');
+          return extra.reply('✅');
         } catch (e) {
           console.error('groupstatus audio error:', e);
           return extra.reply('❌ Failed to post audio group status: ' + (e.message || e));
