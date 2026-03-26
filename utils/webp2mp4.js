@@ -1,7 +1,12 @@
 /**
  * WebP to PNG / MP4 / GIF Converter
- * Uses FFmpeg directly — no intermediate frame extraction needed.
- * FFmpeg natively reads both static and animated WebP (including WhatsApp sticker format).
+ *
+ * Strategy — avoids ffmpeg-static's broken animated-WebP decoder entirely:
+ *   node-webpmux  → decodes WebP container, yields raw RGBA pixels per frame
+ *   ffmpeg-static → receives raw RGBA frames via -f rawvideo → encodes MP4/GIF/PNG
+ *
+ * This works because ffmpeg-static's rawvideo reader is always available,
+ * even though its WebP demuxer cannot decode animated WebP.
  */
 
 const fs         = require('fs');
@@ -12,40 +17,77 @@ const { getTempDir, deleteTempFile } = require('./tempManager');
 
 function run(cmd) {
     return new Promise((resolve, reject) => {
-        exec(cmd, { maxBuffer: 50 * 1024 * 1024 }, (err, _stdout, stderr) => {
-            if (err) {
-                // attach stderr so callers can log it
-                err.ffmpegStderr = stderr || '';
-                return reject(err);
-            }
+        exec(cmd, { maxBuffer: 100 * 1024 * 1024 }, (err, _stdout, stderr) => {
+            if (err) { err.ffmpegStderr = stderr || ''; return reject(err); }
             resolve();
         });
     });
 }
 
-function tmpPath(ext, ts) {
-    return path.join(getTempDir(), `webp_${ts}${ext}`);
+function tmp(suffix, ts) {
+    return path.join(getTempDir(), `webp_${ts}${suffix}`);
 }
 
 /**
- * Convert WebP sticker to PNG image (static or first frame of animated).
+ * Load a WebP buffer with node-webpmux.
+ * Returns { img, isAnimated, frameCount }
+ */
+async function loadWebP(webpBuffer) {
+    const { Image } = require('node-webpmux');
+    const img = new Image();
+    await img.load(webpBuffer);
+    const frameCount = Array.isArray(img.frames) ? img.frames.length : 0;
+    return { img, isAnimated: frameCount > 0, frameCount };
+}
+
+/**
+ * Convert WebP to PNG (first frame only — works for static and animated).
  * @param {Buffer} webpBuffer
  * @returns {Promise<Buffer>} PNG buffer
  */
 async function webp2png(webpBuffer) {
-    const ts  = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const inp = tmpPath('_in.webp', ts);
-    const out = tmpPath('_out.png', ts);
+    const ts      = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const rawPath = tmp('_rgba.bin', ts);
+    const outPath = tmp('_out.png', ts);
     try {
-        fs.writeFileSync(inp, webpBuffer);
-        // -frames:v 1  → grab only the first frame (works for both static + animated)
-        await run(`"${ffmpegPath}" -y -i "${inp}" -frames:v 1 "${out}"`);
-        if (!fs.existsSync(out)) throw new Error('FFmpeg produced no PNG output');
-        return fs.readFileSync(out);
+        const { img } = await loadWebP(webpBuffer);
+        const w    = img.width;
+        const h    = img.height;
+        const rgba = await img.getImageData();   // RGBA of first / only frame
+        fs.writeFileSync(rawPath, rgba);
+
+        await run(
+            `"${ffmpegPath}" -y ` +
+            `-f rawvideo -pix_fmt rgba -video_size ${w}x${h} -framerate 1 -i "${rawPath}" ` +
+            `-frames:v 1 "${outPath}"`
+        );
+
+        if (!fs.existsSync(outPath)) throw new Error('PNG output not produced');
+        return fs.readFileSync(outPath);
+    } catch (err) {
+        console.error('[webp2png] error:', err.message);
+        if (err.ffmpegStderr) console.error('[webp2png] ffmpeg:', err.ffmpegStderr.slice(0, 400));
+        throw err;
     } finally {
-        try { fs.unlinkSync(inp); } catch {}
-        try { fs.unlinkSync(out); } catch {}
+        try { fs.unlinkSync(rawPath); } catch {}
+        try { fs.unlinkSync(outPath); } catch {}
     }
+}
+
+/**
+ * Collect all frames as a single concatenated RGBA buffer.
+ * Falls back to a single frame if the WebP is not animated.
+ */
+async function collectRawFrames(img, frameCount) {
+    if (frameCount === 0) {
+        // static — single frame
+        return { rgba: await img.getImageData(), count: 1 };
+    }
+    const bufs = [];
+    for (let i = 0; i < frameCount; i++) {
+        bufs.push(await img.getFrameData(i));
+    }
+    return { rgba: Buffer.concat(bufs), count: frameCount };
 }
 
 /**
@@ -54,29 +96,43 @@ async function webp2png(webpBuffer) {
  * @returns {Promise<Buffer>} MP4 buffer
  */
 async function webp2mp4(webpBuffer) {
-    const ts  = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const inp = tmpPath('_in.webp', ts);
-    const out = tmpPath('_out.mp4', ts);
+    const ts      = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const rawPath = tmp('_rgba.bin', ts);
+    const outPath = tmp('_out.mp4', ts);
     try {
-        fs.writeFileSync(inp, webpBuffer);
-        // FFmpeg decodes animated WebP directly — no frame extraction needed
+        const { img, frameCount } = await loadWebP(webpBuffer);
+        const w = img.width;
+        const h = img.height;
+
+        const { rgba, count } = await collectRawFrames(img, frameCount);
+        fs.writeFileSync(rawPath, rgba);
+
+        // Determine frame rate from first frame delay (ms → fps), clamped 10-30
+        let fps = 15;
+        if (frameCount > 0 && img.frames[0].delay) {
+            fps = Math.round(1000 / img.frames[0].delay);
+            fps = Math.max(10, Math.min(30, fps));
+        }
+
         await run(
-            `"${ffmpegPath}" -y -i "${inp}" ` +
+            `"${ffmpegPath}" -y ` +
+            `-f rawvideo -pix_fmt rgba -video_size ${w}x${h} -framerate ${fps} -i "${rawPath}" ` +
             `-vf "scale=512:512:flags=lanczos:force_original_aspect_ratio=decrease,` +
             `pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black" ` +
-            `-c:v libx264 -pix_fmt yuv420p -movflags +faststart "${out}"`
+            `-c:v libx264 -pix_fmt yuv420p -movflags +faststart "${outPath}"`
         );
-        if (!fs.existsSync(out)) throw new Error('FFmpeg produced no MP4 output');
-        const buf = fs.readFileSync(out);
+
+        if (!fs.existsSync(outPath)) throw new Error('MP4 output not produced');
+        const buf = fs.readFileSync(outPath);
         if (!buf || buf.length === 0) throw new Error('MP4 buffer is empty');
         return buf;
     } catch (err) {
-        console.error('[webp2mp4] FFmpeg error:', err.message);
-        if (err.ffmpegStderr) console.error('[webp2mp4] stderr:', err.ffmpegStderr.slice(0, 600));
+        console.error('[webp2mp4] error:', err.message);
+        if (err.ffmpegStderr) console.error('[webp2mp4] ffmpeg:', err.ffmpegStderr.slice(0, 400));
         throw err;
     } finally {
-        try { fs.unlinkSync(inp); } catch {}
-        try { fs.unlinkSync(out); } catch {}
+        try { fs.unlinkSync(rawPath); } catch {}
+        try { fs.unlinkSync(outPath); } catch {}
     }
 }
 
@@ -87,39 +143,53 @@ async function webp2mp4(webpBuffer) {
  */
 async function webp2gif(webpBuffer) {
     const ts       = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const inp      = tmpPath('_in.webp', ts);
-    const palette  = tmpPath('_pal.png', ts);
-    const out      = tmpPath('_out.gif', ts);
+    const rawPath  = tmp('_rgba.bin', ts);
+    const palPath  = tmp('_pal.png', ts);
+    const outPath  = tmp('_out.gif', ts);
     try {
-        fs.writeFileSync(inp, webpBuffer);
+        const { img, frameCount } = await loadWebP(webpBuffer);
+        const w = img.width;
+        const h = img.height;
 
-        // Step 1: generate an optimal palette from the video stream
+        const { rgba } = await collectRawFrames(img, frameCount);
+        fs.writeFileSync(rawPath, rgba);
+
+        let fps = 15;
+        if (frameCount > 0 && img.frames[0].delay) {
+            fps = Math.round(1000 / img.frames[0].delay);
+            fps = Math.max(10, Math.min(30, fps));
+        }
+
+        // Generate palette
         await run(
-            `"${ffmpegPath}" -y -i "${inp}" ` +
-            `-vf "fps=15,scale=512:512:flags=lanczos:force_original_aspect_ratio=decrease,` +
-            `pad=512:512:(ow-iw)/2:(oh-ih)/2,palettegen" "${palette}"`
+            `"${ffmpegPath}" -y ` +
+            `-f rawvideo -pix_fmt rgba -video_size ${w}x${h} -framerate ${fps} -i "${rawPath}" ` +
+            `-vf "scale=512:512:flags=lanczos:force_original_aspect_ratio=decrease,` +
+            `pad=512:512:(ow-iw)/2:(oh-ih)/2,palettegen" "${palPath}"`
         );
 
-        // Step 2: encode GIF using the palette
+        // Encode GIF
         await run(
-            `"${ffmpegPath}" -y -i "${inp}" -i "${palette}" ` +
-            `-filter_complex "fps=15,scale=512:512:flags=lanczos:force_original_aspect_ratio=decrease,` +
+            `"${ffmpegPath}" -y ` +
+            `-f rawvideo -pix_fmt rgba -video_size ${w}x${h} -framerate ${fps} -i "${rawPath}" ` +
+            `-i "${palPath}" ` +
+            `-filter_complex "scale=512:512:flags=lanczos:force_original_aspect_ratio=decrease,` +
             `pad=512:512:(ow-iw)/2:(oh-ih)/2[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=5" ` +
-            `-loop 0 "${out}"`
+            `-loop 0 "${outPath}"`
         );
 
-        if (!fs.existsSync(out)) throw new Error('FFmpeg produced no GIF output');
-        const buf = fs.readFileSync(out);
+        if (!fs.existsSync(outPath)) throw new Error('GIF output not produced');
+        const buf = fs.readFileSync(outPath);
         if (!buf || buf.length === 0) throw new Error('GIF buffer is empty');
         return buf;
     } catch (err) {
-        console.error('[webp2gif] FFmpeg error:', err.message);
-        if (err.ffmpegStderr) console.error('[webp2gif] stderr:', err.ffmpegStderr.slice(0, 600));
+        console.error('[webp2gif] error:', err.message);
+        if (err.ffmpegStderr) console.error('[webp2gif] ffmpeg:', err.ffmpegStderr.slice(0, 400));
         throw err;
     } finally {
-        try { fs.unlinkSync(inp); } catch {}
-        try { fs.unlinkSync(palette); } catch {}
-        try { fs.unlinkSync(out); } catch {}
+        try { fs.unlinkSync(rawPath); } catch {}
+        try { fs.unlinkSync(palPath); } catch {}
+        try { fs.unlinkSync(outPath); } catch {}
     }
 }
 
