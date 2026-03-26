@@ -461,7 +461,21 @@ const handleMessage = async (sock, msg) => {
     // from already defined above in DM block check
     const sender = msg.key.fromMe ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : msg.key.participant || msg.key.remoteJid;
     const isGroup = from.endsWith('@g.us'); // Should always be true now due to DM block above
-    
+
+    // ── Presence on ANY incoming message (DM or group, never bot's own) ──────
+    if (!msg.key.fromMe) {
+      try {
+        const { getMode } = require('./utils/presenceSettings');
+        const _pm = getMode();
+        if (_pm === 'recording' || _pm === 'recordtype') {
+          sock.sendPresenceUpdate('recording', from).catch(() => {});
+        } else if (_pm === 'typing') {
+          sock.sendPresenceUpdate('composing', from).catch(() => {});
+        }
+      } catch (_pErr) {}
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Fetch group metadata immediately if it's a group
     const groupMetadata = isGroup ? await getGroupMetadata(sock, from) : null;
     
