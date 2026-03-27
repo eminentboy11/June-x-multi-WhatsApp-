@@ -30,7 +30,7 @@ module.exports = {
                 });
 
                 text =
-                    `━━『 *GITHUB REPOSITORY* 』━━\n\n` +
+                    `┏━━『 *GITHUB REPOSITORY* 』━━\n\n` +
                     `🔹 *Repository:* ${repo.name}\n` +
                     `🔹 *Owner:* ${repo.owner.login}\n` +
                     `🔹 *Description:* ${repo.description || 'N/A'}\n\n` +
@@ -39,7 +39,7 @@ module.exports = {
                     `🍴 *Forks:* ${repo.forks_count.toLocaleString()}\n` +
                     `🥉 *Watchers:* ${repo.watchers_count.toLocaleString()}\n` +
                     `👀 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n` +
-                    `━━━━━━━━━━━━━━━━`;
+                    `┗━━━━━━━━━━━━━━━━`;
 
                 buttons = [
                     {
