@@ -15,29 +15,29 @@ module.exports = {
 
         if (!url) {
             return reply(
-                `ðŸ’» *Desktop Screenshot*\n\n` +
+                `» *Desktop Screenshot*\n\n` +
                 `Usage: \`.ssdesktop <url>\`\n` +
                 `Example: \`.ssdesktop https://github.com\``
             );
         }
 
         if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            return reply(`âŒ Please provide a valid URL starting with *http://* or *https://*`);
+            return reply(` Please provide a valid URL starting with *http://* or *https://*`);
         }
 
-        await react('ðŸ“¸');
+        await react('🖥️');
 
         try {
             const apiURL = `https://api.siputzx.xyz/api/tools/ssweb?url=${encodeURIComponent(url)}&theme=light&device=tablet`;
 
             await sock.sendMessage(from, {
                 image: { url: apiURL },
-                caption: `ðŸ’» *Desktop Screenshot*\nðŸŒ ${url}`
+                caption: `» *Desktop Screenshot*\nðŸŒ ${url}`
             }, { quoted: msg });
 
         } catch (error) {
             console.error('SSDesktop error:', error);
-            await reply(`âŒ Failed to take screenshot: ${error.message}`);
+            await reply(`Failed to take screenshot: ${error.message}`);
         }
     }
 };
