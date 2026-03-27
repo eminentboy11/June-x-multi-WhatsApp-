@@ -20,8 +20,6 @@ module.exports = {
             const chatId = extra.from;
             const footer = `> Powered by ${config.botName}`;
 
-            await extra.reply('🔍 Fetching GitHub repository info…');
-
             let text;
             let buttons;
 
@@ -32,17 +30,16 @@ module.exports = {
                 });
 
                 text =
-                    `╭━━『 *GitHub Repository* 』━━╮\n\n` +
-                    `🤖 *Bot Name:* ${config.botName}\n` +
-                    `🔗 *Repository:* ${repo.name}\n` +
-                    `👨‍💻 *Owner:* ${repo.owner.login}\n` +
-                    `📄 *Description:* ${repo.description || 'No description provided'}\n\n` +
-                    `📊 *Statistics*\n` +
-                    `⭐ *Stars:* ${repo.stargazers_count.toLocaleString()}\n` +
+                    `━━『 *GITHUB REPOSITORY* 』━━\n\n` +
+                    `🔹 *Repository:* ${repo.name}\n` +
+                    `🔹 *Owner:* ${repo.owner.login}\n` +
+                    `🔹 *Description:* ${repo.description || 'N/A'}\n\n` +
+                    `🔹 *Statistics*\n` +
+                    `🥇 *Stars:* ${repo.stargazers_count.toLocaleString()}\n` +
                     `🍴 *Forks:* ${repo.forks_count.toLocaleString()}\n` +
-                    `👁️ *Watchers:* ${repo.watchers_count.toLocaleString()}\n` +
-                    `📦 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n` +
-                    `╰━━━━━━━━━━━━━━━╯`;
+                    `🥉 *Watchers:* ${repo.watchers_count.toLocaleString()}\n` +
+                    `👀 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n` +
+                    `━━━━━━━━━━━━━━━━`;
 
                 buttons = [
                     {
