@@ -2,10 +2,11 @@
  * AntiPromote Command - Prevent unauthorized admin promotions
  */
 
-const database = require('../../database');
-const config   = require('../../config');
+const database        = require('../../database');
+const config          = require('../../config');
+const { findParticipant } = require('../../utils/jidHelper');
 
-// Guard set — tracks JIDs being corrected by the bot to prevent infinite loops
+// Guard — tracks JIDs currently being corrected by the bot to prevent echo loops
 const botCorrecting = new Set();
 
 function markCorrecting(jid) {
@@ -14,29 +15,35 @@ function markCorrecting(jid) {
 }
 
 /**
- * Called from handler.js handleGroupUpdate on action === 'promote'
+ * Called from handler.js handleGroupUpdate when action === 'promote'
  */
 async function handlePromote(sock, groupId, actor, promotedJid) {
     try {
         const settings = database.getGroupSettings(groupId);
         if (!settings.antipromote) return;
 
-        // Skip if this is our own corrective action
+        // Skip if this is the bot's own corrective action echoing back
         if (botCorrecting.has(promotedJid)) return;
 
-        const actorNum  = actor       ? actor.split('@')[0]       : 'Unknown';
-        const targetNum = promotedJid ? promotedJid.split('@')[0] : 'Unknown';
-        const timestamp = new Date().toLocaleString();
+        // Fetch fresh metadata and resolve actual participant id (LID-aware)
+        const meta = await sock.groupMetadata(groupId).catch(() => null);
+        if (!meta) return;
 
-        console.log(`[AntiPromote] BLOCKED | Actor: ${actorNum} → Target: ${targetNum} | Group: ${groupId} | ${timestamp}`);
+        const found = findParticipant(meta.participants, promotedJid);
+        if (!found) return;
 
-        // Mark as correcting BEFORE sending demote to block the echo
+        const resolvedJid = found.id;     // real JID as stored in group metadata
+        const actorNum    = actor ? actor.split('@')[0] : 'Unknown';
+        const targetNum   = resolvedJid.split('@')[0];
+        const timestamp   = new Date().toLocaleString();
+
+        // Mark BOTH JID variants before demoting to block the echo
+        markCorrecting(resolvedJid);
         markCorrecting(promotedJid);
 
-        // Revert the unauthorized promotion
-        await sock.groupParticipantsUpdate(groupId, [promotedJid], 'demote');
+        // Revert the unauthorized promotion using the resolved participant id
+        await sock.groupParticipantsUpdate(groupId, [resolvedJid], 'demote');
 
-        // Notify group
         await sock.sendMessage(groupId, {
             text: [
                 `⚠️ *Security Alert — AntiPromote*`,
@@ -49,7 +56,7 @@ async function handlePromote(sock, groupId, actor, promotedJid) {
                 ``,
                 `> Powered by ${config.botName}`
             ].join('\n'),
-            mentions: [actor, promotedJid].filter(Boolean)
+            mentions: [actor, resolvedJid].filter(Boolean)
         });
 
     } catch (err) {
@@ -72,14 +79,13 @@ module.exports = {
 
     async execute(sock, msg, args, extra) {
         const { from, reply, react } = extra;
-        const sub = args[0]?.toLowerCase();
+        const sub      = args[0]?.toLowerCase();
         const settings = database.getGroupSettings(from);
 
         if (!sub) {
-            const status = settings.antipromote ? '✅ ON' : '❌ OFF';
             return reply(
                 `🛡️ *AntiPromote*\n\n` +
-                `Status: *${status}*\n\n` +
+                `Status: *${settings.antipromote ? '✅ ON' : '❌ OFF'}*\n\n` +
                 `When ON, any unauthorized promotion to admin is instantly reversed.\n\n` +
                 `• .antipromote on\n• .antipromote off`
             );

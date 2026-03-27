@@ -2,10 +2,11 @@
  * AntiDemote Command - Prevent unauthorized admin demotions
  */
 
-const database = require('../../database');
-const config   = require('../../config');
+const database        = require('../../database');
+const config          = require('../../config');
+const { findParticipant } = require('../../utils/jidHelper');
 
-// Guard set — tracks JIDs being corrected by the bot to prevent infinite loops
+// Guard — tracks JIDs currently being corrected by the bot to prevent echo loops
 const botCorrecting = new Set();
 
 function markCorrecting(jid) {
@@ -14,29 +15,35 @@ function markCorrecting(jid) {
 }
 
 /**
- * Called from handler.js handleGroupUpdate on action === 'demote'
+ * Called from handler.js handleGroupUpdate when action === 'demote'
  */
 async function handleDemote(sock, groupId, actor, demotedJid) {
     try {
         const settings = database.getGroupSettings(groupId);
         if (!settings.antidemote) return;
 
-        // Skip if this is our own corrective action
+        // Skip if this is the bot's own corrective action echoing back
         if (botCorrecting.has(demotedJid)) return;
 
-        const actorNum  = actor  ? actor.split('@')[0]       : 'Unknown';
-        const targetNum = demotedJid ? demotedJid.split('@')[0] : 'Unknown';
-        const timestamp = new Date().toLocaleString();
+        // Fetch fresh metadata and resolve actual participant id (LID-aware)
+        const meta = await sock.groupMetadata(groupId).catch(() => null);
+        if (!meta) return;
 
-        console.log(`[AntiDemote] BLOCKED | Actor: ${actorNum} → Target: ${targetNum} | Group: ${groupId} | ${timestamp}`);
+        const found = findParticipant(meta.participants, demotedJid);
+        if (!found) return;
 
-        // Mark as correcting BEFORE sending promote to block the echo
+        const resolvedJid = found.id;     // real JID as stored in group metadata
+        const actorNum    = actor ? actor.split('@')[0] : 'Unknown';
+        const targetNum   = resolvedJid.split('@')[0];
+        const timestamp   = new Date().toLocaleString();
+
+        // Mark BOTH JID variants before promoting to block the echo
+        markCorrecting(resolvedJid);
         markCorrecting(demotedJid);
 
-        // Restore the demoted admin
-        await sock.groupParticipantsUpdate(groupId, [demotedJid], 'promote');
+        // Restore the demoted admin using the resolved participant id
+        await sock.groupParticipantsUpdate(groupId, [resolvedJid], 'promote');
 
-        // Notify group
         await sock.sendMessage(groupId, {
             text: [
                 `⚠️ *Security Alert — AntiDemote*`,
@@ -49,7 +56,7 @@ async function handleDemote(sock, groupId, actor, demotedJid) {
                 ``,
                 `> Powered by ${config.botName}`
             ].join('\n'),
-            mentions: [actor, demotedJid].filter(Boolean)
+            mentions: [actor, resolvedJid].filter(Boolean)
         });
 
     } catch (err) {
@@ -72,14 +79,13 @@ module.exports = {
 
     async execute(sock, msg, args, extra) {
         const { from, reply, react } = extra;
-        const sub = args[0]?.toLowerCase();
+        const sub      = args[0]?.toLowerCase();
         const settings = database.getGroupSettings(from);
 
         if (!sub) {
-            const status = settings.antidemote ? '✅ ON' : '❌ OFF';
             return reply(
                 `🛡️ *AntiDemote*\n\n` +
-                `Status: *${status}*\n\n` +
+                `Status: *${settings.antidemote ? '✅ ON' : '❌ OFF'}*\n\n` +
                 `When ON, any demotion of an admin is instantly reversed.\n\n` +
                 `• .antidemote on\n• .antidemote off`
             );
