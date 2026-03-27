@@ -5,11 +5,11 @@
 const { getDevice } = require('@whiskeysockets/baileys');
 
 const DEVICE_LABELS = {
-    android: 'ðŸ¤– Android',
-    ios:     'ðŸŽ iOS (iPhone/iPad)',
-    web:     'ðŸŒ WhatsApp Web',
-    desktop: 'ðŸ–¥ï¸ WhatsApp Desktop',
-    unknown: 'â“ Unknown'
+    android: 'Android',
+    ios:     'iOS (iPhone/iPad)',
+    web:     'WhatsApp Web',
+    desktop: 'WhatsApp Desktop',
+    unknown: 'Unknown'
 };
 
 module.exports = {
