@@ -35,13 +35,13 @@ module.exports = {
         if (args[0]?.toLowerCase() === 'all') {
             const mods = database.getModerators();
             if (!mods || mods.length === 0) {
-                return reply(`âš ï¸ There are no sudo users to remove.`);
+                return reply(` There are no sudo users to remove.`);
             }
             for (const num of mods) {
                 database.removeModerator(num);
             }
-            await react('âœ…');
-            return reply(`ðŸ—‘ï¸ *All sudo users removed.*\n\n*Cleared:* ${mods.length} user${mods.length !== 1 ? 's' : ''}`);
+            await react('🤥');
+            return reply(`¸ *All sudo users removed.*\n\n*Cleared:* ${mods.length} user${mods.length !== 1 ? 's' : ''}`);
         }
 
         // â”€â”€ removesudo @user / number â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -60,7 +60,7 @@ module.exports = {
                 `âŒ *Usage:*\n` +
                 `  ${config.prefix}removesudo @user\n` +
                 `  ${config.prefix}removesudo 254712345678\n` +
-                `  ${config.prefix}removesudo all â€” remove every sudo user`
+                `  ${config.prefix}removesudo all ” remove every sudo user`
             );
         }
 
@@ -68,21 +68,21 @@ module.exports = {
 
         if (!number) {
             const rawLid = targetJid.split('@')[0].split(':')[0];
-            return reply(`âŒ Could not resolve LID @${rawLid} to a phone number.\n\nTry using the phone number directly:\n${config.prefix}removesudo 254712345678`);
+            return reply(` Could not resolve LID @${rawLid} to a phone number.\n\nTry using the phone number directly:\n${config.prefix}removesudo 254712345678`);
         }
 
         if (!database.isModerator(number)) {
             return sock.sendMessage(from, {
-                text: `âš ï¸ @${number} is not a sudo user.`,
+                text: ` @${number} is not a sudo user.`,
                 mentions: [`${number}@s.whatsapp.net`]
             }, { quoted: msg });
         }
 
         database.removeModerator(number);
-        await react('âœ…');
+        await react('🚫');
         const mentionJid = `${number}@s.whatsapp.net`;
         await sock.sendMessage(from, {
-            text: `ðŸ—‘ï¸ *@${number}* has been removed from sudo users.`,
+            text: `*@${number}* has been removed from sudo users.`,
             mentions: [mentionJid]
         }, { quoted: msg });
     }
