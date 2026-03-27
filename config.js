@@ -4,59 +4,59 @@
 
 module.exports = {
     // Bot Owner Configuration
-    ownerNumber: ['254798952773','254792021944'], // Add your number without + or spaces (e.g., 919876543210)
-    ownerName: ['Supreme', 'Agent Of Dusk'], // Owner names corresponding to ownerNumber array
+    ownerNumber: ['254798952773','254792021944'],
+    ownerName: ['Supreme', 'Agent Of Dusk'],
     
     // Bot Configuration
     botName: 'June X Ultra',
     prefix: '+',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
-    newsletterJid: '@newsletter', // Newsletter JID for menu forwarding
-    updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip', // URL to latest code zip for .update command
+    newsletterJid: '@newsletter',
+    updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
     // Sticker Configuration
     packname: 'June Ultra',
     
     // Bot Behavior
-    selfMode: false, // Private mode - only owner can use commands
+    selfMode: false,
     autoRead: false,
     autoTyping: false,
     autoBio: false,
     autoSticker: false,
     autoReact: false,
-    autoReactMode: 'bot', // set bot or all via cmd
+    autoReactMode: 'bot',
     autoDownload: false,
-    autoRecording: false,   // fake recording presence before responses
-    autoRecordType: false,  // fake recording → typing presence before responses
+    autoRecording: false,
+    autoRecordType: false,
     
     // Group Settings Defaults
     defaultGroupSettings: {
       antilink: false,
-      antilinkAction: 'delete', // 'delete', 'kick', 'warn'
+      antilinkAction: 'delete',
       antitag: false,
       antitagAction: 'delete',
-      antiall: false, // Owner only - blocks all messages from non-admins
+      antiall: false,
       antiviewonce: false,
       antibot: false,
-      anticall: false, // Anti-call feature
-      antigroupmention: false, // Anti-group mention feature
-      antigroupmentionAction: 'delete', // 'delete', 'kick'
-      antigroupstatus: false, // Anti-group status mention
-      antigroupstatusAction: 'delete', // 'delete', 'kick', 'warn'
+      anticall: false,
+      antigroupmention: false,
+      antigroupmentionAction: 'delete',
+      antigroupstatus: false,
+      antigroupstatusAction: 'delete',
       welcome: false,
       welcomeMessage: '╭╼━•𝙽𝙴𝚆 𝙼𝙴𝙼𝙱𝙴𝚁•━╾╮\n┃𝚆𝙴𝙻𝙲𝙾𝙼𝙴: @user 👋\n┃Member count: #memberCount\n┃𝚃𝙸𝙼𝙴: time⏰\n╰━━━━━━━━━━━━━━━╯\n\n*@user* Welcome to *@group*! 🎉\n*Group 𝙳𝙴𝚂𝙲𝚁𝙸𝙿𝚃𝙸𝙾𝙽*\ngroupDesc\n\n> *ᴘᴏᴡᴇʀᴇᴅ ʙʏ botName*',
       goodbye: false,
       goodbyeMessage: 'Goodbye @user 👋 We will never miss you!',
       antiSpam: false,
-      antiSpamLimit: 5,   // messages
-      antiSpamWindow: 5,  // seconds
-      antiSpamAction: 'delete', // delete | warn | kick | mute
+      antiSpamLimit: 5,
+      antiSpamWindow: 5,
+      antiSpamAction: 'delete',
       antidelete: false,
       nsfw: false,
       detect: false,
       chatbot: false,
-      autosticker: false, // Auto-convert images/videos to stickers
+      autosticker: false,
       antiimage: false,
       antiimageAction: 'delete',
       antisticker: false,
@@ -65,9 +65,8 @@ module.exports = {
       antiaudioAction: 'delete'
     },
     
-    // API Keys (add your own)
+    // API Keys
     apiKeys: {
-      // Add API keys here if needed
       openai: '',
       deepai: '',
       remove_bg: ''
@@ -92,11 +91,10 @@ module.exports = {
     // Limits
     maxWarnings: 3,
     
-    // Social Links (optional)
+    // Social Links
     social: {
       github: 'https://github.com/Vinpink2/June-X-Ultra',
       instagram: 'https://instagram.com/activator_negative',
       youtube: 'http://youtube.com'
     }
 };
-  
