@@ -45,7 +45,7 @@ module.exports = {
           );
         }
 
-        await extra.reply('...');
+      //  await extra.reply('');
 
         try {
           await groupStatus(sock, from, {
