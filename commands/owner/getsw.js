@@ -30,6 +30,7 @@ module.exports = {
     category: 'general',
     description: 'Retrieve media from a status that mentioned/tagged the group',
     usage: '.getsw (reply to the group tag notification)',
+    ownerOnly: true,
     groupOnly: true,
 
     async execute(sock, msg, args, extra) {
