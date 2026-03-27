@@ -2,9 +2,8 @@
  * AntiDemote Command - Prevent unauthorized admin demotions
  */
 
-const database        = require('../../database');
-const config          = require('../../config');
-const { findParticipant } = require('../../utils/jidHelper');
+const database = require('../../database');
+const config   = require('../../config');
 
 // Guard — tracks JIDs currently being corrected by the bot to prevent echo loops
 const botCorrecting = new Set();
@@ -25,24 +24,15 @@ async function handleDemote(sock, groupId, actor, demotedJid) {
         // Skip if this is the bot's own corrective action echoing back
         if (botCorrecting.has(demotedJid)) return;
 
-        // Fetch fresh metadata and resolve actual participant id (LID-aware)
-        const meta = await sock.groupMetadata(groupId).catch(() => null);
-        if (!meta) return;
+        const actorNum  = actor      ? actor.split('@')[0]      : 'Unknown';
+        const targetNum = demotedJid ? demotedJid.split('@')[0] : 'Unknown';
+        const timestamp = new Date().toLocaleString();
 
-        const found = findParticipant(meta.participants, demotedJid);
-        if (!found) return;
-
-        const resolvedJid = found.id;     // real JID as stored in group metadata
-        const actorNum    = actor ? actor.split('@')[0] : 'Unknown';
-        const targetNum   = resolvedJid.split('@')[0];
-        const timestamp   = new Date().toLocaleString();
-
-        // Mark BOTH JID variants before promoting to block the echo
-        markCorrecting(resolvedJid);
+        // Guard before acting to block the echo event
         markCorrecting(demotedJid);
 
-        // Restore the demoted admin using the resolved participant id
-        await sock.groupParticipantsUpdate(groupId, [resolvedJid], 'promote');
+        // Restore the demoted admin — pass pJid directly (same as .promote command)
+        await sock.groupParticipantsUpdate(groupId, [demotedJid], 'promote');
 
         await sock.sendMessage(groupId, {
             text: [
@@ -56,7 +46,7 @@ async function handleDemote(sock, groupId, actor, demotedJid) {
                 ``,
                 `> Powered by ${config.botName}`
             ].join('\n'),
-            mentions: [actor, resolvedJid].filter(Boolean)
+            mentions: [actor, demotedJid].filter(Boolean)
         });
 
     } catch (err) {

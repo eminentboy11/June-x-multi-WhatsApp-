@@ -2,9 +2,8 @@
  * AntiPromote Command - Prevent unauthorized admin promotions
  */
 
-const database        = require('../../database');
-const config          = require('../../config');
-const { findParticipant } = require('../../utils/jidHelper');
+const database = require('../../database');
+const config   = require('../../config');
 
 // Guard — tracks JIDs currently being corrected by the bot to prevent echo loops
 const botCorrecting = new Set();
@@ -25,24 +24,15 @@ async function handlePromote(sock, groupId, actor, promotedJid) {
         // Skip if this is the bot's own corrective action echoing back
         if (botCorrecting.has(promotedJid)) return;
 
-        // Fetch fresh metadata and resolve actual participant id (LID-aware)
-        const meta = await sock.groupMetadata(groupId).catch(() => null);
-        if (!meta) return;
+        const actorNum  = actor       ? actor.split('@')[0]       : 'Unknown';
+        const targetNum = promotedJid ? promotedJid.split('@')[0] : 'Unknown';
+        const timestamp = new Date().toLocaleString();
 
-        const found = findParticipant(meta.participants, promotedJid);
-        if (!found) return;
-
-        const resolvedJid = found.id;     // real JID as stored in group metadata
-        const actorNum    = actor ? actor.split('@')[0] : 'Unknown';
-        const targetNum   = resolvedJid.split('@')[0];
-        const timestamp   = new Date().toLocaleString();
-
-        // Mark BOTH JID variants before demoting to block the echo
-        markCorrecting(resolvedJid);
+        // Guard before acting to block the echo event
         markCorrecting(promotedJid);
 
-        // Revert the unauthorized promotion using the resolved participant id
-        await sock.groupParticipantsUpdate(groupId, [resolvedJid], 'demote');
+        // Revert the unauthorized promotion — pass pJid directly (same as .demote command)
+        await sock.groupParticipantsUpdate(groupId, [promotedJid], 'demote');
 
         await sock.sendMessage(groupId, {
             text: [
@@ -56,7 +46,7 @@ async function handlePromote(sock, groupId, actor, promotedJid) {
                 ``,
                 `> Powered by ${config.botName}`
             ].join('\n'),
-            mentions: [actor, resolvedJid].filter(Boolean)
+            mentions: [actor, promotedJid].filter(Boolean)
         });
 
     } catch (err) {
