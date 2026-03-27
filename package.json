@@ -36,6 +36,7 @@
         "fluent-ffmpeg": "^2.1.3",
         "form-data": "^4.0.5",
         "gifted-btns": "*",
+        "g-i-s": "^2.1.7",
         "jimp": "^1.6.0",
         "lolcatjs": "^2.4.3",
         "lottie-node": "^2.0.0",
