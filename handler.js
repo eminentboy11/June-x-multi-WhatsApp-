@@ -950,13 +950,35 @@ const handleMessage = async (sock, msg) => {
 // Group participant update handler
 const handleGroupUpdate = async (sock, update) => {
   try {
-    const { id, participants, action } = update;
+    const { id, participants, action, actor } = update;
     
     // Validate group JID before processing
     if (!id || !id.endsWith('@g.us')) {
       return;
     }
-    
+
+    // ── AntiDemote / AntiPromote ────────────────────────────────────────
+    if (action === 'demote' || action === 'promote') {
+      try {
+        const antidemoteCmd  = commands.get('antidemote');
+        const antipromoteCmd = commands.get('antipromote');
+
+        for (const participant of participants) {
+          const pJid = typeof participant === 'string' ? participant : (participant?.id || participant?.jid);
+          if (!pJid) continue;
+
+          if (action === 'demote' && antidemoteCmd?.handleDemote) {
+            await antidemoteCmd.handleDemote(sock, id, actor || null, pJid);
+          }
+          if (action === 'promote' && antipromoteCmd?.handlePromote) {
+            await antipromoteCmd.handlePromote(sock, id, actor || null, pJid);
+          }
+        }
+      } catch (e) {
+        console.error('[handleGroupUpdate] antidemote/antipromote error:', e.message);
+      }
+    }
+
     const groupSettings = database.getGroupSettings(id);
     
     if (!groupSettings.welcome && !groupSettings.goodbye) return;
