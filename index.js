@@ -253,17 +253,17 @@ function sessionExists() {
 }
 
 // ─── Session Format Validator ─────────────────────────────────────────────────
-// Session ID format: Ultra-X:~<base64_of_creds.json>
-// Legacy formats:    KnightBot:~<base64> | KnightBot!<gzip+base64>
+// Session ID formats: JUNE-MD:~<base64> | Ultra-X:~<base64> | June-Ultra:~<base64>
+// Legacy formats:     KnightBot:~<base64> | KnightBot!<gzip+base64>
 
-const VALID_PREFIXES = ['Ultra-X:~', 'KnightBot:~', 'KnightBot!', 'KnightBot']
+const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'KnightBot:~', 'KnightBot!', 'KnightBot']
 
 async function checkAndHandleSessionFormat() {
     const sessionId = process.env.SESSION_ID
     if (sessionId && sessionId.trim() !== '') {
         if (!VALID_PREFIXES.some(p => sessionId.trim().startsWith(p))) {
             log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
-            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "Ultra-X:~".'), 'white')
+            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", or "June-Ultra:~".'), 'white')
             log(chalk.black.bgYellowBright('Clearing invalid SESSION_ID and restarting...'), 'white')
             try {
                 if (fs.existsSync(envPath)) {
@@ -291,7 +291,17 @@ async function downloadSessionData() {
             const sid = global.SESSION_ID
             let sessionData
 
-            if (sid.startsWith('Ultra-X:~')) {
+            if (sid.startsWith('JUNE-MD:~')) {
+                // JUNE-MD format: plain base64
+                const b64 = sid.split('JUNE-MD:~')[1]
+                sessionData = Buffer.from(b64, 'base64')
+                JSON.parse(sessionData.toString('utf8'))
+            } else if (sid.startsWith('June-Ultra:~')) {
+                // June-Ultra format: plain base64
+                const b64 = sid.split('June-Ultra:~')[1]
+                sessionData = Buffer.from(b64, 'base64')
+                JSON.parse(sessionData.toString('utf8'))
+            } else if (sid.startsWith('Ultra-X:~')) {
                 // Primary format: plain base64
                 const b64 = sid.split('Ultra-X:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
@@ -339,7 +349,7 @@ async function getLoginMethod() {
     }
 
     log('1]  Enter WhatsApp Number  [Pairing Code]', 'blue')
-    log('2]  Paste Session ID       [Ultra-X:~...]', 'blue')
+    log('2]  Paste Session ID       [JUNE-MD:~ | Ultra-X:~ | June-Ultra:~]', 'blue')
 
     let choice = await question(chalk.greenBright('Enter option (1 or 2): '))
     choice = choice.trim()
@@ -352,10 +362,10 @@ async function getLoginMethod() {
         await saveLoginMethod('number')
         return 'number'
     } else if (choice === '2') {
-        let sessionId = await question(chalk.greenBright('Paste your Session ID (Ultra-X:~...): '))
+        let sessionId = await question(chalk.greenBright('Paste your Session ID (JUNE-MD:~ / Ultra-X:~ / June-Ultra:~): '))
         sessionId = sessionId.trim()
         if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
-            log("Invalid Session ID! Must start with 'Ultra-X:~'", 'red')
+            log("Invalid Session ID! Must start with 'JUNE-MD:~', 'Ultra-X:~', or 'June-Ultra:~'", 'red')
             process.exit(1)
         }
         global.SESSION_ID = sessionId
