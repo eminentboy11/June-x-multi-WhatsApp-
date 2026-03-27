@@ -950,7 +950,7 @@ const handleMessage = async (sock, msg) => {
 // Group participant update handler
 const handleGroupUpdate = async (sock, update) => {
   try {
-    const { id, participants, action, actor } = update;
+    const { id, participants, action, author: actor } = update;
     
     // Validate group JID before processing
     if (!id || !id.endsWith('@g.us')) {
@@ -963,15 +963,27 @@ const handleGroupUpdate = async (sock, update) => {
         const antidemoteCmd  = commands.get('antidemote');
         const antipromoteCmd = commands.get('antipromote');
 
+        // Resolve actor — could be a lid JID; normalize to phone JID
+        let resolvedActor = actor || null;
+        if (resolvedActor) {
+          try { resolvedActor = normalizeJidWithLid(resolvedActor) || resolvedActor; } catch (_) {}
+        }
+
         for (const participant of participants) {
-          const pJid = typeof participant === 'string' ? participant : (participant?.id || participant?.jid);
+          // Participants are objects with phoneNumber / lid / or plain string JIDs
+          let pJid = typeof participant === 'string'
+            ? participant
+            : (participant?.phoneNumber || participant?.pn || participant?.id || participant?.jid || null);
           if (!pJid) continue;
 
+          // Normalize lid participant JIDs to phone JIDs
+          try { pJid = normalizeJidWithLid(pJid) || pJid; } catch (_) {}
+
           if (action === 'demote' && antidemoteCmd?.handleDemote) {
-            await antidemoteCmd.handleDemote(sock, id, actor || null, pJid);
+            await antidemoteCmd.handleDemote(sock, id, resolvedActor, pJid);
           }
           if (action === 'promote' && antipromoteCmd?.handlePromote) {
-            await antipromoteCmd.handlePromote(sock, id, actor || null, pJid);
+            await antipromoteCmd.handlePromote(sock, id, resolvedActor, pJid);
           }
         }
       } catch (e) {
