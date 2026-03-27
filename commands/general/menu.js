@@ -165,7 +165,7 @@ function getButtons() {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '📺 YouTube',
-        url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
+        url: config.social?.youtube || 'http://youtube.com'
       })
     }
   ];
