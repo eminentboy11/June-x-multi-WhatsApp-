@@ -80,7 +80,7 @@ module.exports = {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
               display_text: 'Youtube',
-              url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
+              url: config.social?.youtube || 'http://youtube.com'
             })
           },
           {
