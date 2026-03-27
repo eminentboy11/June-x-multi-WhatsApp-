@@ -970,19 +970,11 @@ const handleGroupUpdate = async (sock, update) => {
         }
 
         for (const participant of participants) {
-          console.log(`[AntiSecurity] raw participant:`, JSON.stringify(participant));
-          // Participants are objects with phoneNumber / lid / or plain string JIDs
+          // Participants may be plain string JIDs or objects with phoneNumber/pn
           let pJid = typeof participant === 'string'
             ? participant
             : (participant?.phoneNumber || participant?.pn || participant?.id || participant?.jid || null);
-          if (!pJid) {
-            console.log(`[AntiSecurity] could not extract pJid from participant`);
-            continue;
-          }
-
-          // Normalize lid participant JIDs to phone JIDs
-          try { pJid = normalizeJidWithLid(pJid) || pJid; } catch (_) {}
-          console.log(`[AntiSecurity] resolved pJid=${pJid} actor=${resolvedActor}`);
+          if (!pJid) continue;
 
           if (action === 'demote' && antidemoteCmd?.handleDemote) {
             await antidemoteCmd.handleDemote(sock, id, resolvedActor, pJid);
