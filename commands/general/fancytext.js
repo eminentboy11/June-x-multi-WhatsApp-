@@ -154,7 +154,7 @@ module.exports = {
         const header = `✨ *Fancy Styles for:* _${input}_\n` +
                        `━━━━━━━━━━━━━━━ (${total} styles)\n\n`;
         const footer = `\n━━━━━━━━━━━━━━━\n` +
-                       `_Reply to this message with_ *.fancy <number>* _to send just that style._`;
+                       `_Reply to this message with_ *.fancy <number>* or <number>`;
 
         const fullText = header + lines.join('\n') + footer;
 
