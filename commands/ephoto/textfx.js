@@ -25,7 +25,7 @@ function ephotoCmd(name, aliases, description, link) {
     return {
         name,
         aliases,
-        category: 'general',
+        category: 'ephoto',
         description,
         usage: `.${name} <text>`,
         async execute(sock, msg, args, { reply }) {
