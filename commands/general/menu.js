@@ -229,7 +229,6 @@ module.exports = {
           title: '',
           text: menuTextClean,
           footer: footer,
-          buttons: getButtons(),
         }, { quoted: msg });
 
       } else if (menustyle === '3') {
