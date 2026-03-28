@@ -395,18 +395,20 @@ async function requestPairingCode(socket) {
 }
 
 // ─── Welcome Message ───────────────────────────────────────────────────────────
-
 function detectPlatform() {
-    if (process.env.DYNO) return '☁️  Heroku'
-    if (process.env.RENDER) return '⚡ Render'
-    if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit'
-    if (process.env.P_SERVER_UUID) return '🖥️  Panel'
-    switch (os.platform()) {
-        case 'win32': return '🪟 Windows'
-        case 'darwin': return '🍎 macOS'
-        case 'linux': return '🐧 Linux'
-        default: return '❓ Unknown'
-    }
+  if (process.env.DYNO) return '☁️ Heroku';
+  if (process.env.RENDER) return '⚡ Render';
+  if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit';
+  if (process.env.PREFIX && process.env.PREFIX.includes('termux')) return '📱 Termux';
+  if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return '🌀 CypherX Platform';
+  if (process.env.P_SERVER_UUID) return '🖥️ Panel';
+  if (process.env.LXC) return '🐦‍⬛ Linux Container (LXC)';
+  switch (os.platform()) {
+    case 'win32': return '🪟 Windows';
+    case 'darwin': return '🍎 macOS';
+    case 'linux': return '🐧 Linux';
+    default: return '❓ Unknown';
+  }
 }
 
 async function sendWelcomeMessage(sock) {
@@ -429,6 +431,8 @@ async function sendWelcomeMessage(sock) {
 ┃✧ Platform: ${platform}
 ┃✧ Status: Active ✅
 ┃✧ Time: ${new Date().toLocaleString()}
+┃✧ T.Group: t.me/JuneOff
+┃✧ Telegram: t.me/supremlord
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━`
         })
 
