@@ -4,7 +4,7 @@ module.exports = [
     {
         name: 'bible',
         aliases: ['verse', 'scripture'],
-        category: 'tools',
+        category: 'religeon',
         description: 'Look up a Bible verse or chapter',
         usage: '.bible John 3:16',
 
