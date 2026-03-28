@@ -18,7 +18,7 @@ function reactionCmd(name, aliases, endpoint, description) {
     return {
         name,
         aliases,
-        category: 'tools',
+        category: 'reaction',
         description,
         usage: `.${name}`,
         async execute(sock, msg) {
