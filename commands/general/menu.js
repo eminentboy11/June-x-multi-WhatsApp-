@@ -1,7 +1,6 @@
 const config = require('../../config');
 const { loadCommands } = require('../../utils/commandLoader');
 const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
-const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
 const fs = require('fs');
 const path = require('path');
@@ -58,13 +57,11 @@ const progressBar = (used, total, size = 10) => {
   return `[${bar}] ${Math.round((used / total) * 100)}%`;
 };
 
-// Preferred display order for known categories; unknown ones are appended after
 const CATEGORY_ORDER = [
   'general', 'ai', 'admin', 'owner', 'media',
   'sports', 'fun', 'utility', 'anime', 'textmaker',
 ];
 
-// Human-friendly labels for known categories
 const CATEGORY_LABELS = {
   general:   'GENERAL-CMD',
   ai:        'AI-CMD',
@@ -105,7 +102,6 @@ function buildMenuText(categories, extra, totalCount, speed) {
   menu += `┃✧ Commands: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
-  // Build ordered list: known categories first (in preferred order), then any extras
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
   const ordered = [
     ...CATEGORY_ORDER.filter(k => allCategoryKeys.includes(k)),
@@ -135,17 +131,15 @@ function buildMenuText(categories, extra, totalCount, speed) {
 }
 
 function getThumbnail() {
-  // Define all possible thumbnail paths
   const possiblePaths = [
     path.join(__dirname, '../../assets/menu1.jpg'),
     path.join(__dirname, '../../assets/menu2.jpg'),
     path.join(__dirname, '../../assets/menu3.jpg'),
     path.join(__dirname, '../../assets/menu4.jpg'),
     path.join(__dirname, '../../assets/menu5.jpg'),
-    path.join(__dirname, '../../utils/bot_image.jpg'), // optional
+    path.join(__dirname, '../../utils/bot_image.jpg'),
   ];
 
-  // Filter only existing files
   const existingPaths = possiblePaths.filter(p => {
     try {
       return fs.existsSync(p);
@@ -155,8 +149,6 @@ function getThumbnail() {
   });
 
   if (existingPaths.length === 0) return null;
-
-  // Pick a random existing thumbnail
   const randomIndex = Math.floor(Math.random() * existingPaths.length);
   const chosenPath = existingPaths[randomIndex];
 
@@ -186,6 +178,30 @@ function getButtons() {
   ];
 }
 
+// Helper: Send interactive message with buttons
+async function sendInteractiveButtons(sock, jid, text, footer, buttons) {
+  try {
+    const interactiveMessage = {
+      body: { text: text },
+      footer: { text: footer },
+      nativeFlowMessage: {
+        buttons: buttons,
+      },
+    };
+    const message = generateWAMessageFromContent(jid, {
+      viewOnceMessage: {
+        message: {
+          interactiveMessage: interactiveMessage,
+        },
+      },
+    }, {});
+    await sock.relayMessage(jid, message.message, {});
+  } catch (error) {
+    console.error('Button message failed:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   name: 'menu',
   aliases: ['help', 'commands'],
@@ -209,7 +225,7 @@ module.exports = {
       const msgTimestamp = (msg.messageTimestamp || 0) * 1000;
       const speedMs = msgTimestamp > 0 ? (Date.now() - msgTimestamp) : 0;
       const menulist = buildMenuText(categories, extra, commands.size, speedMs);
-      const tylorkids = getThumbnail(); // randomly chosen thumbnail
+      const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
@@ -238,13 +254,15 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '2') {
-        const footer = `Powered by Supreme`;
-        const menuTextClean = applyFont(menulist);
-        await sendButtons(sock, chatId, {
-          title: '',
-          text: menuTextClean,
-          footer: footer,
-        }, { quoted: msg });
+        // Custom button message using native Baileys
+        try {
+          const buttons = getButtons();
+          const footer = 'Powered by Supreme';
+          await sendInteractiveButtons(sock, chatId, fullMenu, footer, buttons);
+        } catch (error) {
+          console.error('Button menu failed, falling back to plain text:', error);
+          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+        }
 
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
@@ -271,26 +289,31 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '5') {
+        // Fix style 5: send interactive message with buttons
         try {
-          let massage = generateWAMessageFromContent(chatId, {
+          const buttons = getButtons();
+          const interactiveMessage = {
+            body: { text: fullMenu },
+            footer: { text: 'Powered by Supreme' },
+            nativeFlowMessage: {
+              buttons: buttons,
+            },
+          };
+          const message = generateWAMessageFromContent(chatId, {
             viewOnceMessage: {
               message: {
-                interactiveMessage: {
-                  body: { text: null },
-                  footer: { text: fullMenu },
-                  nativeFlowMessage: {
-                    buttons: [{ text: null }],
-                  },
-                },
+                interactiveMessage: interactiveMessage,
               },
             },
           }, { quoted: msg });
-          await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id, quoted: msg });
-        } catch {
+          await sock.relayMessage(chatId, message.message, { messageId: message.key.id });
+        } catch (error) {
+          console.error('Style 5 failed, falling back to plain text:', error);
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
       } else if (menustyle === '6') {
+        // Keep original style 6, but add fallback if it fails
         try {
           await sock.relayMessage(chatId, {
             requestPaymentMessage: {
