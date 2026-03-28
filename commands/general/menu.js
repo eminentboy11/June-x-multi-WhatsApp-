@@ -135,7 +135,14 @@ function buildMenuText(categories, extra, totalCount, speed) {
 }
 
 function getThumbnail() {
-  const paths = [
+  // If a custom image has been set, always use it (survives restarts, cleared only by reset)
+  const customPath = path.join(__dirname, '../../data/custom_menu.jpg');
+  if (fs.existsSync(customPath)) {
+    try { return fs.readFileSync(customPath); } catch {}
+  }
+
+  // Otherwise pick randomly from the default pool
+  const defaults = [
     path.join(__dirname, '../../assets/menu1.jpg'),
     path.join(__dirname, '../../utils/bot_image.jpg'),
     path.join(__dirname, '../../assets/menu2.jpg'),
@@ -143,7 +150,7 @@ function getThumbnail() {
     path.join(__dirname, '../../assets/menu4.jpg'),
     path.join(__dirname, '../../assets/menu5.jpg'),
   ];
-  const available = paths.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
+  const available = defaults.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
   if (!available.length) return null;
   const picked = available[Math.floor(Math.random() * available.length)];
   try { return fs.readFileSync(picked); } catch { return null; }
