@@ -135,21 +135,36 @@ function buildMenuText(categories, extra, totalCount, speed) {
 }
 
 function getThumbnail() {
-  const paths = [
+  // Define all possible thumbnail paths
+  const possiblePaths = [
     path.join(__dirname, '../../assets/menu1.jpg'),
-    path.join(__dirname, '../../utils/bot_image.jpg'),
-    // Permanent fallbacks — never deleted by reset
     path.join(__dirname, '../../assets/menu2.jpg'),
     path.join(__dirname, '../../assets/menu3.jpg'),
     path.join(__dirname, '../../assets/menu4.jpg'),
     path.join(__dirname, '../../assets/menu5.jpg'),
+    path.join(__dirname, '../../utils/bot_image.jpg'), // optional
   ];
-  for (const p of paths) {
+
+  // Filter only existing files
+  const existingPaths = possiblePaths.filter(p => {
     try {
-      if (fs.existsSync(p)) return fs.readFileSync(p);
-    } catch (_) {}
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+
+  if (existingPaths.length === 0) return null;
+
+  // Pick a random existing thumbnail
+  const randomIndex = Math.floor(Math.random() * existingPaths.length);
+  const chosenPath = existingPaths[randomIndex];
+
+  try {
+    return fs.readFileSync(chosenPath);
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function getButtons() {
@@ -194,7 +209,7 @@ module.exports = {
       const msgTimestamp = (msg.messageTimestamp || 0) * 1000;
       const speedMs = msgTimestamp > 0 ? (Date.now() - msgTimestamp) : 0;
       const menulist = buildMenuText(categories, extra, commands.size, speedMs);
-      const tylorkids = getThumbnail();
+      const tylorkids = getThumbnail(); // randomly chosen thumbnail
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
