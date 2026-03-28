@@ -30,7 +30,7 @@ function ephotoCmd(name, aliases, description, link) {
         usage: `.${name} <text>`,
         async execute(sock, msg, args, { reply }) {
             const text = args.join(' ');
-            if (!text) return reply(`Example: .${name} Kevin`);
+            if (!text) return reply(`Example: .${name} Supreme`);
             await sock.sendMessage(msg.key.remoteJid, { react: { text: '🎨', key: msg.key } });
             try {
                 await sendEphoto(sock, msg, link, text);
