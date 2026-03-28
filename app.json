@@ -1,19 +1,26 @@
 {
-  "name": "Knight Bot MINI",
-  "description": "WhatsApp MD bot (Baileys)",
+  "name": "June X Ultra",
+  "description": "June X Ultra - WhatsApp MD Multi-Device Bot powered by Baileys",
   "repository": "",
-  "keywords": ["whatsapp", "baileys", "bot", "node"],
+  "logo": "",
+  "keywords": ["whatsapp", "baileys", "bot", "node", "md", "june-ultra"],
+  "stack": "heroku-22",
   "buildpacks": [
     {
       "url": "https://github.com/heroku/heroku-buildpack-nodejs.git"
     }
   ],
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "eco"
+    }
+  },
   "env": {
     "SESSION_ID": {
-      "description": "KnightBot session string (e.g. KnightBot!<base64_compressed_data>)",
+      "description": "June X Ultra session string. Accepted formats: JUNE-MD:~<base64>, Ultra-X:~<base64>, June-Ultra:~<base64>",
       "required": false,
       "value": ""
     }
   }
 }
-
