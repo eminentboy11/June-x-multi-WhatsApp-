@@ -7,6 +7,7 @@ const http = require('http');
 
 const IMAGE_PATH    = path.join(__dirname, '../../utils/bot_image.jpg');
 const MENU1_PATH    = path.join(__dirname, '../../assets/menu1.jpg');
+const PERSIST_PATH  = path.join(__dirname, '../../data/custom_menu.jpg'); // survives resets
 const DEFAULT_IMAGE = path.join(__dirname, '../../assets/menu2.jpg'); // always present, used for reset
 
 function downloadFromUrl(url) {
@@ -33,6 +34,7 @@ async function saveImage(buffer) {
     finalBuffer = await image.quality(90).getBufferAsync(Jimp.MIME_JPEG);
   } catch {}
   fs.writeFileSync(IMAGE_PATH, finalBuffer);
+  fs.writeFileSync(PERSIST_PATH, finalBuffer);   // persistent copy in data/
   try { fs.writeFileSync(MENU1_PATH, finalBuffer); } catch {}
 }
 
@@ -50,46 +52,48 @@ module.exports = {
       const prefix = config.prefix || '';
 
       if (args[0] && args[0].toLowerCase() === 'reset') {
-        // Restore default image from the permanent asset instead of just deleting
         try {
+          // Remove the persistent custom copy first
+          if (fs.existsSync(PERSIST_PATH)) fs.unlinkSync(PERSIST_PATH);
+          // Restore default image from the permanent asset
           if (fs.existsSync(DEFAULT_IMAGE)) {
             const defaultBuf = fs.readFileSync(DEFAULT_IMAGE);
             fs.writeFileSync(MENU1_PATH, defaultBuf);
             fs.writeFileSync(IMAGE_PATH, defaultBuf);
-            return extra.reply('✅ Bot image has been reset to default.');
+            return extra.reply('âœ… Bot image has been reset to default.');
           }
           // Fallback: just delete if default asset is somehow missing
           if (fs.existsSync(IMAGE_PATH)) fs.unlinkSync(IMAGE_PATH);
           if (fs.existsSync(MENU1_PATH)) fs.unlinkSync(MENU1_PATH);
-          return extra.reply('✅ Bot image has been reset to default.');
+          return extra.reply('âœ… Bot image has been reset to default.');
         } catch (e) {
-          return extra.reply(`❌ Reset failed: ${e.message}`);
+          return extra.reply(`âŒ Reset failed: ${e.message}`);
         }
       }
 
       if (args[0] && /^https?:\/\//i.test(args[0])) {
-        await extra.react('⏳');
+        await extra.react('🪫');
         try {
           const buffer = await downloadFromUrl(args[0]);
           await saveImage(buffer);
-          await extra.react('✅');
-          return extra.reply('✅ Bot image updated from URL!');
+          await extra.react('🎱');
+          return extra.reply('âœ… Bot image updated from URL!');
         } catch (e) {
-          return extra.reply(`❌ Failed to download image: ${e.message}`);
+          return extra.reply(`âŒ Failed to download image: ${e.message}`);
         }
       }
 
       const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
       if (mentioned && mentioned.length > 0) {
-        await extra.react('⏳');
+        await extra.react('📀');
         try {
           const ppUrl = await sock.profilePictureUrl(mentioned[0], 'image');
           const buffer = await downloadFromUrl(ppUrl);
           await saveImage(buffer);
           await extra.react('✅');
-          return extra.reply('✅ Bot image set from mentioned user\'s profile picture!');
+          return extra.reply(' Bot image set from mentioned user\'s profile picture!');
         } catch {
-          return extra.reply('❌ Could not get profile picture of mentioned user. They may not have one set.');
+          return extra.reply(' Could not get profile picture of mentioned user. They may not have one set.');
         }
       }
 
@@ -98,21 +102,21 @@ module.exports = {
 
       if (!quotedMsg) {
         return extra.reply(
-          `📷 *Set Bot Image*\n\n` +
+          `*Set Bot Image*\n\n` +
           `*Methods:*\n` +
-          `• Reply to an image: *${prefix}setmenuimage*\n` +
-          `• From URL: *${prefix}setmenuimage <url>*\n` +
-          `• From user: *${prefix}setmenuimage @user*\n` +
-          `• Remove: *${prefix}setmenuimage reset*`
+          `Reply to an image: *${prefix}setmenuimage*\n` +
+          `From URL: *${prefix}setmenuimage <url>*\n` +
+          `From user: *${prefix}setmenuimage @user*\n` +
+          `Remove: *${prefix}setmenuimage reset*`
         );
       }
 
       const imageMsg = quotedMsg.imageMessage || quotedMsg.stickerMessage;
       if (!imageMsg) {
-        return extra.reply('❌ Reply to an *image* or *sticker*.');
+        return extra.reply('Reply to an *image* or *sticker*.');
       }
 
-      await extra.react('⏳');
+      await extra.react('🥇');
 
       const targetMessage = {
         key: { remoteJid: chatId, id: ctx.stanzaId, participant: ctx.participant },
@@ -125,15 +129,15 @@ module.exports = {
       });
 
       if (!mediaBuffer || mediaBuffer.length === 0) {
-        return extra.reply('❌ Failed to download the image. Try sending a fresh image and replying to it.');
+        return extra.reply('Failed to download the image. Try sending a fresh image and replying to it.');
       }
 
       await saveImage(mediaBuffer);
-      await extra.react('✅');
-      await extra.reply('✅ Bot image updated!');
+      await extra.react('🎱');
+      await extra.reply('Bot image updated!');
     } catch (error) {
       console.error('setmenuimage error:', error);
-      await extra.reply(`❌ Error: ${error.message}`);
+      await extra.reply(`Error: ${error.message}`);
     }
   }
 };
