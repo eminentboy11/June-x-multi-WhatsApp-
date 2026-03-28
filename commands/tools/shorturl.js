@@ -26,9 +26,9 @@ module.exports = {
             await sock.sendMessage(extra.from, { react: { text: 'âœ…', key: msg.key } });
 
             const responseText =
-                `ðŸ”— *Short URL Created*\n\n` +
-                `ðŸ“Ž *Original:* ${url}\n` +
-                `âœ‚ï¸ *Shortened:* ${shortUrl}`;
+                ` *Short URL Created*\n\n` +
+                ` *Original:* ${url}\n` +
+                ` *Shortened:* ${shortUrl}`;
 
             await sendButtons(sock, extra.from, {
                 text: responseText,
@@ -37,14 +37,14 @@ module.exports = {
                     {
                         name: 'cta_url',
                         buttonParamsJson: JSON.stringify({
-                            display_text: 'ðŸŒ Open Link',
+                            display_text: 'Open Link',
                             url: shortUrl
                         })
                     },
                     {
                         name: 'cta_copy',
                         buttonParamsJson: JSON.stringify({
-                            display_text: 'ðŸ“‹ Copy URL',
+                            display_text: '‹ Copy URL',
                             copy_code: shortUrl
                         })
                     }
