@@ -1,6 +1,7 @@
 const config = require('../../config');
 const { loadCommands } = require('../../utils/commandLoader');
 const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
+const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
 const fs = require('fs');
 const path = require('path');
@@ -57,11 +58,13 @@ const progressBar = (used, total, size = 10) => {
   return `[${bar}] ${Math.round((used / total) * 100)}%`;
 };
 
+// Preferred display order for known categories; unknown ones are appended after
 const CATEGORY_ORDER = [
   'general', 'ai', 'admin', 'owner', 'media',
   'sports', 'fun', 'utility', 'anime', 'textmaker',
 ];
 
+// Human-friendly labels for known categories
 const CATEGORY_LABELS = {
   general:   'GENERAL-CMD',
   ai:        'AI-CMD',
@@ -102,6 +105,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   menu += `┃✧ Commands: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
+  // Build ordered list: known categories first (in preferred order), then any extras
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
   const ordered = [
     ...CATEGORY_ORDER.filter(k => allCategoryKeys.includes(k)),
@@ -131,32 +135,18 @@ function buildMenuText(categories, extra, totalCount, speed) {
 }
 
 function getThumbnail() {
-  const possiblePaths = [
+  const paths = [
     path.join(__dirname, '../../assets/menu1.jpg'),
+    path.join(__dirname, '../../utils/bot_image.jpg'),
     path.join(__dirname, '../../assets/menu2.jpg'),
     path.join(__dirname, '../../assets/menu3.jpg'),
     path.join(__dirname, '../../assets/menu4.jpg'),
     path.join(__dirname, '../../assets/menu5.jpg'),
-    path.join(__dirname, '../../utils/bot_image.jpg'),
   ];
-
-  const existingPaths = possiblePaths.filter(p => {
-    try {
-      return fs.existsSync(p);
-    } catch {
-      return false;
-    }
-  });
-
-  if (existingPaths.length === 0) return null;
-  const randomIndex = Math.floor(Math.random() * existingPaths.length);
-  const chosenPath = existingPaths[randomIndex];
-
-  try {
-    return fs.readFileSync(chosenPath);
-  } catch {
-    return null;
-  }
+  const available = paths.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
+  if (!available.length) return null;
+  const picked = available[Math.floor(Math.random() * available.length)];
+  try { return fs.readFileSync(picked); } catch { return null; }
 }
 
 function getButtons() {
@@ -176,30 +166,6 @@ function getButtons() {
       })
     }
   ];
-}
-
-// Helper: Send interactive message with buttons
-async function sendInteractiveButtons(sock, jid, text, footer, buttons) {
-  try {
-    const interactiveMessage = {
-      body: { text: text },
-      footer: { text: footer },
-      nativeFlowMessage: {
-        buttons: buttons,
-      },
-    };
-    const message = generateWAMessageFromContent(jid, {
-      viewOnceMessage: {
-        message: {
-          interactiveMessage: interactiveMessage,
-        },
-      },
-    }, {});
-    await sock.relayMessage(jid, message.message, {});
-  } catch (error) {
-    console.error('Button message failed:', error);
-    throw error;
-  }
 }
 
 module.exports = {
@@ -254,15 +220,14 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '2') {
-        // Custom button message using native Baileys
-        try {
-          const buttons = getButtons();
-          const footer = 'Powered by Supreme';
-          await sendInteractiveButtons(sock, chatId, fullMenu, footer, buttons);
-        } catch (error) {
-          console.error('Button menu failed, falling back to plain text:', error);
-          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
-        }
+        const footer = `Powered by Supreme`;
+        const menuTextClean = applyFont(menulist);
+        await sendButtons(sock, chatId, {
+          title: '',
+          text: menuTextClean,
+          footer: footer,
+          buttons: getButtons(),
+        }, { quoted: msg });
 
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
@@ -289,31 +254,26 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '5') {
-        // Fix style 5: send interactive message with buttons
         try {
-          const buttons = getButtons();
-          const interactiveMessage = {
-            body: { text: fullMenu },
-            footer: { text: 'Powered by Supreme' },
-            nativeFlowMessage: {
-              buttons: buttons,
-            },
-          };
-          const message = generateWAMessageFromContent(chatId, {
+          let massage = generateWAMessageFromContent(chatId, {
             viewOnceMessage: {
               message: {
-                interactiveMessage: interactiveMessage,
+                interactiveMessage: {
+                  body: { text: null },
+                  footer: { text: fullMenu },
+                  nativeFlowMessage: {
+                    buttons: [{ text: null }],
+                  },
+                },
               },
             },
-          }, { quoted: msg });
-          await sock.relayMessage(chatId, message.message, { messageId: message.key.id });
-        } catch (error) {
-          console.error('Style 5 failed, falling back to plain text:', error);
+          }, { quoted: msg, userJid: sock.user?.id });
+          await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id });
+        } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
       } else if (menustyle === '6') {
-        // Keep original style 6, but add fallback if it fails
         try {
           await sock.relayMessage(chatId, {
             requestPaymentMessage: {
