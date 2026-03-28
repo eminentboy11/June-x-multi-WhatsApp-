@@ -4,7 +4,7 @@
   "repository": "",
   "logo": "",
   "keywords": ["whatsapp", "baileys", "bot", "node", "md", "june-ultra"],
-  "stack": "heroku-22",
+  "stack": "heroku-24",
   "buildpacks": [
     {
       "url": "https://github.com/heroku/heroku-buildpack-nodejs.git"
@@ -13,7 +13,7 @@
   "formation": {
     "web": {
       "quantity": 1,
-      "size": "eco"
+      "size": "basic"
     }
   },
   "env": {
