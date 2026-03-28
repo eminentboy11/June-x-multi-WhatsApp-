@@ -18,6 +18,10 @@
     ],
     "author": "Agent of Dusk",
     "license": "MIT",
+    "engines": {
+        "node": ">=20.0.0",
+        "npm": ">=10.0.0"
+    },
     "dependencies": {
         "@bochilteam/scraper": "^5.0.1",
         "@bochilteam/scraper-facebook": "^5.0.0",
