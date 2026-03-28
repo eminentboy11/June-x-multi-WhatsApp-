@@ -4,6 +4,8 @@
  */
 
 const axios = require('axios');
+const { sendButtons } = require('gifted-btns');
+const config = require('../../config');
 
 module.exports = {
     name: 'shorturl',
@@ -15,13 +17,44 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         try {
             const url = args.join(' ').trim();
-            if (!url) return extra.reply('❌ Please provide a link to shorten!\nExample:\n.shorturl https://google.com');
+            if (!url) return extra.reply('âŒ Please provide a link to shorten!\nExample:\n.shorturl https://google.com');
 
-            const { data } = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
-            await extra.reply(`✅ *Shortlink created successfully:*\n\n🔗 ${data}`);
+            await sock.sendMessage(extra.from, { react: { text: 'â³', key: msg.key } });
+
+            const { data: shortUrl } = await axios.get(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(url)}`);
+
+            await sock.sendMessage(extra.from, { react: { text: 'âœ…', key: msg.key } });
+
+            const responseText =
+                `ðŸ”— *Short URL Created*\n\n` +
+                `ðŸ“Ž *Original:* ${url}\n` +
+                `âœ‚ï¸ *Shortened:* ${shortUrl}`;
+
+            await sendButtons(sock, extra.from, {
+                text: responseText,
+                footer: `> Powered by ${config.botName}`,
+                buttons: [
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: 'ðŸŒ Open Link',
+                            url: shortUrl
+                        })
+                    },
+                    {
+                        name: 'cta_copy',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: 'ðŸ“‹ Copy URL',
+                            copy_code: shortUrl
+                        })
+                    }
+                ]
+            }, { quoted: msg });
+
         } catch (error) {
             console.error('SHORTLINK ERROR:', error);
-            await extra.reply('❌ Failed to create shortlink: ' + (error.message || error));
+            await sock.sendMessage(extra.from, { react: { text: 'âŒ', key: msg.key } });
+            await extra.reply('âŒ Failed to create shortlink: ' + (error.message || error));
         }
     }
 };
