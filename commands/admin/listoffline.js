@@ -1,70 +1,39 @@
-/**
- * List Offline Command
- * Shows group members who are currently offline/inactive
- * Uses WhatsApp presence subscription to detect status
- */
-
 module.exports = {
     name: 'listoffline',
-    aliases: ['inactivemembers', 'offline'],
+    aliases: ['listinactive', 'inactiveusers', 'inactivemembers'],
     category: 'admin',
-    description: 'Show currently offline/inactive members in the group',
+    description: 'Show inactive users who have not sent any messages in the group',
     usage: '.listoffline',
     groupOnly: true,
     adminOnly: true,
 
     async execute(sock, msg, args, extra) {
+        const { from, isGroup, reply, groupName, getInactiveUsers } = extra;
+
+        if (!isGroup) return reply(global.mess?.notgroup || '❌ This command can only be used in groups.');
+
         try {
-            const participants = extra.groupMetadata?.participants || []
-            if (!participants.length) return extra.reply('❌ Could not fetch group members.')
+            const metadata = await sock.groupMetadata(from);
+            const allParticipants = metadata.participants.map(p => p.id);
+            const inactiveUsers = getInactiveUsers(from, allParticipants);
 
-            await extra.reply('🔍 Checking member presence, please wait...')
-
-            // Subscribe to every member's presence so WhatsApp pushes updates
-            const botId = sock.user?.id?.split(':')[0] + '@s.whatsapp.net'
-            for (const p of participants) {
-                if (p.id === botId) continue
-                try { await sock.presenceSubscribe(p.id) } catch (_) {}
+            if (!inactiveUsers.length) {
+                return reply('*✅ No inactive users found in this group!*\n\nAll participants have sent messages.');
             }
 
-            // Wait for presence updates to arrive
-            await new Promise(r => setTimeout(r, 7000))
+            let message = `⚠️ *INACTIVE USERS - ${groupName || 'This Group'}*\n\n`;
+            message += `_Users who haven't sent any messages:_\n\n`;
+            message += inactiveUsers.map((user, i) => `🔹 ${i + 1}. @${user.split('@')[0]}`).join('\n');
+            message += `\n\n📊 *Total inactive:* ${inactiveUsers.length}`;
 
-            if (!global.presenceStore) global.presenceStore = {}
-
-            const online = []
-            const offline = []
-
-            for (const p of participants) {
-                if (p.id === botId) continue
-                const record = global.presenceStore[p.id]
-                const number = p.id.split('@')[0]
-                const entry = `• @${number}`
-
-                if (record && record.status === 'available') {
-                    online.push({ entry, jid: p.id })
-                } else {
-                    offline.push({ entry, jid: p.id })
-                }
-            }
-
-            let text = `🔴 *Offline Members (${offline.length}/${participants.length - 1})*\n\n`
-
-            if (offline.length === 0) {
-                text += '_All members appear online right now!_'
-            } else {
-                text += offline.map(m => m.entry).join('\n')
-                text += `\n\n_💡 Members with privacy settings may appear offline even when active._`
-            }
-
-            await sock.sendMessage(extra.from, {
-                text,
-                mentions: offline.map(m => m.jid)
-            }, { quoted: msg })
+            await sock.sendMessage(msg.key.remoteJid, {
+                text: message,
+                mentions: inactiveUsers
+            }, { quoted: msg });
 
         } catch (error) {
-            console.error('ListOffline error:', error)
-            await extra.reply('❌ Failed to fetch member presence: ' + error.message)
+            console.error('Error in listoffline command:', error);
+            reply('❌ *Error fetching group data!*');
         }
     }
-}
+};
