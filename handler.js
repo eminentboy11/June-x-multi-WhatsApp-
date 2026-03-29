@@ -5,7 +5,7 @@
 const config = require('./config');
 const database = require('./database');
 const { loadCommands } = require('./utils/commandLoader');
-const { addMessage } = require('./utils/groupstats');
+const { addMessage, getActiveUsers, getInactiveUsers } = require('./utils/groupstats');
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
@@ -914,6 +914,7 @@ const handleMessage = async (sock, msg) => {
       sender,
       isGroup,
       groupMetadata,
+      groupName: groupMetadata?.subject || null,
       isOwner: senderIsOwner,
       isAdmin: await isAdmin(sock, sender, from, groupMetadata),
       isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
@@ -922,7 +923,9 @@ const handleMessage = async (sock, msg) => {
       prefix: config.prefix,
       reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
       react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
-      getCommandCount: () => commands.size
+      getCommandCount: () => commands.size,
+      getActiveUsers: (groupId, limit) => getActiveUsers(groupId, limit),
+      getInactiveUsers: (groupId, participants) => getInactiveUsers(groupId, participants)
     });
     
   } catch (error) {
