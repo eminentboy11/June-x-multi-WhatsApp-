@@ -52,4 +52,36 @@ function getStats(groupId) {
     return db[groupId][today];
 }
 
-module.exports = { addMessage, getStats };
+function getActiveUsers(groupId, limit = 15) {
+    const db = loadDB();
+    if (!db[groupId]) return [];
+
+    const totals = {};
+    for (const day of Object.values(db[groupId])) {
+        for (const [jid, count] of Object.entries(day.users || {})) {
+            totals[jid] = (totals[jid] || 0) + count;
+        }
+    }
+
+    return Object.entries(totals)
+        .map(([jid, count]) => ({ jid, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
+}
+
+function getInactiveUsers(groupId, allParticipants) {
+    const db = loadDB();
+    const active = new Set();
+
+    if (db[groupId]) {
+        for (const day of Object.values(db[groupId])) {
+            for (const jid of Object.keys(day.users || {})) {
+                active.add(jid);
+            }
+        }
+    }
+
+    return allParticipants.filter(jid => !active.has(jid));
+}
+
+module.exports = { addMessage, getStats, getActiveUsers, getInactiveUsers };
