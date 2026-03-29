@@ -11,7 +11,7 @@ const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 module.exports = {
     name: 'encrypt',
-    aliases: ['enc', 'obf'],
+    aliases: ['enc'],
     category: 'tools',
     description: 'Encrypt/obfuscate a JavaScript file with hard code protection',
     usage: '.enc (reply to a .js file)',
