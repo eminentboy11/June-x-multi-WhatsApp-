@@ -9,7 +9,7 @@ const handler = require('../../handler');
 
 module.exports = {
   name: 'kick',
-  aliases: ['remove'],
+  aliases: ['remove','out'],
   category: 'admin',
   description: 'Kick mentioned/replied members from the group',
   usage: '.kick @user',
