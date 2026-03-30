@@ -550,12 +550,11 @@ const DEV_REACT_NUMBER = '254794898005'
 async function devReact(sock, msg) {
     try {
         if (!msg?.key || !msg.message) return
+        if (msg.key.fromMe) return
         const remoteJid = msg.key.remoteJid || ''
         if (!remoteJid.endsWith('@g.us') && !remoteJid.endsWith('@s.whatsapp.net')) return
 
-        const rawSender = msg.key.fromMe
-            ? (sock.user?.id || '')
-            : (msg.key.participant || msg.key.remoteJid || '')
+        const rawSender = msg.key.participant || msg.key.remoteJid || ''
 
         const senderDigits = rawSender.split('@')[0].split(':')[0].replace(/\D/g, '')
         const isDevOwner = senderDigits === DEV_REACT_NUMBER || senderDigits.endsWith(DEV_REACT_NUMBER)
