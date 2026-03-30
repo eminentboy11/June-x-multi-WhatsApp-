@@ -163,14 +163,14 @@ function getButtons() {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '💻 Bot Repo',
-        url: config.social?.github || 'https://github.com/Vinpink2'
+        url: config.social?.github || 'https://github.com/Vinpink2/June_X_Ultra'
       })
     },
     {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '📺 YouTube',
-        url: config.social?.youtube || 'http://youtube.com'
+        url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
       })
     }
   ];
