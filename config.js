@@ -8,7 +8,7 @@ module.exports = {
     ownerName: ['Supreme', 'Agent Of Dusk'],
     
     // Bot Configuration
-    botName: 'June X Ultra',
+    botName: 'June-X Ultra',
     prefix: '+',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
@@ -16,7 +16,7 @@ module.exports = {
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
     // Sticker Configuration
-    packname: 'June Ultra',
+    packname: '✮⃝𝐒ᵘᵖʳᵉᵐᵉ',
     
     // Bot Behavior
     selfMode: false,
