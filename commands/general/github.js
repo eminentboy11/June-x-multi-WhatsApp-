@@ -3,7 +3,7 @@ const axios  = require('axios');
 const config = require('../../config');
 
 const GITHUB_USER = 'Vinpink2';
-const GITHUB_REPO = 'June-X-Ultra';
+const GITHUB_REPO = 'June_X_Ultra';
 const REPO_URL    = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
 const API_URL     = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}`;
 
@@ -25,7 +25,7 @@ module.exports = {
 
             try {
                 const { data: repo } = await axios.get(API_URL, {
-                    headers: { 'User-Agent': 'June-X-Ultra' },
+                    headers: { 'User-Agent': 'June_X_Ultra' },
                     timeout: 10000
                 });
 
@@ -69,13 +69,13 @@ module.exports = {
                 console.error('[GitHub] API error:', apiError.message);
 
                 text =
-                    `╭━━『 *GitHub Repository* 』━━╮\n\n` +
+                    `┏━━『 *GitHub Repository* 』━\n\n` +
                     `🤖 *Bot Name:* ${config.botName}\n` +
                     `🔗 *Repository:* ${GITHUB_REPO}\n` +
                     `👨‍💻 *Owner:* ${GITHUB_USER}\n` +
                     `🌐 *URL:* ${REPO_URL}\n\n` +
                     `⚠️ _Could not fetch live stats. Visit the repo for latest info._\n\n` +
-                    `╰━━━━━━━━━━━━━━━╯`;
+                    `┗━━━━━━━━━━━━━━━━`;
 
                 buttons = [
                     {
