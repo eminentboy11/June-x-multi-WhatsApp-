@@ -9,19 +9,22 @@ const os = require('os');
 
 const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
-function detectPlatform() {
-  if (process.env.HEROKU) return '⚙️ Heroku';
-  if (process.env.RAILWAY_STATIC_URL) return '🚂 Railway';
-  if (process.env.RENDER) return '⚡ Render';
-  if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit';
-  if (process.env.P_SERVER_UUID) return '🖥️ Panel';
+// Detect host/platform
+const detectPlatform = () => {
+  if (process.env.DYNO) return "☁️ Heroku";
+  if (process.env.RENDER) return "⚡ Render";
+  if (process.env.PREFIX && process.env.PREFIX.includes("termux")) return "📱 Termux";
+  if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return "🌀 CypherX Platform";
+  if (process.env.P_SERVER_UUID) return "🖥️ Panel";
+  if (process.env.LXC) return "📦 Linux Container (LXC)";
+  
   switch (os.platform()) {
-    case 'win32': return '🪟 Windows';
-    case 'darwin': return '🍎 macOS';
-    case 'linux': return '🐧 Linux';
-    default: return '💻 ' + os.platform();
+    case "win32": return "🪟 Windows";
+    case "darwin": return "🍎 macOS";
+    case "linux": return "🐧 Linux";
+    default: return "❓ Unknown";
   }
-}
+};
 
 function getMenuStyle() {
   try {
@@ -64,7 +67,6 @@ const CATEGORY_ORDER = [
   'sports', 'fun', 'utility', 'anime', 'textmaker',
 ];
 
-// Human-friendly labels for known categories
 const CATEGORY_LABELS = {
   general:   'GENERAL-CMD',
   ai:        'AI-CMD',
@@ -76,7 +78,6 @@ const CATEGORY_LABELS = {
   utility:   'UTILITY-CMD',
   anime:     'ANIME-CMD',
   textmaker: 'TEXTMAKER-CMD',
-  group:     'GROUP-CMD',
 };
 
 function buildMenuText(categories, extra, totalCount, speed) {
