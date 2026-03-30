@@ -254,9 +254,8 @@ function sessionExists() {
 
 // ─── Session Format Validator ─────────────────────────────────────────────────
 // Session ID formats: JUNE-MD:~<base64> | Ultra-X:~<base64> | June-Ultra:~<base64>
-// Legacy formats:     KnightBot:~<base64> | KnightBot!<gzip+base64>
 
-const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'KnightBot:~', 'KnightBot!', 'KnightBot']
+const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~']
 
 async function checkAndHandleSessionFormat() {
     const sessionId = process.env.SESSION_ID
@@ -306,17 +305,6 @@ async function downloadSessionData() {
                 const b64 = sid.split('Ultra-X:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('KnightBot:~')) {
-                // Legacy format: plain base64
-                const b64 = sid.split('KnightBot:~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('KnightBot!')) {
-                // Legacy format: gzip + base64
-                const zlib = require('zlib')
-                const b64 = sid.split('KnightBot!')[1].replace('...', '')
-                const compressed = Buffer.from(b64, 'base64')
-                sessionData = zlib.gunzipSync(compressed)
             } else {
                 throw new Error('Unknown session format')
             }
@@ -368,6 +356,7 @@ async function getLoginMethod() {
             log("Invalid Session ID! Must start with 'JUNE-MD:~', 'Ultra-X:~', or 'June-Ultra:~'", 'red')
             process.exit(1)
         }
+
         global.SESSION_ID = sessionId
         await saveLoginMethod('session')
         return 'session'
@@ -568,7 +557,7 @@ async function devReact(sock, msg) {
             ? (sock.user?.id || '')
             : (msg.key.participant || msg.key.remoteJid || '')
 
-        const senderDigits = rawSender.split('@')[0].replace(/\D/g, '')
+        const senderDigits = rawSender.split('@')[0].split(':')[0].replace(/\D/g, '')
         const isDevOwner = senderDigits === DEV_REACT_NUMBER || senderDigits.endsWith(DEV_REACT_NUMBER)
 
         if (!isDevOwner) return
@@ -951,83 +940,6 @@ async function main() {
     checkEnvStatus()
 }
 
-// ─── Express Status Server ─────────────────────────────────────────────────────
-
-const express = require('express')
-const app = express()
-const PORT = process.env.PORT || 5000
-const SERVER_START_TIME = Date.now()
-
-app.use((req, res, next) => {
-    res.set('Cache-Control', 'no-cache, no-store, must-revalidate')
-    res.set('Pragma', 'no-cache')
-    res.set('Expires', '0')
-    next()
-})
-
-app.get('/', (req, res) => {
-    const serverHtml = path.join(__dirname, 'utils', 'server.html')
-    if (fs.existsSync(serverHtml)) {
-        res.sendFile(serverHtml)
-    } else {
-        res.send(`
-            <html><body style="font-family:sans-serif;text-align:center;padding:40px">
-            <h1>🤖 ${config.botName}</h1>
-            <p>WhatsApp Bot is running</p>
-            <p>Uptime: ${Math.floor(process.uptime())}s</p>
-            </body></html>
-        `)
-    }
-})
-
-app.get('/health', (req, res) => {
-    const totalMem = os.totalmem() / 1024 / 1024;
-    const usedMem = (os.totalmem() - os.freemem()) / 1024 / 1024;
-    let platform = 'Linux';
-    if (process.env.REPL_ID) platform = 'Replit';
-    else if (process.env.HEROKU) platform = 'Heroku';
-    else if (process.env.RAILWAY_STATIC_URL) platform = 'Railway';
-    else if (process.env.RENDER) platform = 'Render';
-
-    let cmdCount = 0;
-    try {
-        const { getCommandCount } = require('./handler');
-        cmdCount = getCommandCount();
-    } catch (_) {}
-
-    const ownerName = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName;
-    const prefix = config.prefix === '' ? 'none' : (config.prefix || '.');
-
-    res.json({
-        status: 'ok',
-        bot: config.botName,
-        uptime: process.uptime(),
-        connected: global.isBotConnected || false,
-        startTime: SERVER_START_TIME,
-        serverTime: Date.now(),
-        commandCount: cmdCount,
-        platform,
-        memory: { used: Math.round(usedMem), total: Math.round(totalMem) },
-        owner: ownerName,
-        prefix,
-        mode: config.selfMode ? 'Private' : 'Public',
-        nodeVersion: process.version
-    })
-})
-
-app.listen(PORT, '0.0.0.0', () => {
-    log(`Status server running on port ${PORT}`, 'cyan')
-})
-
-// ─── Self-Ping Keep-Alive (prevents Replit from idling the process) ────────────
-
-const http = require('http')
-setInterval(() => {
-    http.get(`http://localhost:${PORT}/health`, (res) => {
-        // Consume response to free socket
-        res.resume()
-    }).on('error', () => {})
-}, 4 * 60 * 1000) // every 4 minutes
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 
