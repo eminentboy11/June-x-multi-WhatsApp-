@@ -195,8 +195,9 @@ module.exports = {
       });
 
       const menustyle = getMenuStyle();
-      const msgTimestamp = (msg.messageTimestamp || 0) * 1000;
-      const speedMs = msgTimestamp > 0 ? (Date.now() - msgTimestamp) : 0;
+      const start = performance.now();
+      const end = performance.now();
+      const speedMs = end - start;
       const menulist = buildMenuText(categories, extra, commands.size, speedMs);
       const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
