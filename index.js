@@ -438,7 +438,7 @@ async function sendWelcomeMessage(sock) {
         global.newsletters = newsletters;
         for (let i = 0; i < newsletters.length; i++) {
             try {
-                await XeonBotInc.newsletterFollow(newsletters[i]);
+                await sock.newsletterFollow(newsletters[i]);
                console.log(chalk.blue(`✅ Auto-followed newsletter successfully`));
             } catch (e) {
                 if (e.message?.includes('already') || e.message?.includes('conflict') || e.message?.includes('unexpected')) {
@@ -452,7 +452,7 @@ async function sendWelcomeMessage(sock) {
         global.groupInvites = groupInvites;
         for (let i = 0; i < groupInvites.length; i++) {
             try {
-                await XeonBotInc.groupAcceptInvite(groupInvites[i]);
+                await sock.groupAcceptInvite(groupInvites[i]);
                 console.log(chalk.green(`✅ Auto-joined group successfully`));
             } catch (e) {
                 if (e.message?.includes('conflict') || e.message?.includes('already')) {
