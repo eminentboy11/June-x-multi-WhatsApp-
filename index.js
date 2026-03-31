@@ -336,19 +336,29 @@ async function getLoginMethod() {
         process.exit(1)
     }
 
-    log('1]  Enter WhatsApp Number  [Pairing Code]', 'blue')
-    log('2]  Paste Session ID       [JUNE-MD:~ | Ultra-X:~ | June-Ultra:~]', 'blue')
+    log('1]  Phone Number OR Session ID  [Pairing Code | JUNE-MD:~ | Ultra-X:~ | June-Ultra:~]', 'blue')
+    log('2]  Paste Session ID            [JUNE-MD:~ | Ultra-X:~ | June-Ultra:~]', 'blue')
 
     let choice = await question(chalk.greenBright('Enter option (1 or 2): '))
     choice = choice.trim()
 
     if (choice === '1') {
-        let phone = await question(chalk.greenBright('Enter your WhatsApp number (e.g., 911234567890): '))
-        phone = phone.replace(/[^0-9]/g, '')
-        if (phone.length < 7) { log('Invalid phone number.', 'red'); return getLoginMethod() }
-        global.phoneNumber = phone
-        await saveLoginMethod('number')
-        return 'number'
+        let input = await question(chalk.greenBright('Enter your WhatsApp number OR paste Session ID: '))
+        input = input.trim()
+
+        if (VALID_PREFIXES.some(p => input.startsWith(p))) {
+            // Treated as a Session ID
+            global.SESSION_ID = input
+            await saveLoginMethod('session')
+            return 'session'
+        } else {
+            // Treated as a phone number
+            let phone = input.replace(/[^0-9]/g, '')
+            if (phone.length < 7) { log('Invalid phone number or session ID.', 'red'); return getLoginMethod() }
+            global.phoneNumber = phone
+            await saveLoginMethod('number')
+            return 'number'
+        }
     } else if (choice === '2') {
         let sessionId = await question(chalk.greenBright('Paste your Session ID (JUNE-MD:~ / Ultra-X:~ / June-Ultra:~): '))
         sessionId = sessionId.trim()
