@@ -1,6 +1,6 @@
 /**
- * GPT Image Command
- * Edit image using GPT Vision with prompt
+ * GPT Image Vision Command
+ * Analyze an image using GPT Vision via apiskeith.top
  */
 
 const axios = require('axios');
@@ -11,10 +11,10 @@ const Jimp = require('jimp');
 
 module.exports = {
   name: 'gptimage',
-  aliases: ['gptimg', 'editimage', 'aiimage', 'vision','gi'],
+  aliases: ['gptimg', 'aiimage', 'gi'],
   category: 'ai',
-  description: 'Edit image using GPT Vision with prompt',
-  usage: '.gptimage <prompt> (reply to image/sticker)',
+  description: 'Analyze an image using GPT Vision AI',
+  usage: '.gptimage <question> (reply to image/sticker)',
   
   async execute(sock, msg, args, extra) {
     try {
@@ -102,51 +102,27 @@ module.exports = {
         finalImageBuffer = imageBuffer;
       }
       
-      // Prepare form data
-      const form = new FormData();
-      form.append('image', finalImageBuffer, {
-        filename: 'image.jpg',
-        contentType: 'image/jpeg'
+      // Upload image to tmpfiles.org to get a public URL
+      const uploadForm = new FormData();
+      uploadForm.append('file', finalImageBuffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
+      const upload = await axios.post('https://tmpfiles.org/api/v1/upload', uploadForm, {
+        headers: uploadForm.getHeaders(),
+        timeout: 30000
       });
-      form.append('param', prompt);
-      
-      // Send POST request to API
-      const apiUrl = 'https://api.nexray.web.id/ai/gptimage';
-      
-      const response = await axios.post(apiUrl, form, {
-        headers: {
-          ...form.getHeaders(),
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        },
-        responseType: 'arraybuffer',
-        timeout: 120000, // 2 minutes timeout for AI processing
-        maxContentLength: 10 * 1024 * 1024, // 10MB max
+      const imageUrl = upload.data?.data?.url?.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+      if (!imageUrl) throw new Error('Failed to upload image for analysis');
+
+      // Call apiskeith.top vision endpoint
+      const question = prompt || 'What is in this image?';
+      const { data } = await axios.get('https://apiskeith.top/ai/vision', {
+        params: { image: imageUrl, q: question },
+        timeout: 60000
       });
-      
-      if (!response.data) {
-        return await extra.reply('❌ No image received from API. Please try again.');
-      }
-      
-      const resultImageBuffer = Buffer.from(response.data);
-      
-      // Validate buffer
-      if (!resultImageBuffer || resultImageBuffer.length === 0) {
-        return await extra.reply('❌ Empty image received from API. Please try again.');
-      }
-      
-      // Check file size (WhatsApp image limit is 5MB)
-      const maxImageSize = 5 * 1024 * 1024; // 5MB
-      if (resultImageBuffer.length > maxImageSize) {
-        return await extra.reply(
-          `❌ Image too large: ${(resultImageBuffer.length / 1024 / 1024).toFixed(2)}MB (max 5MB)\n` +
-          'The API returned an image that exceeds WhatsApp limits.'
-        );
-      }
-      
-      // Send the modified image
+
+      const answer = data.result || '❌ No analysis received.';
+
       await sock.sendMessage(extra.from, {
-        image: resultImageBuffer,
-        caption: `✨ *GPT Vision Result*\n\n📝 Prompt: ${prompt}`
+        text: `👁️ *GPT Vision Analysis*\n\n📝 *Question:* ${question}\n\n${answer}`
       }, { quoted: msg });
       
     } catch (error) {
