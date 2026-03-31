@@ -40,7 +40,7 @@ function generatePrecisePing(ping) {
 
 module.exports = {
     name: 'ping',
-    aliases: ['pong', 'speed'],
+    aliases: ['pong', 'p'],
     category: 'general',
     description: 'Check bot response speed with high precision (edits message)',
     usage: '.ping',
