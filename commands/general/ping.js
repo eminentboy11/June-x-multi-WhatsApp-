@@ -53,12 +53,12 @@ module.exports = {
 
             const start = Date.now();
             const sentMsg = await sock.sendMessage(chatId, {
-                text: '*🔹 pong!...*'
+                text: '*🔸 pong!...*'
             }, { quoted: fake });
 
             const ping = Date.now() - start;
             const detailedPing = generatePrecisePing(ping);
-            const response = `🏓 *${botName} Speed: ${detailedPing} ms*`;
+            const response = `🔹 *${botName} Speed: ${detailedPing} ms*`;
 
             await sock.sendMessage(chatId, {
                 text: response,
