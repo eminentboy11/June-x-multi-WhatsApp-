@@ -9,10 +9,10 @@ module.exports = {
     
     // Bot Configuration
     botName: 'June-X Ultra',
-    prefix: '+',
+    prefix: '.',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
-    newsletterJid: '@newsletter',
+    newsletterJid: '',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
     // Sticker Configuration
