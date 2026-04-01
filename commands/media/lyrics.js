@@ -1,5 +1,5 @@
 /**
- * Lyrics Finder
+ * Lyrics Finder - Enhanced with Keith API
  */
 
 const axios = require('axios');
@@ -21,25 +21,49 @@ module.exports = {
       }
       
       const query = args.join(' ');
-      
       let lyricsData = null;
       
-      // API 1: Vreden
+      // API 1: Keith (primary)
       try {
-        const response = await axios.get(`https://api.vreden.my.id/api/lyrics?query=${encodeURIComponent(query)}`);
-        if (response.data && response.data.result) {
+        const response = await axios.get(`https://apiskeith.top/search/lyrics2?query=${encodeURIComponent(query)}`, {
+          timeout: 10000 // 10 seconds timeout
+        });
+        
+        // Check if API returned success
+        if (response.data && response.data.status === true && response.data.data) {
+          const data = response.data.data;
           lyricsData = {
-            title: response.data.result.title,
-            artist: response.data.result.artist,
-            lyrics: response.data.result.lyrics,
-            thumbnail: response.data.result.thumbnail
+            title: data.title || 'Unknown Title',
+            artist: data.artist || 'Unknown Artist',
+            lyrics: data.lyrics || 'No lyrics found',
+            thumbnail: data.thumbnail || null
           };
+        } else {
+          // If status is false or data missing, log and try next
+          console.log(`Keith API returned error: ${response.data?.error || 'Unknown error'}`);
         }
       } catch (err) {
-        console.log('Vreden API failed, trying next...');
+        console.log('Keith API failed:', err.message);
       }
       
-      // API 2: Siputzx (fallback)
+      // API 2: Vreden (fallback)
+      if (!lyricsData) {
+        try {
+          const response = await axios.get(`https://api.vreden.my.id/api/lyrics?query=${encodeURIComponent(query)}`);
+          if (response.data && response.data.result) {
+            lyricsData = {
+              title: response.data.result.title,
+              artist: response.data.result.artist,
+              lyrics: response.data.result.lyrics,
+              thumbnail: response.data.result.thumbnail
+            };
+          }
+        } catch (err) {
+          console.log('Vreden API failed');
+        }
+      }
+      
+      // API 3: Siputzx (fallback)
       if (!lyricsData) {
         try {
           const response = await axios.get(`https://api.siputzx.my.id/api/s/lyrics?query=${encodeURIComponent(query)}`);
@@ -58,7 +82,7 @@ module.exports = {
       
       if (!lyricsData) {
         return await sock.sendMessage(msg.key.remoteJid, { 
-          text: '❌ Could not find lyrics for this song!' 
+          text: '❌ Could not find lyrics for this song! All APIs failed.' 
         });
       }
       
