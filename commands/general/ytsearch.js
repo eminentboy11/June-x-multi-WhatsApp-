@@ -2,7 +2,7 @@ const { keithApi } = require('../../utils/keithApi');
 
 module.exports = {
   name: 'ytsearch',
-  aliases: ['yts', 'youtubesearch'],
+  aliases: ['youtubesearch'],
   category: 'general',
   description: 'Search YouTube videos',
   usage: '.ytsearch <query>',
