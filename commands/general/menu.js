@@ -81,6 +81,7 @@ const CATEGORY_LABELS = {
 };
 
 function buildMenuText(categories, extra, totalCount, speed) {
+  const start = Date.now();
   const prefix = config.prefix;
   const version = config.version || '2.8.0';
   const bot = config.botName || 'June Ultra';
@@ -92,7 +93,8 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const botUsedMemory = process.memoryUsage().rss;
   const systemUsedMemory = totalMemory - os.freemem();
   const readmore = String.fromCharCode(8206).repeat(4001);
-  const ping = speed.toFixed(3);
+  const end = Date.now();
+  const ping = Math.round((end - start) / 2);
 
   let menu = `┏━━❐✧ ${bot} ✧❐\n`;
   menu += `┃✧ Prefix: [${prefix}]\n`;
