@@ -1,13 +1,7 @@
-/**
- * Global Configuration for WhatsApp MD Bot
- */
-
 module.exports = {
-    // Bot Owner Configuration
-    ownerNumber: ['254798952773','254792021944'],
+    ownerNumber: ['254798952793','254792021944'],
     ownerName: ['Supreme', 'Agent Of Dusk'],
     
-    // Bot Configuration
     botName: 'June-X Ultra',
     prefix: '.',
     version: '2.8.0',
@@ -16,10 +10,8 @@ module.exports = {
     newsletterJid: '',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
-    // Sticker Configuration
     packname: '✮⃝𝐒ᵘᵖʳᵉᵐᵉ',
     
-    // Bot Behavior
     selfMode: false,
     autoRead: false,
     autoTyping: false,
@@ -31,7 +23,6 @@ module.exports = {
     autoRecording: false,
     autoRecordType: false,
     
-    // Group Settings Defaults
     defaultGroupSettings: {
       antilink: false,
       antilinkAction: 'delete',
@@ -66,14 +57,12 @@ module.exports = {
       antiaudioAction: 'delete'
     },
     
-    // API Keys
     apiKeys: {
       openai: '',
       deepai: '',
       remove_bg: ''
     },
     
-    // Message Configuration
     messages: {
       wait: '⏳ Please wait...',
       success: '✅ Success!',
@@ -86,13 +75,10 @@ module.exports = {
       invalidCommand: '❓ Invalid command! Type .menu for help'
     },
     
-    // Timezone
     timezone: 'Africa/Nairobi',
     
-    // Limits
     maxWarnings: 3,
     
-    // Social Links
     social: {
       github: 'https://github.com/Vinpink2/June_X_Ultra',
       instagram: 'https://instagram.com/activator_negative',
