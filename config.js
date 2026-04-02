@@ -93,7 +93,7 @@ module.exports = {
     
     // Social Links
     social: {
-      github: 'https://github.com/Vinpink2/June-X-Ultra',
+      github: 'https://github.com/Vinpink2/June_X_Ultra',
       instagram: 'https://instagram.com/activator_negative',
       youtube: 'http://youtube.com'
     }
