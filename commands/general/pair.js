@@ -61,7 +61,7 @@ module.exports = {
 
                 try {
                     const response = await axios.get(
-                        `https://j-p2-96e2148f182f.herokuapp.com/code?number=${number}`,
+                        `https://pair-ultra-ae57185f6550.herokuapp.com/code?number=${number}`,
                         { timeout: 20000 }
                     );
 
