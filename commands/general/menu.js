@@ -178,7 +178,7 @@ function getButtons() {
 
 module.exports = {
   name: 'menu',
-  aliases: ['help', 'commands'],
+  aliases: ['menulist', 'commands'],
   category: 'general',
   description: 'Show all available commands',
   usage: '.menu',
