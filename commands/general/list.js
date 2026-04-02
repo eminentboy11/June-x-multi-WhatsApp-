@@ -11,7 +11,7 @@ const { sendButtons } = require('gifted-btns');
 
 module.exports = {
   name: 'list',
-  aliases: [],
+  aliases: ['help'],
   description: 'List all commands with descriptions',
   usage: '.list',
   category: 'general',
