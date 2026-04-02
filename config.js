@@ -10,6 +10,7 @@ module.exports = {
     // Bot Configuration
     botName: 'June-X Ultra',
     prefix: '.',
+    version: '2.8.0',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
