@@ -82,7 +82,7 @@ const CATEGORY_LABELS = {
 
 function buildMenuText(categories, extra, totalCount, speed) {
   const prefix = config.prefix;
-  const version = config.version;
+  const version = config.version || '2.8.0';
   const bot = config.botName || 'June Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
   const hostName = detectPlatform();
