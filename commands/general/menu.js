@@ -82,6 +82,7 @@ const CATEGORY_LABELS = {
 
 function buildMenuText(categories, extra, totalCount, speed) {
   const prefix = config.prefix;
+  const version = config.version;
   const bot = config.botName || 'June Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
   const hostName = detectPlatform();
@@ -100,7 +101,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   menu += `┃✧ Platform: ${hostName}\n`;
   menu += `┃✧ Speed: ${ping} ms\n`;
   menu += `┃✧ Uptime: ${uptimeFormatted}\n`;
-  menu += `┃✧ Version: v2.0\n`;
+  menu += `┃✧ Version: v${version}\n`;
   menu += `┃✧ Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
   menu += `┃✧ RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
   menu += `┃✧ Commands: ${totalCount}\n`;
