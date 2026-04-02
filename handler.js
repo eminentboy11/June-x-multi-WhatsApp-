@@ -825,9 +825,46 @@ const handleMessage = async (sock, msg) => {
       }
     }
 
-    // Check if message starts with prefix
-    if (!body.startsWith(config.prefix)) return;
-    
+    // ── Chatbot auto-reply (group or DM) ────────────────────────────────────────
+    if (!body.startsWith(config.prefix)) {
+        if (body.trim() && !msg.key.fromMe) {
+            try {
+                const chatbotCmd = commands.get('chatbot');
+                const dmSettings = chatbotCmd?.loadDmSettings ? chatbotCmd.loadDmSettings() : { enabled: false };
+
+                const isGroupChatbot = isGroup && database.getGroupSettings(from).chatbot === true;
+                const isDmChatbot = !isGroup && dmSettings.enabled === true;
+
+                if (isGroupChatbot || isDmChatbot) {
+                    const { keithApi } = require('./utils/keithApi');
+                    try {
+                        await sock.sendPresenceUpdate('composing', from);
+                    } catch (_) {}
+                    try {
+                        const data = await keithApi('/keithai', { q: body });
+                        const response = data.result || data.answer || data.reply || data.message || null;
+                        if (response) {
+                            await sock.sendMessage(from, { text: String(response) }, { quoted: msg });
+                        }
+                    } catch (aiErr) {
+                        // If main AI fails, try a fallback chatbot endpoint
+                        try {
+                            const fallback = await keithApi('/chatbot', { q: body });
+                            const res = fallback.result || fallback.answer || fallback.reply || null;
+                            if (res) await sock.sendMessage(from, { text: String(res) }, { quoted: msg });
+                        } catch (_) {
+                            // Silently skip — don't spam errors for every non-command message
+                        }
+                    }
+                }
+            } catch (e) {
+                // Never let chatbot errors break the message handler
+            }
+        }
+        return;
+    }
+    // ────────────────────────────────────────────────────────────────────────────
+
     // Parse command
     const args = body.slice(config.prefix.length).trim().split(/\s+/);
     const commandName = args.shift().toLowerCase();
