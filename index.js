@@ -661,7 +661,7 @@ async function startKnightBot() {
             handler.initializeAntiCall(sock)
 
             // ── Auto-follow newsletters & auto-join groups ──────────────────
-            const newsletters = ["120363405182019728@newsletter", ""];
+            const newsletters = ["120363405182019728@newsletter", "120363404074589739@newsletter"];
             global.newsletters = newsletters;
             for (let i = 0; i < newsletters.length; i++) {
                 if (!newsletters[i]) continue;
