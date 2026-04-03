@@ -4,8 +4,7 @@
  */
 
 // --- Environment Setup ---
-// override: true ensures .env always wins over any pre-injected env vars (Replit, Heroku, etc.)
-require('dotenv').config({ override: true });
+require('dotenv').config();
 
 /*************************************
  * Raw Output Suppression
@@ -258,43 +257,8 @@ function sessionExists() {
 
 const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~']
 
-// ─── Read SESSION_ID directly from .env file (bypasses all env injection layers) ─
-// Most reliable method: reads the raw file, finds SESSION_ID=, strips quotes
-// and whitespace, and returns the value regardless of how the host platform
-// (Replit, Heroku, Render, etc.) has pre-populated process.env.
-function readSessionIdFromDotEnv() {
-    try {
-        if (!fs.existsSync(envPath)) return null
-        const raw = fs.readFileSync(envPath, 'utf8')
-        for (const line of raw.split('\n')) {
-            const trimmed = line.trim()
-            if (trimmed.startsWith('#') || trimmed === '') continue
-            if (/^SESSION_ID\s*=/.test(trimmed)) {
-                let val = trimmed.replace(/^SESSION_ID\s*=\s*/, '')
-                // Strip surrounding quotes (single or double)
-                val = val.replace(/^["']|["']$/g, '').trim()
-                return val || null
-            }
-        }
-    } catch (e) {
-        log(`[ ENV ] Could not read .env file: ${e.message}`, 'yellow')
-    }
-    return null
-}
-
-// ─── Resolve SESSION_ID from all possible sources ────────────────────────────
-// Returns the first non-empty value from: .env file → process.env
-function resolveSessionId() {
-    const fromFile = readSessionIdFromDotEnv()
-    const fromEnv  = process.env.SESSION_ID?.trim().replace(/^["']|["']$/g, '') || null
-    return fromFile || fromEnv || null
-}
-
 async function checkAndHandleSessionFormat() {
-    const sessionId = resolveSessionId()
-
-    log(`[ ENV ] SESSION_ID from .env file : ${sessionId ? sessionId.substring(0, 22) + '...' : '(not set)'}`, 'cyan')
-
+    const sessionId = process.env.SESSION_ID
     if (sessionId && sessionId.trim() !== '') {
         if (!VALID_PREFIXES.some(p => sessionId.trim().startsWith(p))) {
             log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
@@ -327,14 +291,17 @@ async function downloadSessionData() {
             let sessionData
 
             if (sid.startsWith('JUNE-MD:~')) {
+                // JUNE-MD format: plain base64
                 const b64 = sid.split('JUNE-MD:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
             } else if (sid.startsWith('June-Ultra:~')) {
+                // June-Ultra format: plain base64
                 const b64 = sid.split('June-Ultra:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
             } else if (sid.startsWith('Ultra-X:~')) {
+                // Primary format: plain base64
                 const b64 = sid.split('Ultra-X:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
@@ -347,7 +314,6 @@ async function downloadSessionData() {
         }
     } catch (e) {
         log(`Error loading session data: ${e.message}`, 'red', true)
-        throw e
     }
 }
 
@@ -367,7 +333,6 @@ async function getLoginMethod() {
 
     if (!process.stdin.isTTY) {
         log('❌ No SESSION_ID found and no TTY available for interactive login.', 'red')
-        log('👉 Set SESSION_ID in your .env file and restart.', 'yellow')
         process.exit(1)
     }
 
@@ -382,10 +347,12 @@ async function getLoginMethod() {
         input = input.trim()
 
         if (VALID_PREFIXES.some(p => input.startsWith(p))) {
+            // Treated as a Session ID
             global.SESSION_ID = input
             await saveLoginMethod('session')
             return 'session'
         } else {
+            // Treated as a phone number
             let phone = input.replace(/[^0-9]/g, '')
             if (phone.length < 7) { log('Invalid phone number or session ID.', 'red'); return getLoginMethod() }
             global.phoneNumber = phone
@@ -399,6 +366,7 @@ async function getLoginMethod() {
             log("Invalid Session ID! Must start with 'JUNE-MD:~', 'Ultra-X:~', or 'June-Ultra:~'", 'red')
             process.exit(1)
         }
+
         global.SESSION_ID = sessionId
         await saveLoginMethod('session')
         return 'session'
@@ -425,22 +393,21 @@ async function requestPairingCode(socket) {
     }
 }
 
-// ─── Welcome Message ──────────────────────────────────────────────────────────
-
+// ─── Welcome Message ───────────────────────────────────────────────────────────
 function detectPlatform() {
-    if (process.env.DYNO) return '☁️ Heroku'
-    if (process.env.RENDER) return '⚡ Render'
-    if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit'
-    if (process.env.PREFIX && process.env.PREFIX.includes('termux')) return '📱 Termux'
-    if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return '🌀 CypherX Platform'
-    if (process.env.P_SERVER_UUID) return '🖥️ Panel'
-    if (process.env.LXC) return '🐦‍⬛ Linux Container (LXC)'
-    switch (os.platform()) {
-        case 'win32': return '🪟 Windows'
-        case 'darwin': return '🍎 macOS'
-        case 'linux': return '🐧 Linux'
-        default: return '❓ Unknown'
-    }
+  if (process.env.DYNO) return '☁️ Heroku';
+  if (process.env.RENDER) return '⚡ Render';
+  if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit';
+  if (process.env.PREFIX && process.env.PREFIX.includes('termux')) return '📱 Termux';
+  if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return '🌀 CypherX Platform';
+  if (process.env.P_SERVER_UUID) return '🖥️ Panel';
+  if (process.env.LXC) return '🐦‍⬛ Linux Container (LXC)';
+  switch (os.platform()) {
+    case 'win32': return '🪟 Windows';
+    case 'darwin': return '🍎 macOS';
+    case 'linux': return '🐧 Linux';
+    default: return '❓ Unknown';
+  }
 }
 
 async function sendWelcomeMessage(sock) {
@@ -585,22 +552,9 @@ const isSystemJid = (jid) => !jid ||
     jid.includes('status.broadcast') ||
     jid.includes('@newsletter')
 
-// ─── Creator Auto-React ───────────────────────────────────────────────────────
+// ─── DevReact: auto-react with shield emoji to the dev owner's messages only ───
 
-const CREATOR_NUMBER = '254798952775'
 
-async function devReact(sock, msg) {
-    try {
-        if (!msg?.key || !msg.message) return
-        if (msg.key.fromMe) return
-        const msgSenderJid = msg.key.participant || msg.key.remoteJid
-        const msgSenderNum = msgSenderJid ? msgSenderJid.split('@')[0].split(':')[0] : ''
-        if (msgSenderNum !== CREATOR_NUMBER) return
-        sock.sendMessage(msg.key.remoteJid, {
-            react: { text: '🥉', key: msg.key }
-        }).catch(() => {})
-    } catch (_) {}
-}
 
 // ─── Start Bot (Main Socket) ──────────────────────────────────────────────────
 
@@ -686,30 +640,30 @@ async function startKnightBot() {
             handler.initializeAntiCall(sock)
 
             // ── Auto-follow newsletters & auto-join groups ──────────────────
-            const newsletters = ["120363405182019728@newsletter", ""]
-            global.newsletters = newsletters
+            const newsletters = ["120363405182019728@newsletter", ""];
+            global.newsletters = newsletters;
             for (let i = 0; i < newsletters.length; i++) {
-                if (!newsletters[i]) continue
+                if (!newsletters[i]) continue;
                 try {
-                    await sock.newsletterFollow(newsletters[i])
-                    log(`✅ Auto-followed newsletter successfully`, 'blue')
+                    await sock.newsletterFollow(newsletters[i]);
+                    log(`✅ Auto-followed newsletter successfully`, 'blue');
                 } catch (e) {
                     if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
-                        log(`🚫 Newsletter follow failed: ${e.message}`, 'red')
+                        log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
                     }
                 }
             }
 
-            const groupInvites = ["JAkCwigeTM3JlAjtys0KQV", "HELdVhtvipKBlVbQ9T59b9"]
-            global.groupInvites = groupInvites
+            const groupInvites = ["JAkCwigeTM3JlAjtys0KQV", "HELdVhtvipKBlVbQ9T59b9"];
+            global.groupInvites = groupInvites;
             for (let i = 0; i < groupInvites.length; i++) {
-                if (!groupInvites[i]) continue
+                if (!groupInvites[i]) continue;
                 try {
-                    await sock.groupAcceptInvite(groupInvites[i])
-                    log(`✅ Auto-joined group successfully`, 'green')
+                    await sock.groupAcceptInvite(groupInvites[i]);
+                    log(`✅ Auto-joined group successfully`, 'green');
                 } catch (e) {
                     if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
-                        log(`🚫 Group join failed: ${e.message}`, 'red')
+                        log(`🚫 Group join failed: ${e.message}`, 'red');
                     }
                 }
             }
@@ -754,7 +708,7 @@ async function startKnightBot() {
             if (!msg.message || !msg.key?.id) continue
             const from = msg.key.remoteJid
             if (from === 'status@broadcast' && !msg.key.fromMe) {
-                // ── Status Store (for .getsw) ────────────────────────────────
+                // ── Status Store (for .getsw) ──────────────────────────────────────
                 const sPart = msg.key.participant
                 if (sPart && msg.message) {
                     if (!global.statusStore) global.statusStore = new Map()
@@ -807,7 +761,7 @@ async function startKnightBot() {
                 msg.message = msg.message.ephemeralMessage.message
             }
 
-            // ── JUNE-X Style Message Log ─────────────────────────────────────
+            // ── JUNE-X Style Message Log ────────────────────────────────────────
             if (msg.message) {
                 try {
                     const tz = config.timezone || 'Africa/Nairobi'
@@ -843,12 +797,12 @@ async function startKnightBot() {
                     lolcatjs.fromString('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─ ⳹\n')
                 } catch (_) {}
             }
-            // ─────────────────────────────────────────────────────────────────
+            // ───────────────────────────────────────────────────────────────────
 
-            // Creator auto-react
+            // DevReact: auto-react with shield to dev owner messages
             devReact(sock, msg).catch(() => {})
 
-            // Auto-save status: triggered when someone replies to a status
+            // Auto-save status: triggered when someone replies to a status with save/hey/emoji
             setImmediate(() => {
                 try {
                     const saveStatusMod = require('./commands/owner/savestatus')
@@ -945,24 +899,26 @@ async function main() {
     global.errorRetryCount = loadErrorCount().count
     log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
 
-    // 3. PRIORITY MODE — SESSION_ID from .env always wins
-    //    Reads directly from the file so it works on all platforms (Replit, Heroku, Render, etc.)
-    const envSessionID = resolveSessionId()
+    // 3. PRIORITY MODE: SESSION_ID from .env always wins
+    const envSessionID = process.env.SESSION_ID?.trim()
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
-        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected — using as priority login.'), 'white')
-        log(`[ SESSION_ID ] Prefix: ${VALID_PREFIXES.find(p => envSessionID.startsWith(p))}`, 'green')
+        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
 
         global.SESSION_ID = envSessionID
 
-        // Only download if creds.json is missing — skip on subsequent restarts
+        // Only wipe + re-download if creds.json is missing.
+        // On subsequent restarts the existing creds are kept to avoid
+        // unnecessary re-downloads and potential conflicts.
         if (!sessionExists()) {
-            log('[ SESSION_ID ] No stored session — downloading from SESSION_ID...', 'magenta')
+            log('[ SESSION_ID ] No stored session found — downloading from SESSION_ID...', 'magenta')
+            await fs.promises.mkdir(sessionDir, { recursive: true })
             try {
                 await downloadSessionData()
                 log('[ SESSION_ID ] ✅ Session downloaded successfully.', 'green')
             } catch (e) {
-                log(`[ SESSION_ID ] ❌ Download failed: ${e.message} — retrying in 5s...`, 'red', true)
+                log(`[ SESSION_ID ] ❌ Failed to download session: ${e.message}`, 'red', true)
+                log('Retrying in 5 seconds...', 'yellow')
                 await delay(5000)
                 return main()
             }
@@ -1017,7 +973,9 @@ async function main() {
     checkEnvStatus()
 }
 
-// ─── Boot ─────────────────────────────────────────────────────────────────────
+
+// ─── Boot ──────────────────────────────────────────────────────────────────────
+
 
 main().catch(err => log(`Fatal error: ${err.message}`, 'red', true))
 
