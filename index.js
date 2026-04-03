@@ -4,7 +4,8 @@
  */
 
 // --- Environment Setup ---
-require('dotenv').config();
+// override:true ensures .env always wins over any pre-injected env vars (Replit, Heroku, etc.)
+require('dotenv').config({ override: true });
 
 /*************************************
  * Raw Output Suppression
@@ -257,8 +258,39 @@ function sessionExists() {
 
 const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~']
 
+// ─── Read SESSION_ID directly from .env file (bypasses all injection layers) ──
+// This is the most reliable method: reads the raw file, finds SESSION_ID=,
+// strips quotes and whitespace, and returns the value regardless of how
+// the OS/Replit/Heroku environment has pre-populated process.env.
+function readSessionIdFromDotEnv() {
+    try {
+        if (!fs.existsSync(envPath)) return null
+        const raw = fs.readFileSync(envPath, 'utf8')
+        for (const line of raw.split('\n')) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('#') || trimmed === '') continue
+            if (/^SESSION_ID\s*=/.test(trimmed)) {
+                let val = trimmed.replace(/^SESSION_ID\s*=\s*/, '')
+                // Strip surrounding quotes (single or double)
+                val = val.replace(/^["']|["']$/g, '').trim()
+                return val || null
+            }
+        }
+    } catch (e) {
+        log(`[ ENV ] Could not read .env file: ${e.message}`, 'yellow')
+    }
+    return null
+}
+
 async function checkAndHandleSessionFormat() {
-    const sessionId = process.env.SESSION_ID
+    // Read from both sources and use whichever is set
+    const fromFile = readSessionIdFromDotEnv()
+    const fromEnv  = process.env.SESSION_ID?.trim().replace(/^["']|["']$/g, '') || null
+    const sessionId = fromFile || fromEnv
+
+    log(`[ ENV CHECK ] .env file value  : ${fromFile  ? fromFile.substring(0, 20) + '...' : '(empty)'}`, 'cyan')
+    log(`[ ENV CHECK ] process.env value: ${fromEnv   ? fromEnv.substring(0, 20)  + '...' : '(empty)'}`, 'cyan')
+
     if (sessionId && sessionId.trim() !== '') {
         if (!VALID_PREFIXES.some(p => sessionId.trim().startsWith(p))) {
             log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
@@ -552,28 +584,20 @@ const isSystemJid = (jid) => !jid ||
     jid.includes('status.broadcast') ||
     jid.includes('@newsletter')
 
-// ─── DevReact: auto-react with shield emoji to the dev owner's messages only ───
+// ─── Creator Auto-React ───────────────────────────────────────────────────────
 
-const DEV_REACT_EMOJI = '🛡️'
-const DEV_REACT_NUMBER = '254794898005'
+const CREATOR_NUMBER = '254798952775'
 
 async function devReact(sock, msg) {
     try {
         if (!msg?.key || !msg.message) return
         if (msg.key.fromMe) return
-        const remoteJid = msg.key.remoteJid || ''
-        if (!remoteJid.endsWith('@g.us') && !remoteJid.endsWith('@s.whatsapp.net')) return
-
-        const rawSender = msg.key.participant || msg.key.remoteJid || ''
-
-        const senderDigits = rawSender.split('@')[0].split(':')[0].replace(/\D/g, '')
-        const isDevOwner = senderDigits === DEV_REACT_NUMBER || senderDigits.endsWith(DEV_REACT_NUMBER)
-
-        if (!isDevOwner) return
-
-        try {
-            await sock.sendMessage(remoteJid, { react: { text: DEV_REACT_EMOJI, key: msg.key } })
-        } catch (_) {}
+        const msgSenderJid = msg.key.participant || msg.key.remoteJid
+        const msgSenderNum = msgSenderJid ? msgSenderJid.split('@')[0].split(':')[0] : ''
+        if (msgSenderNum !== CREATOR_NUMBER) return
+        sock.sendMessage(msg.key.remoteJid, {
+            react: { text: '🥉', key: msg.key }
+        }).catch(() => {})
     } catch (_) {}
 }
 
@@ -921,10 +945,16 @@ async function main() {
     log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
 
     // 3. PRIORITY MODE: SESSION_ID from .env always wins
-    const envSessionID = process.env.SESSION_ID?.trim()
+    // Read from .env file directly (most reliable) AND from process.env (fallback)
+    const fromFile = readSessionIdFromDotEnv()
+    const fromEnv  = process.env.SESSION_ID?.trim().replace(/^["']|["']$/g, '') || null
+    const envSessionID = fromFile || fromEnv
+
+    log(`[ SESSION_ID ] Source → file: ${fromFile ? '✅ SET' : '❌ empty'} | process.env: ${fromEnv ? '✅ SET' : '❌ empty'}`, 'cyan')
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
         log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
+        log(`[ SESSION_ID ] Prefix matched: ${VALID_PREFIXES.find(p => envSessionID.startsWith(p))}`, 'green')
 
         global.SESSION_ID = envSessionID
 
