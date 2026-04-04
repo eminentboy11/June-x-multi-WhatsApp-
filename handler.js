@@ -393,10 +393,14 @@ const handleMessage = async (sock, msg) => {
     
     if (!msg.message) return;
 
-    // Store message for antidelete
+    // Store message for antidelete and antiedit
     try {
       const antidelete = commands.get('antidelete');
       if (antidelete?.storeMessage) antidelete.storeMessage(msg);
+    } catch (_) {}
+    try {
+      const antiedit = commands.get('antiedit');
+      if (antiedit?.storeMessage) antiedit.storeMessage(msg);
     } catch (_) {}
     
     const from = msg.key.remoteJid;
@@ -1617,16 +1621,29 @@ const handleAntigroupstatus = async (sock, msg, groupMetadata) => {
 // Anti-call feature initializer
 const initializeAntiCall = (sock) => {
   // AntiDelete — Baileys v7 signals deletions via messages.update with stubType REVOKE (1)
+  // AntiEdit  — edits arrive as messages.update with update.message.editedMessage
   // messages.delete does NOT fire in this version
   sock.ev.on('messages.update', async (updates) => {
     try {
       const { WAMessageStubType } = require('@whiskeysockets/baileys');
+
+      // Handle deletions
       const revokeUpdates = updates.filter(
         item => item.update?.messageStubType === WAMessageStubType.REVOKE
       );
-      if (!revokeUpdates.length) return;
-      const antidelete = commands.get('antidelete');
-      if (antidelete?.handleDelete) await antidelete.handleDelete(sock, revokeUpdates);
+      if (revokeUpdates.length) {
+        const antidelete = commands.get('antidelete');
+        if (antidelete?.handleDelete) await antidelete.handleDelete(sock, revokeUpdates);
+      }
+
+      // Handle edits
+      const editUpdates = updates.filter(
+        item => item.update?.message?.editedMessage || item.update?.message?.protocolMessage?.editedMessage
+      );
+      if (editUpdates.length) {
+        const antiedit = commands.get('antiedit');
+        if (antiedit?.handleAntiEdit) await antiedit.handleAntiEdit(sock, editUpdates);
+      }
     } catch (_) {}
   });
 
