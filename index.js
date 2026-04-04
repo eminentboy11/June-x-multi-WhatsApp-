@@ -78,6 +78,7 @@ function log(message, color = 'white', isError = false) {
 global.isBotConnected = false
 global.connectDebounceTimeout = null
 global.errorRetryCount = 0
+global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
 
 // Track active intervals so we can clear them on reconnect
 global._activeIntervals = []
@@ -450,7 +451,7 @@ async function handle408Error(statusCode) {
     if (statusCode !== DisconnectReason.connectionTimeout) return false
 
     global.errorRetryCount++
-    const MAX_RETRIES = 3
+    const MAX_RETRIES = 10
     const errorState = loadErrorCount()
     errorState.count = global.errorRetryCount
     errorState.last_error_timestamp = Date.now()
@@ -459,11 +460,11 @@ async function handle408Error(statusCode) {
     log(`Connection Timeout (408). Retry ${global.errorRetryCount}/${MAX_RETRIES}`, 'yellow')
 
     if (global.errorRetryCount >= MAX_RETRIES) {
-        log(chalk.black.bgYellowBright(`[MAX TIMEOUTS] ${MAX_RETRIES} reached. Exiting to prevent loop.`), 'white')
+        log(chalk.black.bgYellowBright(`[MAX TIMEOUTS] ${MAX_RETRIES} reached. Waiting 60s before next attempt...`), 'white')
         deleteErrorCountFile()
         global.errorRetryCount = 0
-        await delay(5000)
-        process.exit(1)
+        await delay(60000)
+        // Do not exit — just let the reconnect logic try again
     }
     return true
 }
@@ -628,15 +629,34 @@ async function startKnightBot() {
                 log('Restarting login flow...', 'green')
                 return main()
             } else {
+                // Guard: only one reconnect at a time
+                if (global.isReconnecting) {
+                    log(`[RECONNECT] Already reconnecting — skipping duplicate close event.`, 'yellow')
+                    return
+                }
+                global.isReconnecting = true
+
                 const is408 = await handle408Error(statusCode)
-                if (is408) return
+
                 // 440 = Conflict (another session active) — wait longer before retry
-                const waitMs = statusCode === 440 ? 15000 : 3000
+                let waitMs
+                if (is408) {
+                    // Exponential-ish backoff for timeouts: 5s → 10s → 20s (cap 60s)
+                    waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
+                } else if (statusCode === 440) {
+                    waitMs = 20000
+                } else {
+                    waitMs = 5000
+                }
+
                 log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
                 await delay(waitMs)
+                global.isReconnecting = false
                 startKnightBot()
             }
         } else if (connection === 'open') {
+            global.isReconnecting = false   // Clear reconnect guard on successful open
+            global.errorRetryCount = 0      // Reset timeout counter on successful connect
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`💅 Connected as: +${botNum}`, 'yellow')
             log('JUNE ULTRA CONNECTED ✅', 'green')
@@ -893,8 +913,8 @@ async function startKnightBot() {
     // Message backup cleanup (every hour)
     global._activeIntervals.push(setInterval(cleanupOldMessages, 60 * 60 * 1000))
 
-    // Junk file cleanup (every 30 seconds)
-    global._activeIntervals.push(setInterval(() => cleanupJunkFiles(sock), 30000))
+    // Junk file cleanup (every 10 minutes)
+    global._activeIntervals.push(setInterval(() => cleanupJunkFiles(sock), 10 * 60 * 1000))
 
     return sock
 }
