@@ -61,8 +61,7 @@ module.exports = {
         const quotedInfo = msg.message.extendedTextMessage.contextInfo;
         targetMessage = {
           key: {
-            remoteJid: quotedInfo.remoteJid || extra.from,
-            fromMe: false,
+            remoteJid: extra.from,
             id: quotedInfo.stanzaId,
             participant: quotedInfo.participant
           },
@@ -196,8 +195,7 @@ module.exports = {
 
     } catch (error) {
       console.error('Crop command error:', error);
-      const reason = error?.message || 'Unknown error';
-      await extra.reply(`❌ Failed to crop: ${reason}`);
+      await extra.reply('❌ Failed to crop sticker! Try with an image or video.');
     } finally {
       // Always cleanup temp files
       tempFiles.forEach(file => deleteTempFile(file));
