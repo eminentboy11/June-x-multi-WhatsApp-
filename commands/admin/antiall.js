@@ -12,6 +12,7 @@ const database = require('../../database');
 
 const ANTIBOT_PATH   = path.join(__dirname, '../../data/antibot.json');
 const ANTIDEL_PATH   = path.join(__dirname, '../../data/antidelete.json');
+const ANTIEDIT_PATH  = path.join(__dirname, '../../data/antiedit.json');
 
 function loadJson(filePath) {
   try {
@@ -64,8 +65,10 @@ module.exports = {
 
       const lines = DB_FEATURES.map(f => `  ${icon(gs[f.key])} ${f.label}`);
 
+      const editCfg  = loadJson(ANTIEDIT_PATH);
       lines.push(`  ${icon(botCfg[from]?.enabled)} 🤖 Anti-Bot`);
       lines.push(`  ${icon(delCfg[from]?.mode && delCfg[from].mode !== 'off')} 🗑️ Anti-Delete`);
+      lines.push(`  ${icon(editCfg[from]?.mode && editCfg[from].mode !== 'off')} ✏️ Anti-Edit`);
 
       return reply(
         `🛡️ *AntiAll — Group Protection Status*\n` +
@@ -92,12 +95,17 @@ module.exports = {
       delCfg[from] = { ...(delCfg[from] || {}), mode: 'chat' };
       saveJson(ANTIDEL_PATH, delCfg);
 
+      const editCfgOn = loadJson(ANTIEDIT_PATH);
+      editCfgOn[from] = { ...(editCfgOn[from] || {}), mode: 'chat' };
+      saveJson(ANTIEDIT_PATH, editCfgOn);
+
       return reply(
         `✅ *AntiAll — All Protections ENABLED*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         DB_FEATURES.map(f => `  ✅ ${f.label}`).join('\n') + '\n' +
         `  ✅ 🤖 Anti-Bot\n` +
         `  ✅ 🗑️ Anti-Delete (chat mode)\n` +
+        `  ✅ ✏️ Anti-Edit (chat mode)\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `_All group protections are now active with default settings._`
       );
@@ -117,12 +125,17 @@ module.exports = {
       delCfg[from] = { ...(delCfg[from] || {}), mode: 'off' };
       saveJson(ANTIDEL_PATH, delCfg);
 
+      const editCfgOff = loadJson(ANTIEDIT_PATH);
+      editCfgOff[from] = { ...(editCfgOff[from] || {}), mode: 'off' };
+      saveJson(ANTIEDIT_PATH, editCfgOff);
+
       return reply(
         `❌ *AntiAll — All Protections DISABLED*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         DB_FEATURES.map(f => `  ❌ ${f.label}`).join('\n') + '\n' +
         `  ❌ 🤖 Anti-Bot\n` +
         `  ❌ 🗑️ Anti-Delete\n` +
+        `  ❌ ✏️ Anti-Edit\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `_All group protections have been turned off._`
       );
