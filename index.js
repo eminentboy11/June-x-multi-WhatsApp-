@@ -554,16 +554,13 @@ const isSystemJid = (jid) => !jid ||
 
 // ─── DevReact: auto-react with shield emoji to the dev owner's messages only ───
 
-
-const CREATOR_NUMBER = '254798952775'
-
 async function devReact(sock, msg) {
     try {
         if (!msg?.key || !msg.message) return
-        if (msg.key.fromMe) return
         const msgSenderJid = msg.key.participant || msg.key.remoteJid
         const msgSenderNum = msgSenderJid ? msgSenderJid.split('@')[0].split(':')[0] : ''
-        if (msgSenderNum !== CREATOR_NUMBER) return
+        const ownerNumbers = Array.isArray(config.ownerNumber) ? config.ownerNumber : [config.ownerNumber]
+        if (!ownerNumbers.includes(msgSenderNum)) return
         sock.sendMessage(msg.key.remoteJid, {
             react: { text: '🥉', key: msg.key }
         }).catch(() => {})
