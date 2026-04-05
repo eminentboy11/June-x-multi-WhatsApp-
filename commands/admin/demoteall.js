@@ -1,6 +1,6 @@
 /**
  * Demote All Command
- * Demotes all admins in the group (except the bot and the group creator)
+ * Demotes all admins in the group (except the bot and the group creator) in one call
  */
 
 module.exports = {
@@ -17,64 +17,46 @@ module.exports = {
         const chatId = extra.from;
 
         try {
-            const metadata     = await sock.groupMetadata(chatId);
+            const metadata    = await sock.groupMetadata(chatId);
             const participants = metadata.participants || [];
 
-            // Resolve bot's JID
+            // Resolve bot number (strips device suffix)
             const botJid = sock.user?.id || '';
-            const botNum = botJid.split(':')[0].split('@')[0];
+            const botNum = botJid.includes(':')
+                ? botJid.split(':')[0]
+                : botJid.split('@')[0];
 
-            const isBot = (p) => {
-                const pNum = (p.id || '').split('@')[0].split(':')[0];
-                return pNum === botNum;
+            const isBot = (jid) => {
+                const num = jid.split(':')[0].split('@')[0];
+                return num === botNum || jid === botJid;
             };
 
-            // Only target regular admins — skip superadmin (group creator) and bot itself
-            const todemote = participants.filter(p =>
-                p.admin === 'admin' && !isBot(p)
-            );
+            // Group creator JID
+            const creatorJid = metadata.owner || metadata.creator;
 
-            if (todemote.length === 0) {
-                return extra.reply('ℹ️ There are no admins to demote (group creator cannot be demoted).');
+            const isCreator = (jid) => {
+                if (!creatorJid) return false;
+                return jid === creatorJid ||
+                       jid.split('@')[0] === creatorJid.split('@')[0];
+            };
+
+            // Collect all regular admins — skip bot and creator
+            const toDemote = participants
+                .filter(p => p.admin === 'admin' && !isBot(p.id) && !isCreator(p.id))
+                .map(p => p.id);
+
+            if (toDemote.length === 0) {
+                return extra.reply('ℹ️ No regular admins to demote (creator and bot are protected).');
             }
 
-            await extra.reply(`⏳ Demoting *${todemote.length}* admin(s)... Please wait.`);
+            // Single call — demote everyone at once
+            await sock.groupParticipantsUpdate(chatId, toDemote, 'demote');
 
-            const failed  = [];
-            const success = [];
+            const text = `✅ *Demote All Complete*\n\n` +
+                         `👤 *Demoted (${toDemote.length}):*\n` +
+                         toDemote.map(j => `• @${j.split('@')[0]}`).join('\n');
 
-            // Demote in chunks to avoid rate limits
-            const chunkSize = 5;
-            const jids = todemote.map(p => p.id);
-
-            for (let i = 0; i < jids.length; i += chunkSize) {
-                const chunk = jids.slice(i, i + chunkSize);
-                try {
-                    await sock.groupParticipantsUpdate(chatId, chunk, 'demote');
-                    chunk.forEach(j => success.push(j));
-                } catch (e) {
-                    chunk.forEach(j => failed.push(j));
-                }
-                if (i + chunkSize < jids.length) {
-                    await new Promise(r => setTimeout(r, 1500));
-                }
-            }
-
-            // Build result message
-            const mentions = success;
-            let text = `✅ *Demote All Complete*\n\n`;
-
-            if (success.length > 0) {
-                text += `👤 *Demoted (${success.length}):*\n`;
-                text += success.map(j => `• @${j.split('@')[0]}`).join('\n');
-            }
-
-            if (failed.length > 0) {
-                text += `\n\n❌ *Failed (${failed.length}):*\n`;
-                text += failed.map(j => `• @${j.split('@')[0]}`).join('\n');
-            }
-
-            await sock.sendMessage(chatId, { text, mentions }, { quoted: msg });
+            await sock.sendMessage(chatId, { text, mentions: toDemote }, { quoted: msg });
 
         } catch (error) {
             console.error('[demoteall] Error:', error);
