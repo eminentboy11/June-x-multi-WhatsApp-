@@ -1,13 +1,17 @@
 /**
  * AntiPromote Command - Prevent unauthorized admin promotions
+ *
+ * Actions (applied to BOTH promoter and promoted member):
+ *   revert  — demote the promoted member back (default)
+ *   kick    — kick both the promoter and the promoted member
+ *   demote  — demote the promoter (and revert the promoted member)
  */
 
 const database = require('../../database');
 const config   = require('../../config');
 
-// Guard — tracks JIDs currently being corrected by the bot to prevent echo loops
+// Guard — prevents echo loop when the bot itself makes changes
 const botCorrecting = new Set();
-
 function markCorrecting(jid) {
     botCorrecting.add(jid);
     setTimeout(() => botCorrecting.delete(jid), 6000);
@@ -21,28 +25,51 @@ async function handlePromote(sock, groupId, actor, promotedJid) {
         const settings = database.getGroupSettings(groupId);
         if (!settings.antipromote) return;
 
-        // Skip if this is the bot's own corrective action echoing back
+        // Skip bot's own corrective actions
         if (botCorrecting.has(promotedJid)) return;
 
+        const action    = settings.antipromoteAction || 'revert';
         const actorNum  = actor       ? actor.split('@')[0]       : 'Unknown';
         const targetNum = promotedJid ? promotedJid.split('@')[0] : 'Unknown';
-        const timestamp = new Date().toLocaleString();
+        const timestamp = new Date().toLocaleString('en-GB', {
+            timeZone: config.timezone || 'Africa/Nairobi',
+            hour12: false, day: '2-digit', month: '2-digit',
+            year: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
 
-        // Guard before acting to block the echo event
         markCorrecting(promotedJid);
+        if (actor) markCorrecting(actor);
 
-        // Revert the unauthorized promotion — pass pJid directly (same as .demote command)
-        await sock.groupParticipantsUpdate(groupId, [promotedJid], 'demote');
+        let actionLine = '';
+
+        if (action === 'revert') {
+            // Demote the promoted member back to regular
+            await sock.groupParticipantsUpdate(groupId, [promotedJid], 'demote');
+            actionLine = `🔄 *Action:* Promotion reversed — member demoted back`;
+
+        } else if (action === 'kick') {
+            // Kick both the promoter AND the promoted member
+            const toKick = [promotedJid, actor].filter(Boolean);
+            await sock.groupParticipantsUpdate(groupId, toKick, 'remove');
+            actionLine = `🚫 *Action:* Both parties kicked from the group`;
+
+        } else if (action === 'demote') {
+            // Revert the promoted member AND demote the promoter
+            const toAct = [promotedJid, actor].filter(Boolean);
+            await sock.groupParticipantsUpdate(groupId, toAct, 'demote');
+            actionLine = `⬇️ *Action:* Promoted member reverted + promoter demoted`;
+        }
 
         await sock.sendMessage(groupId, {
             text: [
                 `⚠️ *Security Alert — AntiPromote*`,
                 ``,
-                `An unauthorized promotion was *blocked and reversed*.`,
+                `An unauthorized promotion was *detected and actioned*.`,
                 ``,
-                `👤 *By:* @${actorNum}`,
-                `🎯 *Target:* @${targetNum}`,
+                `👤 *Promoter:* @${actorNum}`,
+                `🎯 *Promoted:* @${targetNum}`,
                 `⏰ *Time:* ${timestamp}`,
+                `${actionLine}`,
                 ``,
                 `> Powered by ${config.botName}`
             ].join('\n'),
@@ -58,8 +85,8 @@ module.exports = {
     name: 'antipromote',
     aliases: ['antipm'],
     category: 'admin',
-    description: 'Block and reverse unauthorized admin promotions',
-    usage: '.antipromote on | off',
+    description: 'Block unauthorized admin promotions with configurable action',
+    usage: '.antipromote on | revert | kick | demote | off',
     groupOnly: true,
     adminOnly: true,
     botAdminNeeded: true,
@@ -71,25 +98,46 @@ module.exports = {
         const { from, reply, react } = extra;
         const sub      = args[0]?.toLowerCase();
         const settings = database.getGroupSettings(from);
+        const enabled  = !!settings.antipromote;
+        const action   = settings.antipromoteAction || 'revert';
+
+        const actionLabel = {
+            revert: '🔄 Revert — demote the promoted member back',
+            kick:   '🚫 Kick — remove both parties from group',
+            demote: '⬇️ Demote — demote both promoter and promoted'
+        };
 
         if (!sub) {
             return reply(
                 `🛡️ *AntiPromote*\n\n` +
-                `Status: *${settings.antipromote ? '✅ ON' : '❌ OFF'}*\n\n` +
-                `When ON, any unauthorized promotion to admin is instantly reversed.\n\n` +
-                `• .antipromote on\n• .antipromote off`
+                `Status: *${enabled ? '✅ ON' : '❌ OFF'}*\n` +
+                `Action: *${enabled ? (actionLabel[action] || action) : '—'}*\n\n` +
+                `Catches unauthorized promotions and acts on both parties.\n\n` +
+                `*Options:*\n` +
+                `  .antipromote revert  — demote the promoted member back\n` +
+                `  .antipromote kick    — kick both promoter + promoted\n` +
+                `  .antipromote demote  — demote both parties\n` +
+                `  .antipromote on      — enable (default: revert)\n` +
+                `  .antipromote off     — disable`
             );
         }
+
         if (sub === 'on') {
             database.updateGroupSettings(from, { antipromote: true });
             await react('✅');
-            return reply(`🛡️ *AntiPromote enabled.* Unauthorized promotions will be reversed.`);
+            return reply(`🛡️ *AntiPromote enabled* — action: *${actionLabel[action] || action}*`);
         }
         if (sub === 'off') {
             database.updateGroupSettings(from, { antipromote: false });
             await react('✅');
             return reply(`🛡️ *AntiPromote disabled.*`);
         }
-        return reply(`❌ Usage: .antipromote on | off`);
+        if (['revert', 'kick', 'demote'].includes(sub)) {
+            database.updateGroupSettings(from, { antipromote: true, antipromoteAction: sub });
+            await react('✅');
+            return reply(`🛡️ *AntiPromote enabled*\n${actionLabel[sub]}`);
+        }
+
+        return reply(`❌ Usage: .antipromote on | revert | kick | demote | off`);
     }
 };
