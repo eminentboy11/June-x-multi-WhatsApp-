@@ -17,6 +17,16 @@ function markCorrecting(jid) {
     setTimeout(() => botCorrecting.delete(jid), 6000);
 }
 
+/** Strip bot's own JID from any list before acting — bot never acts on itself */
+function excludeBot(jids, botJid) {
+    const botNum = botJid.includes(':') ? botJid.split(':')[0] : botJid.split('@')[0];
+    return jids.filter(j => {
+        if (!j) return false;
+        const num = j.split(':')[0].split('@')[0];
+        return num !== botNum && j !== botJid;
+    });
+}
+
 /**
  * Called from handler.js handleGroupUpdate when action === 'promote'
  */
@@ -27,6 +37,9 @@ async function handlePromote(sock, groupId, actor, promotedJid) {
 
         // Skip bot's own corrective actions
         if (botCorrecting.has(promotedJid)) return;
+
+        // Resolve bot JID — bot must never be included in any update
+        const botJid = sock.user?.id || '';
 
         const action    = settings.antipromoteAction || 'revert';
         const actorNum  = actor       ? actor.split('@')[0]       : 'Unknown';
@@ -43,20 +56,21 @@ async function handlePromote(sock, groupId, actor, promotedJid) {
         let actionLine = '';
 
         if (action === 'revert') {
-            // Demote the promoted member back to regular
-            await sock.groupParticipantsUpdate(groupId, [promotedJid], 'demote');
+            // Demote the promoted member back — never the bot
+            const targets = excludeBot([promotedJid], botJid);
+            if (targets.length) await sock.groupParticipantsUpdate(groupId, targets, 'demote');
             actionLine = `🔄 *Action:* Promotion reversed — member demoted back`;
 
         } else if (action === 'kick') {
-            // Kick both the promoter AND the promoted member
-            const toKick = [promotedJid, actor].filter(Boolean);
-            await sock.groupParticipantsUpdate(groupId, toKick, 'remove');
+            // Kick both the promoter AND the promoted member — never the bot
+            const toKick = excludeBot([promotedJid, actor], botJid);
+            if (toKick.length) await sock.groupParticipantsUpdate(groupId, toKick, 'remove');
             actionLine = `🚫 *Action:* Both parties kicked from the group`;
 
         } else if (action === 'demote') {
-            // Revert the promoted member AND demote the promoter
-            const toAct = [promotedJid, actor].filter(Boolean);
-            await sock.groupParticipantsUpdate(groupId, toAct, 'demote');
+            // Revert the promoted member AND demote the promoter — never the bot
+            const toAct = excludeBot([promotedJid, actor], botJid);
+            if (toAct.length) await sock.groupParticipantsUpdate(groupId, toAct, 'demote');
             actionLine = `⬇️ *Action:* Promoted member reverted + promoter demoted`;
         }
 
