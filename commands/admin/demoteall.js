@@ -1,13 +1,14 @@
 /**
  * Demote All Command
- * Demotes all admins in the group (except the bot and the group creator) in one call
+ * Demotes all admins in the group except the bot and the group creator.
+ * The bot always keeps its admin status.
  */
 
 module.exports = {
     name: 'demoteall',
     aliases: ['removeadmins', 'demoteadmins'],
     category: 'admin',
-    description: 'Demote all admins in the group (except bot and group creator)',
+    description: 'Demote all admins in the group (bot and creator are protected)',
     usage: '.demoteall',
     groupOnly: true,
     adminOnly: true,
@@ -17,44 +18,49 @@ module.exports = {
         const chatId = extra.from;
 
         try {
-            const metadata    = await sock.groupMetadata(chatId);
+            const metadata     = await sock.groupMetadata(chatId);
             const participants = metadata.participants || [];
 
-            // Resolve bot number (strips device suffix)
+            // Extract bare phone number from any JID format:
+            // "254798952793:12@s.whatsapp.net"  → "254798952793"
+            // "254798952793@s.whatsapp.net"     → "254798952793"
+            // "254798952793@lid"                → "254798952793"
+            const bareNum = (jid = '') => jid.split('@')[0].split(':')[0];
+
             const botJid = sock.user?.id || '';
-            const botNum = botJid.includes(':')
-                ? botJid.split(':')[0]
-                : botJid.split('@')[0];
+            const botNum = bareNum(botJid);
 
-            const isBot = (jid) => {
-                const num = jid.split(':')[0].split('@')[0];
-                return num === botNum || jid === botJid;
+            // Group creator — usually metadata.owner; fall back to metadata.creator
+            const creatorJid = metadata.owner || metadata.creator || '';
+            const creatorNum = bareNum(creatorJid);
+
+            const isSafe = (p) => {
+                const num = bareNum(p.id);
+                if (num === botNum)     return true;   // never demote the bot
+                if (num === creatorNum && creatorNum) return true; // never demote creator
+                if (p.admin === 'superadmin') return true; // extra guard for creator role
+                return false;
             };
 
-            // Group creator JID
-            const creatorJid = metadata.owner || metadata.creator;
-
-            const isCreator = (jid) => {
-                if (!creatorJid) return false;
-                return jid === creatorJid ||
-                       jid.split('@')[0] === creatorJid.split('@')[0];
-            };
-
-            // Collect all regular admins — skip bot and creator
-            const toDemote = participants
-                .filter(p => p.admin === 'admin' && !isBot(p.id) && !isCreator(p.id))
+            // Only target regular admins — protected members are excluded
+            let toDemote = participants
+                .filter(p => p.admin === 'admin' && !isSafe(p))
                 .map(p => p.id);
 
+            // Final safety net — strip bot JID in case anything slipped through
+            toDemote = toDemote.filter(jid => bareNum(jid) !== botNum);
+
             if (toDemote.length === 0) {
-                return extra.reply('ℹ️ No regular admins to demote (creator and bot are protected).');
+                return extra.reply('ℹ️ No admins to demote — bot and group creator are protected.');
             }
 
-            // Single call — demote everyone at once
+            // Demote everyone in one call
             await sock.groupParticipantsUpdate(chatId, toDemote, 'demote');
 
-            const text = `✅ *Demote All Complete*\n\n` +
-                         `👤 *Demoted (${toDemote.length}):*\n` +
-                         toDemote.map(j => `• @${j.split('@')[0]}`).join('\n');
+            const text =
+                `✅ *Demote All Complete*\n\n` +
+                `👤 *Demoted (${toDemote.length}):*\n` +
+                toDemote.map(j => `• @${bareNum(j)}`).join('\n');
 
             await sock.sendMessage(chatId, { text, mentions: toDemote }, { quoted: msg });
 
