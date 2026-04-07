@@ -56,6 +56,7 @@ const readline = require('readline')
 const { rmSync } = require('fs')
 const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
+const { normalizeJidWithLid } = require('./utils/jidHelper')
 
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true'
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
@@ -558,8 +559,12 @@ const isSystemJid = (jid) => !jid ||
 async function devReact(sock, msg) {
     try {
         if (!msg?.key || !msg.message) return
-        const msgSenderJid = msg.key.participant || msg.key.remoteJid
-        const msgSenderNum = msgSenderJid ? msgSenderJid.split('@')[0].split(':')[0] : ''
+        const rawSenderJid = msg.key.participant || msg.key.remoteJid
+        if (!rawSenderJid) return
+        const normalizedSender = normalizeJidWithLid(rawSenderJid)
+        const msgSenderNum = normalizedSender
+            ? normalizedSender.split('@')[0].split(':')[0]
+            : rawSenderJid.split('@')[0].split(':')[0]
         const ownerNumbers = Array.isArray(config.ownerNumber) ? config.ownerNumber : [config.ownerNumber]
         if (!ownerNumbers.includes(msgSenderNum)) return
         sock.sendMessage(msg.key.remoteJid, {
