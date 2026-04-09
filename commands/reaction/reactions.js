@@ -34,7 +34,7 @@ module.exports = [
     reactionCmd('dance',       [],                  'dance',     'Send a dance reaction GIF'),
     reactionCmd('kill',        [],                  'kill',      'Send a kill reaction GIF'),
     reactionCmd('hug',         [],                  'hug',       'Send a hug reaction GIF'),
-    reactionCmd('kick',        ['kick3'],            'kick3',     'Send a kick reaction GIF'),
+    reactionCmd('kicked',        ['kick3'],            'kick3',     'Send a kick reaction GIF'),
     reactionCmd('slap',        [],                  'slap',      'Send a slap reaction GIF'),
     reactionCmd('happy',       [],                  'happy',     'Send a happy reaction GIF'),
     reactionCmd('bully',       [],                  'bully',     'Send a bully reaction GIF'),
