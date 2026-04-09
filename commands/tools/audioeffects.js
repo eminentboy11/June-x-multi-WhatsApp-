@@ -4,6 +4,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { toPTT } = require('../../utils/converter');
+const ffmpegPath = require('ffmpeg-static');
 
 const TEMP_DIR = path.join(os.tmpdir(), 'june-x-audio');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
@@ -36,7 +37,7 @@ async function downloadAudio(sock, msg) {
 
 function runFfmpeg(inputPath, outputPath, ffArgs) {
     return new Promise((resolve, reject) => {
-        execFile('ffmpeg', ['-y', '-i', inputPath, ...ffArgs, outputPath], (err) => {
+        execFile(ffmpegPath, ['-y', '-i', inputPath, ...ffArgs, outputPath], (err) => {
             try { fs.unlinkSync(inputPath); } catch (_) {}
             if (err) return reject(err);
             resolve();
