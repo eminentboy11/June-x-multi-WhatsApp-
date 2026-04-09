@@ -3,6 +3,8 @@
  */
 
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
 const { exec } = require('child_process');
 const util = require('util');
 const fs = require('fs');
