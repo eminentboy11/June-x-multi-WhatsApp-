@@ -3,6 +3,7 @@ const path = require("path");
 const { execFile } = require("child_process");
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
+const ffmpegPath = require('ffmpeg-static');
 
 module.exports = {
     name: 'trim',
@@ -106,7 +107,7 @@ module.exports = {
                 ];
 
             await new Promise((resolve, reject) => {
-                execFile('ffmpeg', ffmpegArgs, (error, _stdout, stderr) => {
+                execFile(ffmpegPath, ffmpegArgs, (error, _stdout, stderr) => {
                     deleteTempFile(inputFile);
                     if (error) {
                         console.error('[Trim] FFmpeg stderr:', stderr);
