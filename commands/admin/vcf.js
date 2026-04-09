@@ -21,15 +21,26 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         const chatId = extra.from;
 
+        const delay = (ms) => new Promise(res => setTimeout(res, ms));
+        const DELAY_PER_MEMBER = 300;
+        const PROGRESS_INTERVAL = 50;
+
         try {
             await sock.sendMessage(chatId, { react: { text: '📇', key: msg.key } });
 
             const participants = extra.groupMetadata.participants;
             const groupName = extra.groupMetadata.subject || 'Group';
+            const total = participants.length;
+
+            await sock.sendMessage(chatId, {
+                text: `⏳ Processing *${total}* members, please wait...`
+            }, { quoted: msg });
 
             const validNumbers = [];
 
-            for (const p of participants) {
+            for (let i = 0; i < participants.length; i++) {
+                const p = participants[i];
+
                 // Prefer `jid` field (real phone number) — confirmed available in group metadata
                 const jid = p.jid || '';
                 const id  = p.id  || '';
@@ -38,6 +49,7 @@ module.exports = {
                     const num = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
                     if (/^\d{7,15}$/.test(num)) {
                         validNumbers.push(num);
+                        await delay(DELAY_PER_MEMBER);
                         continue;
                     }
                 }
@@ -47,6 +59,7 @@ module.exports = {
                     const num = id.replace('@s.whatsapp.net', '').replace(/\D/g, '');
                     if (/^\d{7,15}$/.test(num)) {
                         validNumbers.push(num);
+                        await delay(DELAY_PER_MEMBER);
                         continue;
                     }
                 }
@@ -60,6 +73,15 @@ module.exports = {
                         validNumbers.push(pnUser);
                     }
                 }
+
+                // Send progress update every PROGRESS_INTERVAL members
+                if ((i + 1) % PROGRESS_INTERVAL === 0 && i + 1 < total) {
+                    await sock.sendMessage(chatId, {
+                        text: `⏳ Progress: *${i + 1}/${total}* members processed (${validNumbers.length} resolved so far)...`
+                    }, { quoted: msg });
+                }
+
+                await delay(DELAY_PER_MEMBER);
             }
 
             if (validNumbers.length === 0) {
