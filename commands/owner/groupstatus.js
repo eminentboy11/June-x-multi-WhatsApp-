@@ -6,6 +6,8 @@ const {
 } = require('@whiskeysockets/baileys');
 const { PassThrough } = require('stream');
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Single default color for text statuses (purple)
 const PURPLE_COLOR = '#9C27B0';
@@ -14,7 +16,7 @@ module.exports = {
   name: 'groupstatus',
   aliases: ['togstatus', 'swgc', 'gs', 'gstatus'],
   description: 'Post replied media or text as a WhatsApp group status (new Group Status feature).',
-  usage: '.groupstatus [caption]  (reply to image/video/audio) OR .groupstatus your text',
+  usage: '.groupstatus [caption] [groupJid]  — groupJid required when used in private chat',
   category: 'owner',
   ownerOnly: true,
 
@@ -22,12 +24,33 @@ module.exports = {
     try {
       const from = extra.from;
 
-      // Only inside groups
-      if (!extra.isGroup) {
-        return extra.reply('👥 This command can only be used in groups.');
+      // Resolve target group JID
+      // When used from a private chat, the last argument must be a group JID (ends with @g.us)
+      let targetJid = null;
+      let captionArgs = [...(args || [])];
+
+      const lastArg = captionArgs[captionArgs.length - 1] || '';
+      if (lastArg.endsWith('@g.us')) {
+        targetJid = lastArg;
+        captionArgs = captionArgs.slice(0, -1);
+      } else if (extra.isGroup) {
+        targetJid = from;
       }
 
-      const caption = (args.join(' ') || '').trim();
+      if (!targetJid) {
+        return extra.reply(
+          '📝 *Group Status Usage*\n\n' +
+          '*In a group:*\n' +
+          '  `.swgc Your text here`\n' +
+          '  `.swgc` (reply to image/video/audio)\n\n' +
+          '*From private chat:*\n' +
+          '  `.swgc Hello everyone <groupjid>`\n' +
+          '  `.swgc <groupjid>` (reply to media)\n\n' +
+          ''
+        );
+      }
+
+      const caption = captionArgs.join(' ').trim();
 
       const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
       const hasQuoted = !!ctxInfo?.quotedMessage;
@@ -37,18 +60,18 @@ module.exports = {
         if (!caption) {
           return extra.reply(
             '📝 *Group Status Usage*\n\n' +
-            '• Reply to image/video/audio with:\n' +
-            '  .groupstatus [optional caption]\n' +
-            '• Or send text status only:\n' +
-            '  .groupstatus Your text here\n\n' +
-            'Text statuses use a single purple background color by default.'
+            '*In a group:*\n' +
+            '  `.swgc Your text here`\n' +
+            '  `.swgc` (reply to image/video/audio)\n\n' +
+            '*From private chat:*\n' +
+            '  `.swgc Hello everyone <groupjid>`\n' +
+            '  `.swgc <groupjid>` (reply to media)\n\n' +
+            ''
           );
         }
 
-      //  await extra.reply('');
-
         try {
-          await groupStatus(sock, from, {
+          await groupStatus(sock, targetJid, {
             text: caption,
             backgroundColor: PURPLE_COLOR,
           });
@@ -91,7 +114,7 @@ module.exports = {
         if (!buf) return extra.reply('❌ Could not download image');
 
         try {
-          await groupStatus(sock, from, {
+          await groupStatus(sock, targetJid, {
             image: buf,
             caption: caption || '',
           });
@@ -113,7 +136,7 @@ module.exports = {
         if (!buf) return extra.reply('❌ Could not download video');
 
         try {
-          await groupStatus(sock, from, {
+          await groupStatus(sock, targetJid, {
             video: buf,
             caption: caption || '',
           });
@@ -149,7 +172,7 @@ module.exports = {
         }
 
         try {
-          await groupStatus(sock, from, {
+          await groupStatus(sock, targetJid, {
             audio: vn,
             mimetype: 'audio/ogg; codecs=opus',
             ptt: true,
