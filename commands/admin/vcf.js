@@ -1,6 +1,7 @@
 /**
  * VCF Command - Export group members as a VCF contacts file
- * Resolves LID participants to real phone numbers using the session LID mapping.
+ * Uses the participant `jid` field (phone number) directly when available,
+ * with LID mapping as fallback.
  */
 
 const os = require('os');
@@ -29,18 +30,32 @@ module.exports = {
             const validNumbers = [];
 
             for (const p of participants) {
-                const id = p.id || '';
+                // Prefer `jid` field (real phone number) — confirmed available in group metadata
+                const jid = p.jid || '';
+                const id  = p.id  || '';
 
-                if (id.endsWith('@s.whatsapp.net')) {
-                    // Regular phone number participant
-                    const num = id.replace('@s.whatsapp.net', '').trim();
+                if (jid.endsWith('@s.whatsapp.net')) {
+                    const num = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
                     if (/^\d{7,15}$/.test(num)) {
                         validNumbers.push(num);
+                        continue;
                     }
-                } else if (id.endsWith('@lid') || id.endsWith('@hosted.lid')) {
-                    // LID participant — try to resolve to real phone number
-                    const lidUser = id.split('@')[0];
-                    const pnUser = getLidMappingValue(lidUser, 'lidToPn');
+                }
+
+                // Fallback: regular phone-number `id`
+                if (id.endsWith('@s.whatsapp.net')) {
+                    const num = id.replace('@s.whatsapp.net', '').replace(/\D/g, '');
+                    if (/^\d{7,15}$/.test(num)) {
+                        validNumbers.push(num);
+                        continue;
+                    }
+                }
+
+                // Last resort: LID → PN mapping file
+                const rawId = id || jid;
+                if (rawId.endsWith('@lid') || rawId.endsWith('@hosted.lid')) {
+                    const lidUser = rawId.split('@')[0];
+                    const pnUser  = getLidMappingValue(lidUser, 'lidToPn');
                     if (pnUser && /^\d{7,15}$/.test(pnUser)) {
                         validNumbers.push(pnUser);
                     }
@@ -59,7 +74,8 @@ module.exports = {
                 vcfContent += `BEGIN:VCARD\n`;
                 vcfContent += `VERSION:3.0\n`;
                 vcfContent += `FN:${groupName} ${index + 1}\n`;
-                vcfContent += `TEL;TYPE=CELL:+${num}\n`;
+                vcfContent += `ORG:${groupName};\n`;
+                vcfContent += `TEL;TYPE=CELL,VOICE:+${num}\n`;
                 vcfContent += `END:VCARD\n`;
             });
 
@@ -80,7 +96,8 @@ module.exports = {
             await sock.sendMessage(chatId, {
                 document: fileBuffer,
                 mimetype: 'text/vcard',
-                fileName: `${safeName}_contacts.vcf`
+                fileName: `${safeName}_contacts.vcf`,
+                caption: `📇 ${groupName} — ${validNumbers.length} contact(s)`
             }, { quoted: msg });
 
             // Clean up
