@@ -1,10 +1,10 @@
 module.exports = {
-    ownerNumber: ['254798952793','254792021944'],
-    ownerName: ['Supreme', 'Agent Of Dusk'],
+    ownerNumber: ['254798952773','254792021944'],
+    ownerName: ['Supreme', ''],
     
-    botName: 'June-X Ultra',
+    botName: 'June-Ultra',
     prefix: '.',
-    version: '2.8.0',
+    version: '2.8.1',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
@@ -84,7 +84,7 @@ module.exports = {
     maxWarnings: 3,
     
     social: {
-      github: 'https://github.com/Vinpink2/June_X_Ultra',
+      github: 'https://github.com/Vinpink2/June-Ultra',
       instagram: 'https://instagram.com/activator_negative',
       youtube: 'http://youtube.com/@suprem_e_lord'
     }
