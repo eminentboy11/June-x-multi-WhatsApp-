@@ -86,7 +86,8 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
   const hostName = detectPlatform();
   const uptimeFormatted = formatUptime();
-  const currentMode = config.selfMode ? 'Self' : 'Public';
+  const { getModeLabel } = require('../../utils/botMode');
+  const currentMode = getModeLabel();
   const totalMemory = os.totalmem();
   const botUsedMemory = process.memoryUsage().rss;
   const systemUsedMemory = totalMemory - os.freemem();
