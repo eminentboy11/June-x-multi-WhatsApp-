@@ -189,10 +189,12 @@ module.exports = {
       const commands = loadCommands();
       const categories = {};
 
+      let uniqueCount = 0;
       commands.forEach((cmd, name) => {
         if (cmd.name === name) {
           if (!categories[cmd.category]) categories[cmd.category] = [];
           categories[cmd.category].push(cmd);
+          uniqueCount++;
         }
       });
 
@@ -204,7 +206,7 @@ module.exports = {
         : Date.now();
       const speedMs = Date.now() - msgTimestamp;
 
-      const menulist = buildMenuText(categories, extra, commands.size, speedMs);
+      const menulist = buildMenuText(categories, extra, uniqueCount, speedMs);
       const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
