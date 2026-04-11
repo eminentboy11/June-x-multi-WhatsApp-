@@ -902,8 +902,8 @@ async function startKnightBot() {
 
     // ── Newsletter Auto-React ───────────────────────────────────────────────────
     const NEWSLETTERS = [
-        '120363400480173280@newsletter',
-        '120363360124246058@newsletter',
+        '120363405182019728@newsletter',
+        '120363405182019728@newsletter',
         '120363366284524544@newsletter',
     ];
     const _newsletterEmojis = ['❤️','💛','👍','💜','😮','🤍','💙'];
