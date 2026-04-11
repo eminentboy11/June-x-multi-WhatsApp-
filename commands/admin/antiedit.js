@@ -135,8 +135,8 @@ async function handleAntiEdit(sock, updates) {
       // Determine target
       let targetJid;
       if (mode === 'private') {
-        const ownerNums = Array.isArray(config.ownerNumber) ? config.ownerNumber : [config.ownerNumber];
-        targetJid = ownerNums[0] + '@s.whatsapp.net';
+        const botNum = sock.user?.id?.split(':')[0] + '@s.whatsapp.net';
+        targetJid = botNum;
       } else {
         targetJid = chatId;
       }
@@ -177,7 +177,7 @@ module.exports = {
     const modeLabel = () => {
       if (!currentMode || currentMode === 'off') return '❌ OFF';
       if (currentMode === 'chat')    return '✅ ON — Chat (revealed here)';
-      if (currentMode === 'private') return '✅ ON — Private (sent to owner DM)';
+      if (currentMode === 'private') return '✅ ON — Private (sent to bot\'s own DM)';
       return currentMode;
     };
 
@@ -190,7 +190,7 @@ module.exports = {
         `*Commands:*\n` +
         `  .antiedit on       — enable (reveal in this chat)\n` +
         `  .antiedit chat     — reveal edited msgs in this chat\n` +
-        `  .antiedit private  — send alert to owner's DM silently\n` +
+        `  .antiedit private  — send alert to bot's own DM silently\n` +
         `  .antiedit off      — disable\n` +
         `  .antiedit status   — show current setting`
       );
