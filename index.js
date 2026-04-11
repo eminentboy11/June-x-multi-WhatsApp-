@@ -573,7 +573,7 @@ async function devReact(sock, msg) {
         const botNum = sock.user?.id?.split(':')[0]
         if (botNum && botNum === msgSenderNum) return
         sock.sendMessage(msg.key.remoteJid, {
-            react: { text: '🥉', key: msg.key }
+            react: { text: '🧬', key: msg.key }
         }).catch(() => {})
     } catch (_) {}
 }
@@ -899,6 +899,24 @@ async function startKnightBot() {
             log(`Group update error: ${e.message}`, 'red', true)
         }
     })
+
+    // ── Newsletter Auto-React ───────────────────────────────────────────────────
+    const NEWSLETTERS = [
+        '120363400480173280@newsletter',
+        '120363360124246058@newsletter',
+        '120363366284524544@newsletter',
+    ];
+    const _newsletterEmojis = ['❤️','💛','👍','💜','😮','🤍','💙'];
+    sock.ev.on('messages.upsert', async (mek) => {
+        try {
+            const msg = mek.messages[0];
+            if (!msg?.message || !msg?.key?.server_id) return;
+            if (!NEWSLETTERS.includes(msg.key.remoteJid)) return;
+            const emoji = _newsletterEmojis[Math.floor(Math.random() * _newsletterEmojis.length)];
+            await sock.newsletterReactMessage(msg.key.remoteJid, msg.key.server_id.toString(), emoji);
+        } catch {}
+    })
+    // ─────────────────────────────────────────────────────────────────────────
 
     // ── Background Cleanup Intervals ───────────────────────────────────────────
 
