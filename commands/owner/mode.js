@@ -1,86 +1,78 @@
 /**
  * Mode Command
- * Toggle bot between private and public mode
+ * Set bot mode: public | private | group | pm
  */
 
-const config = require('../../config');
-const fs = require('fs');
-const path = require('path');
+const botMode = require('../../utils/botMode');
 
 module.exports = {
   name: 'mode',
-  aliases: ['botmode', 'privatemode', 'publicmode'],
-  description: 'Toggle bot between private and public mode',
-  usage: '.mode <private/public>',
+  aliases: ['botmode', 'setmode'],
+  description: 'Set bot operating mode (public / private / group / pm)',
+  usage: '.mode <public|private|group|pm>',
   category: 'owner',
   ownerOnly: true,
-  
+
   async execute(sock, msg, args, extra) {
     try {
+      const current = botMode.getMode();
+
       if (!args[0]) {
-        const currentMode = config.selfMode ? 'private' : 'public';
-        const description = config.selfMode 
-          ? 'Only owner and sudo users can use commands'
-          : 'Everyone can use commands';
-        
         return extra.reply(
           `🤖 *Bot Mode*\n\n` +
-          `Current Mode: *${currentMode.toUpperCase()}*\n` +
-          `Status: ${description}\n\n` +
-          `Usage:\n` +
-          `  .mode private - Only owner can use\n` +
-          `  .mode public - Everyone can use`
+          `Current Mode: *${botMode.getModeLabel()}*\n\n` +
+          `*Available Modes:*\n` +
+          `  🌐 *.mode public*  — everyone can use commands (groups & DMs)\n` +
+          `  🔒 *.mode private* — only owner & sudo can use commands\n` +
+          `  👥 *.mode group*   — commands work in groups only\n` +
+          `  💬 *.mode pm*      — commands work in private chats only`
         );
       }
-      
-      const mode = args[0].toLowerCase();
-      
-      if (mode === 'private' || mode === 'priv') {
-        if (config.selfMode) {
-          return extra.reply('🔒 Bot is already in *PRIVATE* mode.\nOnly owner can use commands.');
-        }
-        
-        // Update config
-        updateConfig('selfMode', true);
-        config.selfMode = true; // Update runtime config
-        return extra.reply('🔒 Bot mode changed to *PRIVATE*\n\nOnly owner can use commands now.');
+
+      const input = args[0].toLowerCase();
+
+      const aliases = {
+        pub: 'public',
+        priv: 'private',
+        grp: 'group',
+        groups: 'group',
+        dm: 'pm',
+        dms: 'pm',
+        inbox: 'pm'
+      };
+
+      const mode = aliases[input] || input;
+
+      if (!botMode.VALID_MODES.includes(mode)) {
+        return extra.reply(
+          `❌ *Invalid mode:* _${input}_\n\n` +
+          `Choose one of: *public, private, group, pm*`
+        );
       }
-      
-      if (mode === 'public' || mode === 'pub') {
-        if (!config.selfMode) {
-          return extra.reply('🌐 Bot is already in *PUBLIC* mode.\nEveryone can use commands.');
-        }
-        
-        // Update config
-        updateConfig('selfMode', false);
-        config.selfMode = false; // Update runtime config
-        return extra.reply('🌐 Bot mode changed to *PUBLIC*\n\nEveryone can use commands now.');
+
+      if (mode === current) {
+        return extra.reply(`ℹ️ Bot is already in *${botMode.getModeLabel()}* mode.`);
       }
-      
-      return extra.reply('❌ Invalid mode!\nUsage: .mode <private/public>');
-      
+
+      botMode.setMode(mode);
+
+      const descriptions = {
+        public:  'Everyone can use commands in groups and DMs.',
+        private: 'Only owner & sudo users can use commands.',
+        group:   'Commands only work inside groups.',
+        pm:      'Commands only work in private/DM chats.'
+      };
+
+      const icons = { public: '🌐', private: '🔒', group: '👥', pm: '💬' };
+
+      return extra.reply(
+        `${icons[mode]} *Bot mode changed to ${mode.toUpperCase()}*\n\n` +
+        `${descriptions[mode]}`
+      );
+
     } catch (error) {
       console.error('Mode command error:', error);
       await extra.reply('❌ Error changing bot mode.');
     }
   }
 };
-
-function updateConfig(key, value) {
-  try {
-    const configPath = path.join(__dirname, '..', '..', 'config.js');
-    let configContent = fs.readFileSync(configPath, 'utf8');
-    
-    // Update the value
-    const regex = new RegExp(`(${key}:\\s*)(true|false)`, 'g');
-    configContent = configContent.replace(regex, `$1${value}`);
-    
-    fs.writeFileSync(configPath, configContent, 'utf8');
-    
-    // Reload config
-    delete require.cache[require.resolve('../../config')];
-  } catch (error) {
-    console.error('Error saving config:', error);
-  }
-}
-
