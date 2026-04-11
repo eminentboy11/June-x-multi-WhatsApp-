@@ -67,7 +67,7 @@ module.exports = {
                 `🔢 *Cores:* ${cpuCount}\n` +
                 `🕐 *Timezone:* ${config.timezone || 'UTC'}\n\n` +
                 `📌 *Bot Behavior*\n━━━━━━━━━━━━━━━\n` +
-                `${config.selfMode ? '🔒' : '🔓'} Mode: ${config.selfMode ? 'Self (Private)' : 'Public'}\n` +
+                `${require('../../utils/botMode').getModeLabel()} Mode\n` +
                 `${config.autoRead ? '✅' : '❌'} Auto Read\n` +
                 `${config.autoTyping ? '✅' : '❌'} Auto Typing\n` +
                 `${config.autoReact ? '✅' : '❌'} Auto React (${config.autoReactMode || 'bot'})\n` +

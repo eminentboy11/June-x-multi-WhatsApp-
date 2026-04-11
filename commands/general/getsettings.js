@@ -109,7 +109,7 @@ module.exports = {
                     `🕐 Timezone: *${config.timezone || 'UTC'}*\n` +
                     `🎨 Pack Name: *${config.packname || 'N/A'}*\n\n` +
                     `📌 *Bot Behaviour*\n` +
-                    `${config.selfMode     ? '🔒' : '🔓'} Mode: ${config.selfMode ? 'Self (Private)' : 'Public'}\n` +
+                    `${require('../../utils/botMode').getModeLabel()} Mode\n` +
                     `${config.autoRead     ? '✅' : '❌'} Auto Read\n` +
                     `${config.autoBio      ? '✅' : '❌'} Auto Bio\n` +
                     `${config.autoSticker  ? '✅' : '❌'} Auto Sticker\n` +
