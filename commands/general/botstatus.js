@@ -54,19 +54,19 @@ module.exports = {
             const speedMs = Date.now() - (msg.messageTimestamp * 1000);
 
             const text = `🤖 *${config.botName} Status*\n━━━━━━━━━━━━━━━\n\n` +
-                `⏱️ *Uptime:* ${uptime}\n` +
-                `⚡ *Speed:* ${speedMs}ms\n` +
-                `📦 *Commands:* ${cmdCount}\n` +
-                `🔧 *Prefix:* [ ${prefix} ]\n` +
-                `👑 *Owner:* ${ownerName}\n\n` +
-                `💻 *System Info*\n━━━━━━━━━━━━━━━\n` +
-                `🖥️ *Platform:* ${platform}\n` +
+                `🔸 *Uptime:* ${uptime}\n` +
+                `🔸 *Speed:* ${speedMs}ms\n` +
+                `🔸 *Commands:* ${cmdCount}\n` +
+                `🔹 *Prefix:* [ ${prefix} ]\n` +
+                `🔸 *Owner:* ${ownerName}\n\n` +
+                `🔸 *System Info*\n━━━━━━━━━━━━━━━\n` +
+                `🔸 *Platform:* ${platform}\n` +
                 `🟢 *Node:* ${nodeVer}\n` +
-                `🧠 *RAM:* ${usedMem}/${totalMem} MB (${memPercent}%)\n` +
-                `⚙️ *CPU:* ${cpuModel}\n` +
-                `🔢 *Cores:* ${cpuCount}\n` +
-                `🕐 *Timezone:* ${config.timezone || 'UTC'}\n\n` +
-                `📌 *Bot Behavior*\n━━━━━━━━━━━━━━━\n` +
+                `🔸 *RAM:* ${usedMem}/${totalMem} MB (${memPercent}%)\n` +
+                `🔹 *CPU:* ${cpuModel}\n` +
+                `🔹 *Cores:* ${cpuCount}\n` +
+                `🔹 *Timezone:* ${config.timezone || 'UTC'}\n\n` +
+                `✨ *Bot Behavior*\n━━━━━━━━━━━━━━━\n` +
                 `${require('../../utils/botMode').getModeLabel()} Mode\n` +
                 `${config.autoRead ? '✅' : '❌'} Auto Read\n` +
                 `${config.autoTyping ? '✅' : '❌'} Auto Typing\n` +
