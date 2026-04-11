@@ -122,12 +122,13 @@ async function handleAntiEdit(sock, updates) {
         : new Date().toLocaleString();
 
       // Build reveal text
+      const readmore = String.fromCharCode(8206).repeat(4001);
       const replyText =
         `✏️ *EDITED MESSAGE DETECTED!*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 *Sender:* @${senderNum}\n` +
         `🕐 *Time:* ${timestamp}\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `━━━━━━━━━━━━━━━━━━━━\n${readmore}\n` +
         `📝 *Original:*\n${originalText}\n\n` +
         `✏️ *Edited to:*\n${editedText}\n` +
         `━━━━━━━━━━━━━━━━━━━━`;

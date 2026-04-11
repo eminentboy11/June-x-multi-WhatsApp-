@@ -127,8 +127,9 @@ async function sendRecovered(sock, targetJid, stored) {
         sticker: '🧩', document: '📄', text: '📝'
     }[stored.type] || '📝';
 
+    const readmore = String.fromCharCode(8206).repeat(4001);
     const header =
-        `🗑️ *AntiDelete — Recovered*\n` +
+        `🗑️ *AntiDelete — Recovered*\n${readmore}\n` +
         `👤 *From:* @${senderNum}\n` +
         `${typeEmoji} *Type:* ${stored.type}`;
 
