@@ -62,24 +62,24 @@ module.exports = {
         const ownerNames = Array.isArray(config.ownerName) ? config.ownerName.join(', ') : config.ownerName;
 
         const text = [
-            `╭━━━ *${config.botName}* ━━━`,
-            `│`,
-            `│ 🤖 *Bot Name:* ${config.botName}`,
-            `│ ⚡ *Prefix:* ${config.prefix}`,
-            `│ 👑 *Owner:* ${ownerNames}`,
-            `│ 📦 *Commands:* ${cmdCount}`,
-            `│`,
-            `│ ⏱️ *Uptime:* ${formatUptime(uptime)}`,
-            `│ 🌐 *Platform:* ${detectPlatform()}`,
-            `│`,
-            `│ 💾 *Heap Used:* ${formatBytes(mem.heapUsed)}`,
-            `│ 💾 *Heap Total:* ${formatBytes(mem.heapTotal)}`,
-            `│ 🖥️ *RAM Total:* ${formatBytes(os.totalmem())}`,
-            `│ 🖥️ *RAM Free:* ${formatBytes(os.freemem())}`,
-            `│ ⚙️ *CPU:* ${cpuModel} (${cpuCores} cores)`,
-            `│ 🐢 *Node.js:* ${process.version}`,
-            `│`,
-            `╰━━━━━━━━━━━━━━━━`
+            `  *${config.botName}* `,
+            ``,
+            ` 🔸 *Bot Name:* ${config.botName}`,
+            ` 🔸 *Prefix:* ${config.prefix}`,
+            ` 🔸 *Owner:* ${ownerNames}`,
+            ` 🔸 *Commands:* ${cmdCount}`,
+            ``,
+            ` ⏱️ *Uptime:* ${formatUptime(uptime)}`,
+            ` 🌐 *Platform:* ${detectPlatform()}`,
+            ``,
+            `🔹 *Heap Used:* ${formatBytes(mem.heapUsed)}`,
+            `🔹 *Heap Total:* ${formatBytes(mem.heapTotal)}`,
+            `🔹 *RAM Total:* ${formatBytes(os.totalmem())}`,
+            `🔹 *RAM Free:* ${formatBytes(os.freemem())}`,
+            `🔹 *CPU:* ${cpuModel} (${cpuCores} cores)`,
+            `🔹 *Node.js:* ${process.version}`,
+            ``,
+            ``
         ].join('\n');
 
         await reply(text);
