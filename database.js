@@ -172,6 +172,39 @@ const isModerator = (userId) => {
   return false;
 };
 
+// Bad Words per group
+const getBadWords = (groupId) => {
+  const groups = readDB(GROUPS_DB);
+  const settings = groups[groupId] || {};
+  return Array.isArray(settings.badwords) ? settings.badwords : [];
+};
+
+const addBadWord = (groupId, word) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
+  if (!Array.isArray(groups[groupId].badwords)) groups[groupId].badwords = [];
+  const normalized = word.toLowerCase().trim();
+  if (!groups[groupId].badwords.includes(normalized)) {
+    groups[groupId].badwords.push(normalized);
+    writeDB(GROUPS_DB, groups);
+    return true;
+  }
+  return false;
+};
+
+const removeBadWord = (groupId, word) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId] || !Array.isArray(groups[groupId].badwords)) return false;
+  const normalized = word.toLowerCase().trim();
+  const before = groups[groupId].badwords.length;
+  groups[groupId].badwords = groups[groupId].badwords.filter(w => w !== normalized);
+  if (groups[groupId].badwords.length < before) {
+    writeDB(GROUPS_DB, groups);
+    return true;
+  }
+  return false;
+};
+
 module.exports = {
   getGroupSettings,
   updateGroupSettings,
@@ -184,5 +217,8 @@ module.exports = {
   getModerators,
   addModerator,
   removeModerator,
-  isModerator
+  isModerator,
+  getBadWords,
+  addBadWord,
+  removeBadWord
 };

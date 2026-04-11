@@ -531,6 +531,11 @@ const handleMessage = async (sock, msg) => {
       } catch (error) {
         console.error('Error in antiviewonce handler:', error);
       }
+      try {
+        await handleAntibadword(sock, msg, groupMetadata);
+      } catch (error) {
+        console.error('Error in antibadword handler:', error);
+      }
     }
     
     // Track group message statistics
@@ -881,9 +886,19 @@ const handleMessage = async (sock, msg) => {
     const senderIsOwner = msg.key.fromMe || isOwner(sender);
     const senderIsSudo  = senderIsOwner || isSudo(sender);
 
-    // Check self mode (private mode) - only owner and sudo users can use commands
-    if (config.selfMode && !senderIsSudo) {
-      return;
+    // Bot mode check
+    {
+      const { getMode } = require('./utils/botMode');
+      const botModeVal = getMode();
+      if (botModeVal === 'private' && !senderIsSudo) {
+        return;
+      }
+      if (botModeVal === 'group' && !isGroup && !senderIsSudo) {
+        return;
+      }
+      if (botModeVal === 'pm' && isGroup && !senderIsSudo) {
+        return;
+      }
     }
     
     // Permission checks
@@ -1257,6 +1272,92 @@ const handleAntilink = async (sock, msg, groupMetadata) => {
 };
 
 
+// Anti-bad-word handler
+const handleAntibadword = async (sock, msg, groupMetadata) => {
+  try {
+    const from = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+
+    const groupSettings = database.getGroupSettings(from);
+    if (!groupSettings.antibadword) return;
+
+    const badwords = database.getBadWords(from);
+    if (!badwords.length) return;
+
+    const body = (
+      msg.message?.conversation ||
+      msg.message?.extendedTextMessage?.text ||
+      msg.message?.imageMessage?.caption ||
+      msg.message?.videoMessage?.caption || ''
+    ).toLowerCase();
+
+    if (!body) return;
+
+    const found = badwords.find(word => {
+      const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`\\b${escaped}\\b`, 'i').test(body);
+    });
+
+    if (!found) return;
+
+    const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
+    const senderIsOwner = isOwner(sender);
+    if (senderIsAdmin || senderIsOwner) return;
+
+    const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
+    if (!botIsAdmin) return;
+
+    const action = (groupSettings.antibadwordAction || 'warn').toLowerCase();
+
+    if (action === 'kick') {
+      try {
+        await sock.sendMessage(from, { delete: msg.key });
+        await sock.groupParticipantsUpdate(from, [sender], 'remove');
+        await sock.sendMessage(from, {
+          text: `🤬 @${sender.split('@')[0]} was *kicked* for using a bad word: _${found}_`,
+          mentions: [sender]
+        });
+      } catch (e) {
+        console.error('AntiBadWord kick error:', e);
+      }
+
+    } else if (action === 'delete') {
+      try {
+        await sock.sendMessage(from, { delete: msg.key });
+        await sock.sendMessage(from, {
+          text: `🤬 @${sender.split('@')[0]}, watch your language! Bad word detected: _${found}_`,
+          mentions: [sender]
+        });
+      } catch (e) {
+        console.error('AntiBadWord delete error:', e);
+      }
+
+    } else {
+      // Default: warn
+      try {
+        await sock.sendMessage(from, { delete: msg.key });
+        const warnings = database.addWarning(from, sender, `Bad word: ${found}`);
+        let text = `⚠️ @${sender.split('@')[0]}, you have been *warned* for using a bad word: _${found}_\n`;
+        text += `Warnings: *${warnings.count}/${config.maxWarnings}*\n`;
+
+        if (warnings.count >= config.maxWarnings) {
+          text += `\n❌ Maximum warnings reached. You have been *removed* from the group!`;
+          await sock.sendMessage(from, { text, mentions: [sender] });
+          await sock.groupParticipantsUpdate(from, [sender], 'remove');
+          database.clearWarnings(from, sender);
+        } else {
+          text += `\n_Further violations may result in a kick._`;
+          await sock.sendMessage(from, { text, mentions: [sender] });
+        }
+      } catch (e) {
+        console.error('AntiBadWord warn error:', e);
+      }
+    }
+  } catch (error) {
+    console.error('Error in antibadword handler:', error);
+  }
+};
+
 // Anti-group mention handler
 const handleAntigroupmention = async (sock, msg, groupMetadata) => {
   try {
@@ -1598,6 +1699,7 @@ module.exports = {
   handleMessage,
   handleGroupUpdate,
   handleAntilink,
+  handleAntibadword,
   handleAntigroupmention,
   handleAntigroupstatus,
   handleAntiMedia,

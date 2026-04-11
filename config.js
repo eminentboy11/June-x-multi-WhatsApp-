@@ -55,7 +55,10 @@ module.exports = {
       antisticker: false,
       antistickerAction: 'delete',
       antiaudio: false,
-      antiaudioAction: 'delete'
+      antiaudioAction: 'delete',
+      antibadword: false,
+      antibadwordAction: 'warn',
+      badwords: []
     },
     
     apiKeys: {
