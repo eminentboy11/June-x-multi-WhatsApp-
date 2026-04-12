@@ -13,7 +13,45 @@ const axios = require('axios');
 
 // Group metadata cache to prevent rate limiting
 const groupMetadataCache = new Map();
-const CACHE_TTL = 60000; // 1 minute cache
+const CACHE_TTL = 300000; // 5 minute cache (was 1 min)
+
+// Bot-admin status cache — avoids live API call on every message
+const botAdminCache = new Map();
+const BOT_ADMIN_TTL = 120000; // 2 minutes
+
+// Settings caches — avoids disk reads on every message
+let _arSettingsCache   = null;
+let _arSettingsExpiry  = 0;
+let _autoReadCache     = null;
+let _autoReadExpiry    = 0;
+const SETTINGS_CACHE_TTL = 8000; // 8 seconds
+
+function getCachedArSettings() {
+  if (_arSettingsCache && Date.now() < _arSettingsExpiry) return _arSettingsCache;
+  try {
+    _arSettingsCache = require('./utils/autoReact').load();
+  } catch { _arSettingsCache = { enabled: false, mode: 'bot' }; }
+  _arSettingsExpiry = Date.now() + SETTINGS_CACHE_TTL;
+  return _arSettingsCache;
+}
+
+function getCachedAutoRead() {
+  if (_autoReadCache && Date.now() < _autoReadExpiry) return _autoReadCache;
+  try {
+    const fs   = require('fs');
+    const path = require('path');
+    _autoReadCache = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/autoread.json'), 'utf8'));
+  } catch { _autoReadCache = { mode: 'off' }; }
+  _autoReadExpiry = Date.now() + SETTINGS_CACHE_TTL;
+  return _autoReadCache;
+}
+
+// Invalidate settings caches when commands change them (called by set commands)
+global.invalidateSettingsCache = () => {
+  _arSettingsCache  = null;
+  _autoReadCache    = null;
+  botAdminCache.clear();
+};
 
 // Load all commands
 const commands = loadCommands();
@@ -333,35 +371,30 @@ const isAdmin = async (sock, participant, groupId, groupMetadata = null) => {
 
 const isBotAdmin = async (sock, groupId, groupMetadata = null) => {
   if (!sock.user || !groupId) return false;
-  
-  // Early return for non-group JIDs (DMs) - prevents slow sock.groupMetadata() call
-  if (!groupId.endsWith('@g.us')) {
-    return false;
-  }
-  
+  if (!groupId.endsWith('@g.us')) return false;
+
+  // Return from cache if still fresh — avoids a live network call every message
+  const cached = botAdminCache.get(groupId);
+  if (cached && Date.now() - cached.ts < BOT_ADMIN_TTL) return cached.isAdmin;
+
   try {
-    // Get bot's JID - Baileys stores it in sock.user.id
-    const botId = sock.user.id;
+    const botId  = sock.user.id;
     const botLid = sock.user.lid;
-    
     if (!botId) return false;
-    
-    // Prepare bot JIDs to check - findParticipant will normalize them via buildComparableIds
+
     const botJids = [botId];
-    if (botLid) {
-      botJids.push(botLid);
-    }
-    
-    // ALWAYS fetch live metadata for bot admin checks (never use cached)
+    if (botLid) botJids.push(botLid);
+
     const liveMetadata = await getLiveGroupMetadata(sock, groupId);
-    
     if (!liveMetadata || !liveMetadata.participants) return false;
-    
+
     const participant = findParticipant(liveMetadata.participants, botJids);
-    if (!participant) return false;
-    
-    return participant.admin === 'admin' || participant.admin === 'superadmin';
-  } catch (error) {
+    const isAdmin = !!(participant && (participant.admin === 'admin' || participant.admin === 'superadmin'));
+
+    // Store result so the next ~2 minutes of messages skip the API call
+    botAdminCache.set(groupId, { isAdmin, ts: Date.now() });
+    return isAdmin;
+  } catch {
     return false;
   }
 };
@@ -410,9 +443,9 @@ const handleMessage = async (sock, msg) => {
       return; // Silently ignore system messages
     }
     
-    // Auto-React System — reads fresh from data/autoreact.json every time
+    // Auto-React System — uses short-lived cache to avoid disk read every message
     try {
-      const arSettings = require('./utils/autoReact').load();
+      const arSettings = getCachedArSettings();
       if (arSettings.enabled && msg.message && !msg.key.fromMe) {
         const content = msg.message.ephemeralMessage?.message || msg.message;
         const text =
@@ -479,8 +512,7 @@ const handleMessage = async (sock, msg) => {
     // ── Auto Read (blue-tick) on ANY incoming message ─────────────────────────
     if (!msg.key.fromMe) {
       try {
-        const fs = require('fs'), path = require('path');
-        const arData = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/autoread.json'), 'utf8'));
+        const arData = getCachedAutoRead();
         const arMode = arData.mode || 'off';
         if (
           arMode === 'on' ||
@@ -496,46 +528,18 @@ const handleMessage = async (sock, msg) => {
     // Fetch group metadata immediately if it's a group
     const groupMetadata = isGroup ? await getGroupMetadata(sock, from) : null;
     
-    // Anti-group mention protection (check BEFORE prefix check, as these are non-command messages)
+    // Anti-* protection — run ALL checks in parallel so they don't queue behind each other
     if (isGroup) {
-      // Debug logging to confirm we're trying to call the handler
-      const groupSettings = database.getGroupSettings(from);
-      // Debug log removed
-      if (groupSettings.antigroupmention) {
-        // Debug log removed
-      }
-      try {
-        await handleAntigroupmention(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antigroupmention handler:', error);
-      }
-      try {
-        await handleAntigroupstatus(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antigroupstatus handler:', error);
-      }
-      try {
-        await handleAntiMedia(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antiMedia handler:', error);
-      }
-      try {
-        const antispam = commands.get('antispam');
-        if (antispam?.handleAntispam) await antispam.handleAntispam(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antispam handler:', error);
-      }
-      try {
-        const antiviewonce = commands.get('antiviewonce');
-        if (antiviewonce?.handleAntiviewonce) await antiviewonce.handleAntiviewonce(sock, msg);
-      } catch (error) {
-        console.error('Error in antiviewonce handler:', error);
-      }
-      try {
-        await handleAntibadword(sock, msg, groupMetadata);
-      } catch (error) {
-        console.error('Error in antibadword handler:', error);
-      }
+      const antispam     = commands.get('antispam');
+      const antiviewonce = commands.get('antiviewonce');
+      await Promise.allSettled([
+        handleAntigroupmention(sock, msg, groupMetadata),
+        handleAntigroupstatus(sock, msg, groupMetadata),
+        handleAntiMedia(sock, msg, groupMetadata),
+        antispam?.handleAntispam     ? antispam.handleAntispam(sock, msg, groupMetadata)   : Promise.resolve(),
+        antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)       : Promise.resolve(),
+        handleAntibadword(sock, msg, groupMetadata),
+      ]);
     }
     
     // Track group message statistics
