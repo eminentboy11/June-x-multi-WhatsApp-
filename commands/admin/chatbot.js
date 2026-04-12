@@ -2,86 +2,149 @@ const database = require('../../database');
 const fs = require('fs');
 const path = require('path');
 
-const DM_CHATBOT_FILE = path.join(__dirname, '../../data/chatbot_dm.json');
+const SETTINGS_FILE = path.join(__dirname, '../../data/chatbot_settings.json');
 
-function loadDmSettings() {
+const AGENTS = {
+    keith:      { label: 'Keith AI',              emoji: '🤖', type: 'text',      endpoint: '/keithai' },
+    gpt:        { label: 'GPT-4',                 emoji: '💡', type: 'text',      endpoint: '/ai/gpt4' },
+    gemini:     { label: 'Gemini',                emoji: '✨', type: 'text',      endpoint: '/ai/gemini' },
+    claude:     { label: 'Claude',                emoji: '🧠', type: 'text',      endpoint: '/ai/claudeai' },
+    deepseek:   { label: 'DeepSeek R1',           emoji: '🔍', type: 'text',      endpoint: '/ai/deepseek' },
+    grok:       { label: 'Grok (xAI)',            emoji: '⚡', type: 'text',      endpoint: '/ai/grok' },
+    meta:       { label: 'Meta AI (LLaMA)',        emoji: '🦙', type: 'text',      endpoint: '/ai/metai' },
+    mistral:    { label: 'Mistral',               emoji: '🌀', type: 'text',      endpoint: '/ai/mistral' },
+    perplexity: { label: 'Perplexity',            emoji: '🔮', type: 'text',      endpoint: '/ai/perplexity' },
+    vision:     { label: 'Vision (Gemini Image)', emoji: '👁️',  type: 'vision',    endpoint: null },
+    meme:       { label: 'Meme (random)',          emoji: '😂', type: 'meme',      endpoint: null },
+    memesearch: { label: 'Meme Search',            emoji: '🔎', type: 'memesearch', endpoint: null },
+    all:        { label: 'All Agents (smart)',     emoji: '🌐', type: 'all',       endpoint: null },
+};
+
+function loadSettings() {
     try {
-        if (fs.existsSync(DM_CHATBOT_FILE)) {
-            return JSON.parse(fs.readFileSync(DM_CHATBOT_FILE, 'utf8'));
+        if (fs.existsSync(SETTINGS_FILE)) {
+            return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         }
     } catch {}
-    return { enabled: false };
+    return { enabled: false, agent: 'keith' };
 }
 
-function saveDmSettings(data) {
+function saveSettings(data) {
     try {
-        const dir = path.dirname(DM_CHATBOT_FILE);
+        const dir = path.dirname(SETTINGS_FILE);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(DM_CHATBOT_FILE, JSON.stringify(data, null, 2));
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2));
     } catch (e) {
-        console.error('[Chatbot] Failed to save DM settings:', e.message);
+        console.error('[Chatbot] Failed to save settings:', e.message);
     }
+}
+
+function loadDmSettings() {
+    return loadSettings();
 }
 
 module.exports = {
     name: 'chatbot',
     aliases: ['cb', 'bot'],
     category: 'admin',
-    description: 'Toggle AI chatbot for group or DM',
-    usage: '.chatbot group | .chatbot dm | .chatbot',
+    description: 'Toggle AI chatbot for group or PM, and choose the AI agent',
+    usage: '.chatbot | .chatbot pm | .chatbot group | .chatbot agent <name>',
 
     async execute(sock, msg, args, extra) {
         const { from, isGroup, isOwner, isAdmin, reply } = extra;
         const mode = (args[0] || '').toLowerCase();
+        const sub  = (args[1] || '').toLowerCase();
 
-        // No args → show current status
+        const settings     = loadSettings();
+        const groupEnabled = isGroup ? database.getGroupSettings(from).chatbot : null;
+        const agentKey     = settings.agent || 'keith';
+        const currentAgent = AGENTS[agentKey] || AGENTS.keith;
+
         if (!mode) {
-            const groupEnabled = isGroup ? database.getGroupSettings(from).chatbot : null;
-            const dmSettings = loadDmSettings();
+            const agentList = Object.entries(AGENTS)
+                .map(([k, v]) => `  ${agentKey === k ? '▶' : '•'} ${v.emoji} *${k}* — ${v.label}`)
+                .join('\n');
+
             return reply(
                 `🤖 *Chatbot Status*\n\n` +
-                (isGroup ? `┃ 👥 Group Chatbot: ${groupEnabled ? '✅ ON' : '❌ OFF'}\n` : '') +
-                `┃ 💬 DM Chatbot: ${dmSettings.enabled ? '✅ ON' : '❌ OFF'}\n\n` +
-                `*Usage:*\n` +
+                (isGroup ? `┃ 👥 Group: ${groupEnabled ? '✅ ON' : '❌ OFF'}\n` : '') +
+                `┃ 💬 PM: ${settings.enabled ? '✅ ON' : '❌ OFF'}\n` +
+                `┃ 🎯 Agent: ${currentAgent.emoji} *${agentKey}* — ${currentAgent.label}\n\n` +
+                `*Commands:*\n` +
                 `• *.chatbot group* — Toggle AI replies in this group\n` +
-                `• *.chatbot dm* — Toggle AI replies in DMs (owner only)\n\n` +
-                `_When enabled, the bot replies to every message with AI._`
+                `• *.chatbot pm* — Toggle AI replies in DMs (owner only)\n` +
+                `• *.chatbot agent <name>* — Switch AI agent\n\n` +
+                `*Available Agents:*\n${agentList}`
             );
         }
 
         if (mode === 'group' || mode === 'grp') {
-            if (!isGroup) return reply('❌ Use this in a group chat.');
-            if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle this.');
+            if (!isGroup) return reply('❌ Use this command inside a group chat.');
+            if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle the chatbot.');
             const current = database.getGroupSettings(from).chatbot;
             database.updateGroupSettings(from, { chatbot: !current });
             const now = !current;
             return reply(
                 `🤖 *Group Chatbot ${now ? 'Enabled ✅' : 'Disabled ❌'}*\n\n` +
                 (now
-                    ? `The bot will now auto-reply to every message in this group using AI.\n\n_Use *.chatbot group* again to turn it off._`
+                    ? `The bot will now auto-reply to every message in this group using ${currentAgent.emoji} *${currentAgent.label}*.\n\n_Use *.chatbot group* again to turn off._`
                     : `The bot will no longer auto-reply to messages in this group.`)
             );
         }
 
-        if (mode === 'dm' || mode === 'private' || mode === 'pm') {
-            if (!isOwner) return reply('❌ Only the bot owner can toggle DM chatbot.');
-            const dmSettings = loadDmSettings();
-            dmSettings.enabled = !dmSettings.enabled;
-            saveDmSettings(dmSettings);
-            const now = dmSettings.enabled;
+        if (mode === 'pm' || mode === 'dm' || mode === 'private') {
+            if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
+            settings.enabled = !settings.enabled;
+            saveSettings(settings);
+            const now = settings.enabled;
             return reply(
-                `🤖 *DM Chatbot ${now ? 'Enabled ✅' : 'Disabled ❌'}*\n\n` +
+                `🤖 *PM Chatbot ${now ? 'Enabled ✅' : 'Disabled ❌'}*\n\n` +
                 (now
-                    ? `The bot will now auto-reply to all private messages using AI.\n\n_Use *.chatbot dm* again to turn it off._`
+                    ? `The bot will now auto-reply to all private messages using ${currentAgent.emoji} *${currentAgent.label}*.\n\n_Use *.chatbot pm* again to turn off._`
                     : `The bot will no longer auto-reply to DMs.`)
             );
         }
 
+        if (mode === 'agent' || mode === 'ai' || mode === 'set') {
+            if (!sub) {
+                const agentList = Object.entries(AGENTS)
+                    .map(([k, v]) => `  ${agentKey === k ? '▶' : '•'} ${v.emoji} *${k}* — ${v.label}`)
+                    .join('\n');
+                return reply(
+                    `🎯 *Available AI Agents*\n\n${agentList}\n\n` +
+                    `Usage: *.chatbot agent <name>*\nExample: *.chatbot agent gpt*`
+                );
+            }
+
+            if (!AGENTS[sub]) {
+                return reply(
+                    `❌ Unknown agent: *${sub}*\n\n` +
+                    `Available: ${Object.keys(AGENTS).join(', ')}`
+                );
+            }
+
+            if (!isOwner && !isAdmin) return reply('❌ Only admins or the bot owner can change the AI agent.');
+            settings.agent = sub;
+            saveSettings(settings);
+            const chosen = AGENTS[sub];
+            return reply(
+                `✅ *AI Agent Changed*\n\n` +
+                `${chosen.emoji} *${chosen.label}* is now the active chatbot agent.\n\n` +
+                `All auto-replies will use this model.`
+            );
+        }
+
         return reply(
-            `❓ Unknown option: *${mode}*\n\nUsage:\n• *.chatbot group* — Toggle in this group\n• *.chatbot dm* — Toggle in DMs`
+            `❓ Unknown option: *${mode}*\n\n` +
+            `Usage:\n` +
+            `• *.chatbot* — Show full status\n` +
+            `• *.chatbot group* — Toggle in groups\n` +
+            `• *.chatbot pm* — Toggle in DMs\n` +
+            `• *.chatbot agent <name>* — Switch AI agent`
         );
     },
 
-    // Exposed for use in handler.js
     loadDmSettings,
+    loadSettings,
+    AGENTS,
 };
