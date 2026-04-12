@@ -21,14 +21,15 @@ module.exports = {
         const status = settings.antigroupmention ? 'ON' : 'OFF';
         const action = settings.antigroupmentionAction || 'delete';
         return extra.reply(
-          `📌 *Antigroupmention Status*\n\n` +
+          `📌 *Anti-Group Mention Status*\n\n` +
           `Status: *${status}*\n` +
           `Action: *${action}*\n\n` +
           `Usage:\n` +
           `  .antigroupmention on\n` +
           `  .antigroupmention off\n` +
-          `  .antigroupmention set delete | kick\n` +
-          `  .antigroupmention get`
+          `  .antigroupmention set delete | warn | kick\n` +
+          `  .antigroupmention get\n\n` +
+          `_Detects when someone shares a status that mentions this group and takes the configured action._`
         );
       }
       
@@ -53,8 +54,8 @@ module.exports = {
         }
         
         const setAction = args[1].toLowerCase();
-        if (!['delete', 'kick'].includes(setAction)) {
-          return extra.reply('*Invalid action. Choose delete or kick.*');
+        if (!['delete', 'kick', 'warn'].includes(setAction)) {
+          return extra.reply('*Invalid action. Choose delete, warn or kick.*');
         }
         
         database.updateGroupSettings(extra.from, { 
