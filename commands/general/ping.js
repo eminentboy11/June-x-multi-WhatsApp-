@@ -1,7 +1,7 @@
 /* by supreme */
 const config = require('../../config');
+const { applyFont } = require('../../utils/fontConverter');
 
-// fakeQuoted function – creates a contact vcard quote
 function createFakeContact(message) {
     return {
         key: {
@@ -32,14 +32,13 @@ module.exports = {
             const botName = config.botName || 'June-Ultra';
             const fake = createFakeContact(msg);
 
-            // Use performance.now() for real sub-millisecond precision
             const start = performance.now();
             const sentMsg = await sock.sendMessage(chatId, {
-                text: '*🔸 pong!...*'
+                text: applyFont('🔸 pong!...')
             }, { quoted: fake });
 
             const ping = (performance.now() - start).toFixed(3);
-            const response = `🔹 *${botName} Speed: ${ping} ms*`;
+            const response = applyFont(`🔹 ${botName} Speed: ${ping} ms`);
 
             await sock.sendMessage(chatId, {
                 text: response,
