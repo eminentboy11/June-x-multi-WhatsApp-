@@ -1,5 +1,5 @@
 /**
- * Lyrics Finder - Enhanced with Keith API
+ * Lyrics Finder
  */
 
 const axios = require('axios');
@@ -11,105 +11,109 @@ module.exports = {
   category: 'media',
   description: 'Get lyrics of a song',
   usage: '<song name>',
-  
+
   async execute(sock, msg, args) {
+    const jid = msg.key.remoteJid;
+
     try {
       if (args.length === 0) {
-        return await sock.sendMessage(msg.key.remoteJid, { 
-          text: `❌ Please provide a song name!\n\nExample: ${config.prefix}lyrics Despacito` 
+        return await sock.sendMessage(jid, {
+          text: `❌ Please provide a song name!\n\nExample: ${config.prefix}lyrics Despacito`
         });
       }
-      
+
       const query = args.join(' ');
       let lyricsData = null;
-      
-      // API 1: Keith (primary)
+
+      // ── Primary: apiskeith.top /search/lyrics ────────────────────────────────
       try {
-        const response = await axios.get(`https://apiskeith.top/search/lyrics2?query=${encodeURIComponent(query)}`, {
-          timeout: 10000 // 10 seconds timeout
-        });
-        
-        // Check if API returned success
-        if (response.data && response.data.status === true && response.data.data) {
-          const data = response.data.data;
+        const res = await axios.get(
+          `https://apiskeith.top/search/lyrics?query=${encodeURIComponent(query)}`,
+          { timeout: 10000 }
+        );
+        // Response shape: { status: true, result: [ { song, artist, lyrics, thumbnail } ] }
+        if (res.data?.status === true && Array.isArray(res.data.result) && res.data.result.length > 0) {
+          const hit = res.data.result[0];
           lyricsData = {
-            title: data.title || 'Unknown Title',
-            artist: data.artist || 'Unknown Artist',
-            lyrics: data.lyrics || 'No lyrics found',
-            thumbnail: data.thumbnail || null
+            title:     hit.song      || 'Unknown Title',
+            artist:    hit.artist    || 'Unknown Artist',
+            lyrics:    hit.lyrics    || 'No lyrics found',
+            thumbnail: hit.thumbnail || null
           };
-        } else {
-          // If status is false or data missing, log and try next
-          console.log(`Keith API returned error: ${response.data?.error || 'Unknown error'}`);
         }
       } catch (err) {
-        console.log('Keith API failed:', err.message);
+        console.log('Keith lyrics API failed:', err.message);
       }
-      
-      // API 2: Vreden (fallback)
+
+      // ── Fallback 1: Vreden ───────────────────────────────────────────────────
       if (!lyricsData) {
         try {
-          const response = await axios.get(`https://api.vreden.my.id/api/lyrics?query=${encodeURIComponent(query)}`);
-          if (response.data && response.data.result) {
+          const res = await axios.get(
+            `https://api.vreden.my.id/api/lyrics?query=${encodeURIComponent(query)}`,
+            { timeout: 10000 }
+          );
+          if (res.data?.result) {
+            const r = res.data.result;
             lyricsData = {
-              title: response.data.result.title,
-              artist: response.data.result.artist,
-              lyrics: response.data.result.lyrics,
-              thumbnail: response.data.result.thumbnail
+              title:     r.title     || 'Unknown Title',
+              artist:    r.artist    || 'Unknown Artist',
+              lyrics:    r.lyrics    || 'No lyrics found',
+              thumbnail: r.thumbnail || null
             };
           }
-        } catch (err) {
-          console.log('Vreden API failed');
-        }
+        } catch { console.log('Vreden lyrics API failed'); }
       }
-      
-      // API 3: Siputzx (fallback)
+
+      // ── Fallback 2: Siputzx ──────────────────────────────────────────────────
       if (!lyricsData) {
         try {
-          const response = await axios.get(`https://api.siputzx.my.id/api/s/lyrics?query=${encodeURIComponent(query)}`);
-          if (response.data && response.data.status && response.data.data) {
+          const res = await axios.get(
+            `https://api.siputzx.my.id/api/s/lyrics?query=${encodeURIComponent(query)}`,
+            { timeout: 10000 }
+          );
+          if (res.data?.status && res.data?.data) {
+            const d = res.data.data;
             lyricsData = {
-              title: response.data.data.title,
-              artist: response.data.data.artist,
-              lyrics: response.data.data.lyrics,
-              thumbnail: response.data.data.image
+              title:     d.title  || 'Unknown Title',
+              artist:    d.artist || 'Unknown Artist',
+              lyrics:    d.lyrics || 'No lyrics found',
+              thumbnail: d.image  || null
             };
           }
-        } catch (err) {
-          console.log('Siputzx API failed');
-        }
+        } catch { console.log('Siputzx lyrics API failed'); }
       }
-      
+
       if (!lyricsData) {
-        return await sock.sendMessage(msg.key.remoteJid, { 
-          text: '❌ Could not find lyrics for this song! All APIs failed.' 
+        return await sock.sendMessage(jid, {
+          text: '❌ Could not find lyrics for that song. Try a different song name or spelling.'
         });
       }
-      
-      // Format lyrics (limit to prevent message too long)
+
+      // Trim very long lyrics
       let lyrics = lyricsData.lyrics;
       if (lyrics.length > 4000) {
-        lyrics = lyrics.substring(0, 4000) + '...\n\n_Lyrics too long, showing first part only_';
+        lyrics = lyrics.substring(0, 4000) + '...\n\n_Lyrics truncated — showing first part only_';
       }
-      
-      const caption = `🎵 *${lyricsData.title}*\n` +
-                     `👤 *Artist:* ${lyricsData.artist}\n\n` +
-                     `📝 *Lyrics:*\n${lyrics}\n\n` +
-                     `_Fetched by ${config.botName}_`;
-      
+
+      const caption =
+        `🎵 *${lyricsData.title}*\n` +
+        `👤 *Artist:* ${lyricsData.artist}\n\n` +
+        `📝 *Lyrics:*\n${lyrics}\n\n` +
+        `_Fetched by ${config.botName}_`;
+
       if (lyricsData.thumbnail) {
-        await sock.sendMessage(msg.key.remoteJid, {
+        await sock.sendMessage(jid, {
           image: { url: lyricsData.thumbnail },
-          caption: caption
+          caption
         });
       } else {
-        await sock.sendMessage(msg.key.remoteJid, { text: caption });
+        await sock.sendMessage(jid, { text: caption });
       }
-      
+
     } catch (error) {
       console.error('Lyrics command error:', error);
-      await sock.sendMessage(msg.key.remoteJid, { 
-        text: '❌ An error occurred while fetching lyrics!' 
+      await sock.sendMessage(jid, {
+        text: '❌ An error occurred while fetching lyrics!'
       });
     }
   }
