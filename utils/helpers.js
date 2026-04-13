@@ -87,21 +87,48 @@ const getQuoted = (msg) => {
 
 /**
  * Upload file to temporary hosting
+ * Primary: ImgBB  →  Fallback: Catbox  →  Fallback: file.io
  */
-const uploadFile = async (buffer) => {
-  try {
-    const FormData = require('form-data');
-    const form = new FormData();
-    form.append('file', buffer, { filename: 'file' });
-    
-    const response = await axios.post('https://file.io', form, {
-      headers: form.getHeaders()
-    });
-    
-    return response.data.link;
-  } catch (error) {
-    throw new Error('File upload failed');
+const uploadFile = async (buffer, filename = 'file') => {
+  const FormData = require('form-data');
+
+  // 1. ImgBB (persistent, CDN-fast)
+  const imgbbKey = process.env.IMGBB_API_KEY;
+  if (imgbbKey) {
+    try {
+      const form = new FormData();
+      form.append('image', buffer.toString('base64'));
+      const res = await axios.post(`https://api.imgbb.com/1/upload?key=${imgbbKey}`, form, {
+        headers: form.getHeaders(), timeout: 30000
+      });
+      const url = res.data?.data?.url;
+      if (url) return url;
+    } catch (_) {}
   }
+
+  // 2. Catbox
+  try {
+    const form = new FormData();
+    form.append('reqtype', 'fileupload');
+    form.append('fileToUpload', buffer, { filename });
+    const res = await axios.post('https://catbox.moe/user/api.php', form, {
+      headers: form.getHeaders(), timeout: 60000
+    });
+    const url = (res.data || '').trim();
+    if (url.startsWith('http')) return url;
+  } catch (_) {}
+
+  // 3. file.io
+  try {
+    const form = new FormData();
+    form.append('file', buffer, { filename });
+    const res = await axios.post('https://file.io', form, {
+      headers: form.getHeaders(), timeout: 30000
+    });
+    if (res.data?.success) return res.data.link;
+  } catch (_) {}
+
+  throw new Error('All upload services failed');
 };
 
 /**
