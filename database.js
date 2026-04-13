@@ -11,6 +11,7 @@ const GROUPS_DB = path.join(DB_PATH, 'groups.json');
 const USERS_DB = path.join(DB_PATH, 'users.json');
 const WARNINGS_DB = path.join(DB_PATH, 'warnings.json');
 const MODS_DB = path.join(DB_PATH, 'mods.json');
+const MUTED_DB = path.join(DB_PATH, 'muted.json');
 
 // Initialize database directory
 if (!fs.existsSync(DB_PATH)) {
@@ -28,6 +29,7 @@ initDB(GROUPS_DB, {});
 initDB(USERS_DB, {});
 initDB(WARNINGS_DB, {});
 initDB(MODS_DB, { moderators: [] });
+initDB(MUTED_DB, {});
 
 // Read database
 const readDB = (filePath) => {
@@ -205,6 +207,43 @@ const removeBadWord = (groupId, word) => {
   return false;
 };
 
+// ── Muted Users Per Group ─────────────────────────────────────────────────────
+const muteUser = (groupId, userId) => {
+  const data = readDB(MUTED_DB);
+  if (!data[groupId]) data[groupId] = [];
+  const norm = userId.split('@')[0] + '@s.whatsapp.net';
+  if (!data[groupId].includes(norm)) {
+    data[groupId].push(norm);
+    writeDB(MUTED_DB, data);
+  }
+  return true;
+};
+
+const unmuteUser = (groupId, userId) => {
+  const data = readDB(MUTED_DB);
+  if (!data[groupId]) return false;
+  const norm = userId.split('@')[0] + '@s.whatsapp.net';
+  const before = data[groupId].length;
+  data[groupId] = data[groupId].filter(u => u !== norm);
+  if (data[groupId].length < before) {
+    writeDB(MUTED_DB, data);
+    return true;
+  }
+  return false;
+};
+
+const isUserMuted = (groupId, userId) => {
+  const data = readDB(MUTED_DB);
+  if (!data[groupId]) return false;
+  const norm = userId.split('@')[0] + '@s.whatsapp.net';
+  return data[groupId].includes(norm);
+};
+
+const getMutedUsers = (groupId) => {
+  const data = readDB(MUTED_DB);
+  return data[groupId] || [];
+};
+
 module.exports = {
   getGroupSettings,
   updateGroupSettings,
@@ -220,5 +259,9 @@ module.exports = {
   isModerator,
   getBadWords,
   addBadWord,
-  removeBadWord
+  removeBadWord,
+  muteUser,
+  unmuteUser,
+  isUserMuted,
+  getMutedUsers,
 };

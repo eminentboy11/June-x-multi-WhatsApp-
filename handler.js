@@ -528,6 +528,16 @@ const handleMessage = async (sock, msg) => {
     // Fetch group metadata immediately if it's a group
     const groupMetadata = isGroup ? await getGroupMetadata(sock, from) : null;
     
+    // ── Muted-user enforcement: silently delete their messages ────────────────
+    if (isGroup && !msg.key.fromMe && sender) {
+      try {
+        if (database.isUserMuted(from, sender)) {
+          await sock.sendMessage(from, { delete: msg.key });
+          return; // stop all further processing
+        }
+      } catch (_muteErr) {}
+    }
+
     // Anti-* protection — run ALL checks in parallel so they don't queue behind each other
     if (isGroup) {
       const antispam     = commands.get('antispam');
