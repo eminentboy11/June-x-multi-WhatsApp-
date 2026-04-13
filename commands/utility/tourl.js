@@ -5,6 +5,21 @@ const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
 
+async function uploadToImgBB(filePath, filename) {
+    const buffer = await fs.promises.readFile(filePath);
+    const form = new FormData();
+    form.append('image', buffer.toString('base64'));
+    const apiKey = process.env.IMGBB_API_KEY;
+    if (!apiKey) throw new Error('IMGBB_API_KEY not set');
+    const res = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, form, {
+        headers: form.getHeaders(),
+        timeout: 60000,
+    });
+    const url = res.data?.data?.url;
+    if (url && url.startsWith('http')) return url;
+    throw new Error('ImgBB: no URL in response');
+}
+
 async function uploadToCatbox(filePath, filename) {
     const form = new FormData();
     form.append('reqtype', 'fileupload');
@@ -55,10 +70,11 @@ async function uploadToFileio(filePath, filename) {
 }
 
 const UPLOAD_SERVICES = [
-    { name: 'Catbox', fn: uploadToCatbox, supports: '*' },
-    { name: 'Uguu', fn: uploadToUguu, supports: '*' },
-    { name: 'Pomf', fn: uploadToPomf, supports: '*' },
-    { name: 'File.io', fn: uploadToFileio, supports: '*' },
+    { name: 'ImgBB',   fn: uploadToImgBB,   supports: '*' },
+    { name: 'Catbox',  fn: uploadToCatbox,  supports: '*' },
+    { name: 'Uguu',    fn: uploadToUguu,    supports: '*' },
+    { name: 'Pomf',    fn: uploadToPomf,    supports: '*' },
+    { name: 'File.io', fn: uploadToFileio,  supports: '*' },
 ];
 
 async function uploadWithFallback(filePath, filename) {
