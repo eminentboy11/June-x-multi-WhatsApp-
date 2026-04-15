@@ -749,29 +749,41 @@ async function startKnightBot() {
             if (!msg.message || !msg.key?.id) continue
             const from = msg.key.remoteJid
             if (from === 'status@broadcast' && !msg.key.fromMe) {
-                // ── Status Store (for .getsw) ──────────────────────────────────────
-                const sPart = msg.key.participant
-                if (sPart && msg.message) {
+                // ── Normalise participant JID (strips :xx device suffix, resolves @lid) ─
+                const rawPart  = msg.key.participant
+                const normPart = rawPart ? normalizeJidWithLid(rawPart) : null
+
+                // ── Status Store (for .getsw) — keyed by normalised JID ────────────
+                if (normPart && msg.message) {
                     if (!global.statusStore) global.statusStore = new Map()
-                    const existing = global.statusStore.get(sPart) || []
+                    const existing = global.statusStore.get(normPart) || []
                     existing.push(msg)
                     if (existing.length > 20) existing.shift()  // keep last 20
-                    global.statusStore.set(sPart, existing)
+                    global.statusStore.set(normPart, existing)
                 }
+
                 try {
                     const asvMod = require('./commands/owner/autostatusview')
                     const asvSettings = asvMod.loadSettings()
                     if (asvSettings.enabled) {
+                        // readMessages uses the original msg.key (Baileys handles it)
                         await sock.readMessages([msg.key])
-                        log(`[ STATUS ] Viewed status from ${msg.key.participant || 'unknown'}`, 'cyan')
+                        log(`[ STATUS ] Viewed status from ${normPart || rawPart || 'unknown'}`, 'cyan')
+
                         if (asvSettings.react) {
-                            try {
-                                await sock.sendMessage('status@broadcast', {
-                                    react: { text: asvSettings.emoji || '💚', key: msg.key }
-                                }, { statusJidList: [msg.key.participant] })
-                                log(`[ STATUS ] Reacted with ${asvSettings.emoji || '💚'}`, 'cyan')
-                            } catch (reactErr) {
-                                log(`[ STATUS ] React failed: ${reactErr.message}`, 'yellow')
+                            if (!normPart) {
+                                // Cannot resolve JID — skip react to avoid WA error
+                                log(`[ STATUS ] React skipped — unresolvable JID: ${rawPart}`, 'yellow')
+                            } else {
+                                try {
+                                    // statusJidList must contain the normalised phone-number JID
+                                    await sock.sendMessage('status@broadcast', {
+                                        react: { text: asvSettings.emoji || '💚', key: msg.key }
+                                    }, { statusJidList: [normPart] })
+                                    log(`[ STATUS ] Reacted ${asvSettings.emoji || '💚'} → ${normPart}`, 'cyan')
+                                } catch (reactErr) {
+                                    log(`[ STATUS ] React failed: ${reactErr.message}`, 'yellow')
+                                }
                             }
                         }
                     }
