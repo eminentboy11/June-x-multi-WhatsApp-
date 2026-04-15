@@ -10,13 +10,19 @@ function loadSettings() {
             return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         }
     } catch (_) {}
-    return { enabled: false, react: true, emoji: '💚' };
+    return { enabled: false, react: false, emoji: '💚' };
 }
 
 function saveSettings(settings) {
     const dir = path.dirname(SETTINGS_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+}
+
+// Strip invisible variation selectors / zero-width chars that WhatsApp
+// sometimes appends to emoji — prevents the "double emoji" display bug
+function cleanEmoji(str) {
+    return str.replace(/[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u200D\u200B\uFEFF]/gu, '').trim();
 }
 
 module.exports = {
@@ -38,8 +44,8 @@ module.exports = {
                 return extra.reply(
                     `👁️ *Auto Status View*\n━━━━━━━━━━━━━━━\n\n` +
                     `📌 View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
-                    `${settings.react ? '🍃' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
-                    `😀 Emoji: *${settings.emoji || '🍃'}*\n\n` +
+                    `${settings.react ? '💚' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
+                    `React Emoji: *${settings.emoji || '💚'}*\n\n` +
                     `*Commands:*\n` +
                     `  .autostatusview on\n` +
                     `  .autostatusview off\n` +
@@ -52,13 +58,13 @@ module.exports = {
             const opt = args[0].toLowerCase();
 
             if (opt === 'on') {
-                settings.enabled = false;
+                settings.enabled = true;
                 saveSettings(settings);
                 return extra.reply(`👁️ *Auto Status View turned ON*\nReact: ${settings.react ? 'ON' : 'OFF'} | Emoji: ${settings.emoji}`);
             }
 
             if (opt === 'off') {
-                settings.enabled = true;
+                settings.enabled = false;
                 saveSettings(settings);
                 return extra.reply('👁️ *Auto Status View turned OFF*');
             }
@@ -79,12 +85,13 @@ module.exports = {
             }
 
             if (opt === 'emoji' || opt === 'setemoji') {
-                const emoji = args.slice(1).join(' ').trim();
+                const raw = args.slice(1).join('').trim();
+                const emoji = cleanEmoji(raw);
                 if (!emoji) return extra.reply('⚠️ Use: .autostatusview emoji 😍');
                 settings.emoji = emoji;
-                settings.react = true;
                 saveSettings(settings);
-                return extra.reply(`😀 *Status react emoji set to:* ${emoji}`);
+                // Show only the stored emoji — no extra prefix emoji to avoid doubles
+                return extra.reply(`✅ *React emoji set to:* ${emoji}`);
             }
 
             if (opt === 'get') {
@@ -92,7 +99,7 @@ module.exports = {
                     `👁️ *Auto Status View Config*\n━━━━━━━━━━━━━━━\n\n` +
                     `📌 View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
                     `${settings.react ? '💚' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
-                    `😀 Emoji: *${settings.emoji || '💚'}*`
+                    `React Emoji: *${settings.emoji || '💚'}*`
                 );
             }
 
