@@ -20,9 +20,7 @@ function loadConfig() {
 function saveConfig(cfg) {
     try {
         fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
-    } catch (err) {
-        console.error('⚠️ Failed to save readreceipts config:', err);
-    }
+    } catch (_) {}
 }
 
 const STATUS_LABEL = {
@@ -98,7 +96,6 @@ module.exports = {
             }, { quoted: msg });
 
         } catch (error) {
-            console.error('readreceipts error:', error);
             await sock.sendMessage(chatId, {
                 text: `❌ Failed to update read receipts: ${error.message}`
             }, { quoted: msg });

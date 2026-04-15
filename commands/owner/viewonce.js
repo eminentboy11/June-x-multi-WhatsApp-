@@ -1,20 +1,26 @@
 /**
- * ViewOnce Command - Reveal view-once messages (forwards to owner's DM)
+ * ViewOnce Command
+ *   .vv  — reveals view-once and forwards to owner's DM (private)
+ *   .vv2 — reveals view-once and sends in the current chat
  */
 
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 module.exports = {
     name: 'viewonce',
-    aliases: ['vv', 'rvo', 'readvo', 'readviewonce'],
+    aliases: ['vv', 'vv2', 'rvo', 'readvo', 'readviewonce'],
     category: 'owner',
     ownerOnly: true,
-    description: 'Reveal view-once messages — forwards media to owner DM',
-    usage: '.vv (reply to a view-once message)',
+    description: 'Reveal view-once messages — .vv → owner DM | .vv2 → current chat',
+    usage: '.vv (reply to a view-once) | .vv2 (reply to display here)',
 
     async execute(sock, msg, args, extra) {
         const chatId   = extra.from;
-        const ownerJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+        const selfJid  = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+
+        // vv2 sends to current chat; vv sends to owner DM
+        const sendToCurrentChat = extra.command === 'vv2';
+        const targetJid = sendToCurrentChat ? chatId : selfJid;
 
         try {
             // ── Extract quoted context ─────────────────────────────────────
@@ -28,7 +34,10 @@ module.exports = {
             if (!ctx?.quotedMessage) {
                 return await sock.sendMessage(
                     chatId,
-                    { text: '🗑️ Reply to a *view-once* message to reveal it.' },
+                    { text: sendToCurrentChat
+                        ? '🗑️ Reply to a *view-once* message with *.vv2* to reveal it here.'
+                        : '🗑️ Reply to a *view-once* message with *.vv* to reveal it in your DM.'
+                    },
                     { quoted: msg }
                 );
             }
@@ -95,20 +104,20 @@ module.exports = {
 
             const caption = actualMsg[mtype]?.caption || '';
 
-            // ── Forward to owner DM ────────────────────────────────────────
+            // ── Send to target chat ────────────────────────────────────────
             if (mtype === 'imageMessage') {
-                await sock.sendMessage(ownerJid, {
+                await sock.sendMessage(targetJid, {
                     image: buffer,
-                    caption: caption || '🖼️ Retrieved ViewOnce Image'
+                    caption: caption || '🖼️ *ViewOnce Image*'
                 });
             } else if (mtype === 'videoMessage') {
-                await sock.sendMessage(ownerJid, {
+                await sock.sendMessage(targetJid, {
                     video: buffer,
-                    caption: caption || '🎬 Retrieved ViewOnce Video',
+                    caption: caption || '🎬 *ViewOnce Video*',
                     mimetype: 'video/mp4'
                 });
             } else {
-                await sock.sendMessage(ownerJid, {
+                await sock.sendMessage(targetJid, {
                     audio: buffer,
                     mimetype: actualMsg[mtype]?.mimetype || 'audio/mp4',
                     ptt: false
@@ -121,7 +130,6 @@ module.exports = {
             });
 
         } catch (error) {
-            console.error('ViewOnce command error:', error);
             await sock.sendMessage(
                 chatId,
                 { text: `❌ Failed to reveal view-once: ${error.message || 'Unknown error'}` },
