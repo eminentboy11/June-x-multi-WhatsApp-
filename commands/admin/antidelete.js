@@ -13,6 +13,7 @@
 
 const fs       = require('fs');
 const path     = require('path');
+const config   = require('../../config');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 const CONFIG_PATH = path.join(__dirname, '../../data/antidelete.json');
@@ -99,36 +100,63 @@ async function sendRecovered(sock, targetJid, stored, originChat) {
     }[stored.type] || '📝';
 
     const readmore  = String.fromCharCode(8206).repeat(4001);
+    const divider   = '━━━━━━━━━━━━━━━━━━━━';
+
+    const timestamp = stored.timestamp
+        ? new Date(stored.timestamp * 1000).toLocaleString('en-GB', {
+            hour12: false, timeZone: config.timezone || 'Africa/Nairobi',
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+          })
+        : new Date().toLocaleString();
+
     const chatLabel = originChat && originChat !== targetJid
         ? `\n💬 *Chat:* ${originChat.includes('@g.us') ? 'Group' : 'DM'} (${originChat.split('@')[0]})`
         : '';
 
-    const header =
-        `🗑️ *AntiDelete — Recovered*\n${readmore}\n` +
-        `👤 *From:* @${senderNum}` +
+    // Meta block (mirrors antiedit layout)
+    const meta =
+        `🗑️ *DELETED MESSAGE RECOVERED!*\n` +
+        `${divider}\n` +
+        `👤 *From:* @${senderNum}\n` +
+        `🕐 *Time:* ${timestamp}\n` +
+        `${typeEmoji} *Type:* ${stored.type}` +
         chatLabel + '\n' +
-        `${typeEmoji} *Type:* ${stored.type}`;
+        `${divider}\n${readmore}\n`;
 
     const mentions = stored.sender ? [stored.sender] : [];
 
     if (stored.type === 'text') {
         await sock.sendMessage(targetJid, {
-            text: `${header}\n\n📝 *Message:*\n${stored.text}`,
+            text: `${meta}📝 *Message:*\n${stored.text}\n${divider}`,
             mentions
         });
         return;
     }
 
-    const buffer  = await downloadMedia(stored);
-    const caption = header + (stored.text ? `\n\n📝 *Caption:*\n${stored.text}` : '');
+    const buffer = await downloadMedia(stored);
 
     if (!buffer) {
         await sock.sendMessage(targetJid, {
-            text: `${header}\n\n⚠️ _Media expired (CDN link gone)._`,
+            text: `${meta}⚠️ _Media expired (CDN link gone)._\n${divider}`,
             mentions
         });
         return;
     }
+
+    // Caption for visual media (image/video/document)
+    const caption =
+        `🗑️ *DELETED MESSAGE RECOVERED!*\n${divider}\n` +
+        `👤 *From:* @${senderNum}\n` +
+        `🕐 *Time:* ${timestamp}\n` +
+        `${typeEmoji} *Type:* ${stored.type}` +
+        chatLabel +
+        (stored.text ? `\n${divider}\n${readmore}\n📝 *Caption:*\n${stored.text}` : '') +
+        `\n${divider}`;
+
+    // For audio/sticker: send media first, then the text header separately
+    const textHeader =
+        `${meta}${stored.text ? `📝 *Caption:*\n${stored.text}\n` : ''}${divider}`;
 
     if (stored.type === 'image') {
         await sock.sendMessage(targetJid, { image: buffer, caption, mentions });
@@ -143,13 +171,13 @@ async function sendRecovered(sock, targetJid, stored, originChat) {
             audio: buffer, ptt: isVoice,
             mimetype: stored.inner?.audioMessage?.mimetype || 'audio/ogg; codecs=opus',
         });
-        await sock.sendMessage(targetJid, { text: header, mentions });
+        await sock.sendMessage(targetJid, { text: textHeader, mentions });
     } else if (stored.type === 'sticker') {
         await sock.sendMessage(targetJid, {
             sticker: buffer,
             mimetype: stored.inner?.stickerMessage?.mimetype || 'image/webp',
         });
-        await sock.sendMessage(targetJid, { text: header, mentions });
+        await sock.sendMessage(targetJid, { text: textHeader, mentions });
     } else if (stored.type === 'document') {
         await sock.sendMessage(targetJid, {
             document: buffer,
