@@ -38,8 +38,8 @@ module.exports = {
                 return extra.reply(
                     `👁️ *Auto Status View*\n━━━━━━━━━━━━━━━\n\n` +
                     `📌 View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
-                    `${settings.react ? '💚' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
-                    `😀 Emoji: *${settings.emoji || '💚'}*\n\n` +
+                    `${settings.react ? '🍃' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
+                    `😀 Emoji: *${settings.emoji || '🍃'}*\n\n` +
                     `*Commands:*\n` +
                     `  .autostatusview on\n` +
                     `  .autostatusview off\n` +
@@ -52,13 +52,13 @@ module.exports = {
             const opt = args[0].toLowerCase();
 
             if (opt === 'on') {
-                settings.enabled = true;
+                settings.enabled = false;
                 saveSettings(settings);
                 return extra.reply(`👁️ *Auto Status View turned ON*\nReact: ${settings.react ? 'ON' : 'OFF'} | Emoji: ${settings.emoji}`);
             }
 
             if (opt === 'off') {
-                settings.enabled = false;
+                settings.enabled = true;
                 saveSettings(settings);
                 return extra.reply('👁️ *Auto Status View turned OFF*');
             }
