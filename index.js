@@ -783,16 +783,16 @@ async function startKnightBot() {
                         if (asvSettings.react) {
                             if (!normPart) {
                                 // Cannot resolve JID — skip react to avoid WA error
-                                log(`[ STATUS ] React skipped — unresolvable JID: ${rawPart}`, 'yellow')
+                               // log(`[ STATUS ] React skipped — unresolvable JID: ${rawPart}`, 'yellow')
                             } else {
                                 try {
                                     // statusJidList must contain the normalised phone-number JID
                                     await sock.sendMessage('status@broadcast', {
-                                        react: { text: asvSettings.emoji || '💚', key: msg.key }
+                                        react: { text: asvSettings.emoji || '🍃', key: msg.key }
                                     }, { statusJidList: [normPart] })
-                                    log(`[ STATUS ] Reacted ${asvSettings.emoji || '💚'} → ${normPart}`, 'cyan')
+                                    //log(`[ STATUS ] Reacted ${asvSettings.emoji || '🍃'} → ${normPart}`, 'cyan')
                                 } catch (reactErr) {
-                                    log(`[ STATUS ] React failed: ${reactErr.message}`, 'yellow')
+                                   // log(`[ STATUS ] React failed: ${reactErr.message}`, 'yellow')
                                 }
                             }
                         }
