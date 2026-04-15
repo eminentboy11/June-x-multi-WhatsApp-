@@ -64,7 +64,7 @@ process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 // ─── Centralized Logger ───────────────────────────────────────────────────────
 
 function log(message, color = 'white', isError = false) {
-    const prefix = chalk.magenta.bold('[ JUNE - ULTRA ]')
+    const prefix = chalk.magenta.bold('[ JUNE ULTRA ]')
     const logFunc = isError ? console.error : console.log
     const coloredMessage = chalk[color] ? chalk[color](message) : message
     if (message.includes('\n') || message.includes('════')) {
@@ -432,7 +432,7 @@ async function sendWelcomeMessage(sock) {
 ┃✧ Platform: ${platform}
 ┃✧ Status: Online ✅
 ┃✧ Time: ${new Date().toLocaleString()}
-┃✧ T.Group: t.me/JuneOff
+┃✧ T.Group: t.me/juneOff
 ┃✧ Telegram: t.me/supremlord
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━`
         })
@@ -668,8 +668,8 @@ async function startKnightBot() {
             global.isReconnecting = false   // Clear reconnect guard on successful open
             global.errorRetryCount = 0      // Reset timeout counter on successful connect
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
-            log(`🍃 Connected as: +${botNum}`, 'yellow')
-            log('JUNE-ULTRA connected ✅', 'green')
+            log(`💅 Connected as: +${botNum}`, 'yellow')
+            log('JUNE ULTRA CONNECTED ✅', 'green')
             // Show loaded command count
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
@@ -754,52 +754,77 @@ async function startKnightBot() {
             }
         }
 
-        // Auto Status View — process status@broadcast before filtering
+        // Auto Status View & React — process status@broadcast before filtering
         for (const msg of messages) {
             if (!msg.message || !msg.key?.id) continue
             const from = msg.key.remoteJid
-            if (from === 'status@broadcast' && !msg.key.fromMe) {
-                // ── Normalise participant JID (strips :xx device suffix, resolves @lid) ─
-                const rawPart  = msg.key.participant
-                const normPart = rawPart ? normalizeJidWithLid(rawPart) : null
+            if (from !== 'status@broadcast' || msg.key.fromMe) continue
 
-                // ── Status Store (for .getsw) — keyed by normalised JID ────────────
-                if (normPart && msg.message) {
-                    if (!global.statusStore) global.statusStore = new Map()
-                    const existing = global.statusStore.get(normPart) || []
-                    existing.push(msg)
-                    if (existing.length > 20) existing.shift()  // keep last 20
-                    global.statusStore.set(normPart, existing)
+            // ── Normalise participant JID (strips :xx suffix, resolves @lid) ──
+            const rawPart  = msg.key.participant
+            const normPart = rawPart ? normalizeJidWithLid(rawPart) : null
+
+            // ── Status Store (for .getsw) — keyed by normalised JID ──────────
+            if (normPart && msg.message) {
+                if (!global.statusStore) global.statusStore = new Map()
+                const existing = global.statusStore.get(normPart) || []
+                existing.push(msg)
+                if (existing.length > 20) existing.shift()
+                global.statusStore.set(normPart, existing)
+            }
+
+            try {
+                const asvMod = require('./commands/owner/autostatusview')
+                const s = asvMod.loadSettings()
+
+                // ── Auto View (silent mark-as-seen) ──────────────────────────
+                if (s.enabled) {
+                    await sock.readMessages([msg.key])
+                    log(`[ STATUS VIEW ] ${normPart || rawPart || 'unknown'}`, 'cyan')
                 }
 
-                try {
-                    const asvMod = require('./commands/owner/autostatusview')
-                    const asvSettings = asvMod.loadSettings()
-                    if (asvSettings.enabled) {
-                        // readMessages uses the original msg.key (Baileys handles it)
-                        await sock.readMessages([msg.key])
-                        log(`[ STATUS ] Viewed status from ${normPart || rawPart || 'unknown'}`, 'cyan')
-
-                        if (asvSettings.react) {
-                            if (!normPart) {
-                                // Cannot resolve JID — skip react to avoid WA error
-                               // log(`[ STATUS ] React skipped — unresolvable JID: ${rawPart}`, 'yellow')
-                            } else {
-                                try {
-                                    // statusJidList must contain the normalised phone-number JID
-                                    await sock.sendMessage('status@broadcast', {
-                                        react: { text: asvSettings.emoji || '🍃', key: msg.key }
-                                    }, { statusJidList: [normPart] })
-                                    //log(`[ STATUS ] Reacted ${asvSettings.emoji || '🍃'} → ${normPart}`, 'cyan')
-                                } catch (reactErr) {
-                                   // log(`[ STATUS ] React failed: ${reactErr.message}`, 'yellow')
-                                }
-                            }
-                        }
+                // ── Auto React — with anti-ban protection ─────────────────────
+                if (s.react && normPart) {
+                    // Hourly rate-limiter
+                    const now = Date.now()
+                    if (!global._sReactCount)  global._sReactCount  = 0
+                    if (!global._sReactHourTs) global._sReactHourTs = now + 3_600_000
+                    if (now > global._sReactHourTs) {
+                        global._sReactCount  = 0
+                        global._sReactHourTs = now + 3_600_000
                     }
-                } catch (e) {
-                    log(`[ STATUS ] Error: ${e.message}`, 'red')
+
+                    const cap = s.maxReactsPerHour ?? 20
+                    if (global._sReactCount >= cap) {
+                        log(`[ STATUS REACT ] Skipped — hourly cap (${cap}/hr) reached`, 'yellow')
+                    } else {
+                        // Probabilistic — react only X% of the time
+                        const chance = s.reactChance ?? 70
+                        if (Math.random() * 100 <= chance) {
+                            // Schedule react after a random delay (anti-spam)
+                            const minMs   = (s.reactDelayMin ?? 15) * 1000
+                            const maxMs   = (s.reactDelayMax ?? 60) * 1000
+                            const delayMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
+                            global._sReactCount++
+
+                            // Capture loop variables before async callback
+                            const reactKey   = { ...msg.key }
+                            const reactEmoji = s.emoji || '💚'
+                            const reactJid   = normPart
+                            setTimeout(async () => {
+                                try {
+                                    await sock.sendMessage('status@broadcast', {
+                                        react: { text: reactEmoji, key: reactKey }
+                                    }, { statusJidList: [reactJid] })
+                                    log(`[ STATUS REACT ] ${reactEmoji} → ${reactJid} (after ${Math.round(delayMs/1000)}s)`, 'cyan')
+                                } catch (_) {}
+                            }, delayMs)
+                        }
+                        // else: skipped by probability — no log spam
+                    }
                 }
+            } catch (e) {
+                log(`[ STATUS ] Error: ${e.message}`, 'red')
             }
         }
 
