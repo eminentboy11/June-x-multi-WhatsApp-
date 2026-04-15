@@ -64,7 +64,7 @@ process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 // ─── Centralized Logger ───────────────────────────────────────────────────────
 
 function log(message, color = 'white', isError = false) {
-    const prefix = chalk.magenta.bold('[ JUNE ULTRA ]')
+    const prefix = chalk.magenta.bold('[ JUNE - ULTRA ]')
     const logFunc = isError ? console.error : console.log
     const coloredMessage = chalk[color] ? chalk[color](message) : message
     if (message.includes('\n') || message.includes('════')) {
@@ -430,7 +430,7 @@ async function sendWelcomeMessage(sock) {
 ┃✧ Prefix: [ ${prefix} ]
 ┃✧ Owner: ${ownerName}
 ┃✧ Platform: ${platform}
-┃✧ Status: Active ✅
+┃✧ Status: Online ✅
 ┃✧ Time: ${new Date().toLocaleString()}
 ┃✧ T.Group: t.me/JuneOff
 ┃✧ Telegram: t.me/supremlord
@@ -668,8 +668,8 @@ async function startKnightBot() {
             global.isReconnecting = false   // Clear reconnect guard on successful open
             global.errorRetryCount = 0      // Reset timeout counter on successful connect
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
-            log(`💅 Connected as: +${botNum}`, 'yellow')
-            log('JUNE ULTRA CONNECTED ✅', 'green')
+            log(`🍃 Connected as: +${botNum}`, 'yellow')
+            log('JUNE-ULTRA connected ✅', 'green')
             // Show loaded command count
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
