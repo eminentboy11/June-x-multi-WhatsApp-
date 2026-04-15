@@ -4,17 +4,32 @@ const config = require('../../config');
 const fs   = require('fs');
 const path = require('path');
 
-// Words/patterns that trigger auto-save when replying to a status
+// Happy-emoji-only pattern (emoji replies → also forward to bot self-chat)
+const HAPPY_EMOJI_RE = /^[\s😀😁😂🤣😃😄😅😆😉😊😋😎😍🥰😘😗😙😚🙂🤗🤩🥳😇🤠🎉🎊❤️💕💖💗💓💞💝💘💟🫶👍🙏✨🌟⭐💫🔥👏🎶🎵😸😺]+$/u;
+
+// All patterns that trigger auto-save when replying to a status
 const SAVE_TRIGGERS = [
     /^\s*(save|send)\s*$/i,
     /^\s*(hello|hey|hi)\s*$/i,
-    // Happy emojis — any message that is only emoji(s) from this set triggers save
-    /^[\s😀😁😂🤣😃😄😅😆😉😊😋😎😍🥰😘😗😙😚🙂🤗🤩🥳😇🤠🎉🎊❤️💕💖💗💓💞💝💘💟🫶👍🙏✨🌟⭐💫🔥👏🎶🎵😸😺]+$/u,
+    HAPPY_EMOJI_RE,
 ];
 
 function isSaveTrigger(text) {
     if (!text || !text.trim()) return false;
     return SAVE_TRIGGERS.some(re => re.test(text.trim()));
+}
+
+function isHappyEmoji(text) {
+    if (!text || !text.trim()) return false;
+    return HAPPY_EMOJI_RE.test(text.trim());
+}
+
+// Get bot's own normalised JID from sock.user.id (strips :xx device suffix)
+function getBotSelfJid(sock) {
+    const raw = sock?.user?.id;
+    if (!raw) return null;
+    const user = raw.split(':')[0].split('@')[0];
+    return `${user}@s.whatsapp.net`;
 }
 
 async function downloadStatus(statusMsg) {
@@ -119,11 +134,39 @@ async function handleStatusReply(sock, msg) {
         await sock.sendMessage(from, { react: { text: '💾', key: msg.key } }).catch(() => {});
 
         const media = await downloadStatus(quotedMsg);
+
+        // ── Send status back to the sender ────────────────────────────────────
         await sendSavedStatus(sock, from, media, msg);
 
+        // ── If trigger was a happy emoji, also forward to bot's self-chat ─────
+        if (isHappyEmoji(text)) {
+            const selfJid = getBotSelfJid(sock);
+            if (selfJid && from !== selfJid) {
+                try {
+                    const senderNum  = from.split('@')[0];
+                    const pushname   = msg.pushName || `+${senderNum}`;
+                    const mediaLabel = media
+                        ? (media.type === 'text' ? '📝 Text status' : `📎 ${media.type.charAt(0).toUpperCase() + media.type.slice(1)} status`)
+                        : '❓ Unknown';
+
+                    // Notification header
+                    await sock.sendMessage(selfJid, {
+                        text:
+                            `👁️ *Status Reaction Received*\n\n` +
+                            `👤 *From:* ${pushname} (+${senderNum})\n` +
+                            `💌 *Emoji:* ${text.trim()}\n` +
+                            `📦 *Content:* ${mediaLabel}\n\n` +
+                            `_Forwarding status to your chat..._`
+                    });
+
+                    // Forward the actual status content
+                    await sendSavedStatus(sock, selfJid, media, null);
+                } catch (_) {}
+            }
+        }
+
         return true;
-    } catch (e) {
-        console.error('[savestatus] auto-handler error:', e.message);
+    } catch (_) {
         return false;
     }
 }
@@ -162,7 +205,6 @@ module.exports = {
             await sendSavedStatus(sock, chatId, media, msg);
 
         } catch (error) {
-            console.error('[savestatus] error:', error);
             await extra.reply(`❌ Failed to save status:\n${error.message}`);
         }
     }
