@@ -1,17 +1,14 @@
 /**
  * AntiDelete — recovers deleted messages (text, image, video, audio, sticker).
  *
- * Baileys v7 RC9: deletions arrive as `messages.update` with
- *   messageStubType === WAMessageStubType.REVOKE (1).
- * Structure of each REVOKE item:
- *   {
- *     key:    { remoteJid, fromMe, participant, id: <DELETED_MSG_ID> },
- *     update: { message: null, messageStubType: 1, key: <protocol_key> }
- *   }
+ * Modes:
+ *   chat    → reveals deleted msg in the same chat it was deleted from
+ *   private → global mode — ALL deleted msgs across ALL chats go to owner's DM
+ *   off     → disabled for the current chat (or globally if no per-chat entry)
  *
- * Media recovery: WhatsApp CDN URLs + decryption keys live inside the stored
- * message object (imageMessage.url, imageMessage.mediaKey …).
- * We store the full inner message at receipt time so we can download + resend later.
+ * Config keys in data/antidelete.json:
+ *   "_global" : { mode: "private" }  — applies across every chat
+ *   "<chatJid>": { mode: "chat"|"off" }  — per-chat override
  */
 
 const fs       = require('fs');
@@ -20,10 +17,7 @@ const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 const CONFIG_PATH = path.join(__dirname, '../../data/antidelete.json');
 
-// In-memory store: Map<chatId, Map<msgId, StoredEntry>>
-// StoredEntry: { sender, type, text, inner, timestamp }
-//   inner = the unwrapped Baileys message object (has CDN URL + mediaKey + fileEncSha256 etc.)
-const messageStore = new Map();
+const messageStore = new Map(); // Map<chatId, Map<msgId, StoredEntry>>
 
 const loadConfig = () => {
     try {
@@ -35,7 +29,6 @@ const saveConfig = (cfg) => {
     try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch {}
 };
 
-// Media type → Baileys download type string
 const MEDIA_MAP = {
     imageMessage:    'image',
     videoMessage:    'video',
@@ -44,9 +37,6 @@ const MEDIA_MAP = {
     documentMessage: 'document',
 };
 
-/**
- * Unwrap ephemeral / viewOnce wrappers to get the actual inner message.
- */
 function unwrap(raw) {
     return (
         raw.ephemeralMessage?.message ||
@@ -57,10 +47,6 @@ function unwrap(raw) {
     );
 }
 
-/**
- * Called for every incoming message (from handler.js messages.upsert).
- * Stores text + full media object so we can re-download on delete.
- */
 const storeMessage = (msg) => {
     try {
         if (!msg?.key?.id || !msg.message) return;
@@ -76,61 +62,51 @@ const storeMessage = (msg) => {
             inner.documentMessage?.caption ||
             null;
 
-        // Find media type
         const mtype = Object.keys(MEDIA_MAP).find(k => inner[k]);
-
-        if (!text && !mtype) return; // nothing recoverable
+        if (!text && !mtype) return;
 
         const entry = {
             sender,
-            timestamp:  msg.messageTimestamp,
-            type:       mtype ? MEDIA_MAP[mtype] : 'text',
-            mtype:      mtype || null,  // e.g. 'imageMessage'
-            inner,                      // full unwrapped message — holds CDN URL + keys
-            text:       text || null,
+            timestamp: msg.messageTimestamp,
+            type:      mtype ? MEDIA_MAP[mtype] : 'text',
+            mtype:     mtype || null,
+            inner,
+            text:      text || null,
         };
 
         if (!messageStore.has(chatId)) messageStore.set(chatId, new Map());
         const chatMap = messageStore.get(chatId);
         chatMap.set(msg.key.id, entry);
-
-        // Keep last 500 per chat
         if (chatMap.size > 500) chatMap.delete(chatMap.keys().next().value);
     } catch (_) {}
 };
 
-/**
- * Download media from the stored inner message and return a Buffer.
- * Returns null if download fails.
- */
 async function downloadMedia(stored) {
     try {
         const { inner, mtype } = stored;
-        const dlType = MEDIA_MAP[mtype];
-        const stream = await downloadContentFromMessage(inner[mtype], dlType);
+        const stream = await downloadContentFromMessage(inner[mtype], MEDIA_MAP[mtype]);
         const chunks = [];
         for await (const chunk of stream) chunks.push(chunk);
         return Buffer.concat(chunks);
-    } catch (e) {
-        console.error('[ANTIDELETE] media download failed:', e.message);
-        return null;
-    }
+    } catch { return null; }
 }
 
-/**
- * Build and send the recovery message to targetJid.
- */
-async function sendRecovered(sock, targetJid, stored) {
-    const senderNum  = stored.sender?.split('@')[0]?.split(':')[0] || 'Unknown';
-    const typeEmoji  = {
+async function sendRecovered(sock, targetJid, stored, originChat) {
+    const senderNum = stored.sender?.split('@')[0]?.split(':')[0] || 'Unknown';
+    const typeEmoji = {
         image: '🖼️', video: '🎬', audio: '🎵',
         sticker: '🧩', document: '📄', text: '📝'
     }[stored.type] || '📝';
 
-    const readmore = String.fromCharCode(8206).repeat(4001);
+    const readmore  = String.fromCharCode(8206).repeat(4001);
+    const chatLabel = originChat && originChat !== targetJid
+        ? `\n💬 *Chat:* ${originChat.includes('@g.us') ? 'Group' : 'DM'} (${originChat.split('@')[0]})`
+        : '';
+
     const header =
         `🗑️ *AntiDelete — Recovered*\n${readmore}\n` +
-        `👤 *From:* @${senderNum}\n` +
+        `👤 *From:* @${senderNum}` +
+        chatLabel + '\n' +
         `${typeEmoji} *Type:* ${stored.type}`;
 
     const mentions = stored.sender ? [stored.sender] : [];
@@ -143,18 +119,12 @@ async function sendRecovered(sock, targetJid, stored) {
         return;
     }
 
-    // --- Media ---
-    const buffer = await downloadMedia(stored);
-
-    // Caption shown under the media
-    const caption =
-        `${header}` +
-        (stored.text ? `\n\n📝 *Caption:*\n${stored.text}` : '');
+    const buffer  = await downloadMedia(stored);
+    const caption = header + (stored.text ? `\n\n📝 *Caption:*\n${stored.text}` : '');
 
     if (!buffer) {
-        // Fallback: tell what was deleted but couldn't download
         await sock.sendMessage(targetJid, {
-            text: `${header}\n\n⚠️ _Media could not be downloaded (expired CDN link)._`,
+            text: `${header}\n\n⚠️ _Media expired (CDN link gone)._`,
             mentions
         });
         return;
@@ -170,11 +140,9 @@ async function sendRecovered(sock, targetJid, stored) {
     } else if (stored.type === 'audio') {
         const isVoice = stored.inner?.audioMessage?.ptt === true;
         await sock.sendMessage(targetJid, {
-            audio: buffer,
-            ptt: isVoice,
+            audio: buffer, ptt: isVoice,
             mimetype: stored.inner?.audioMessage?.mimetype || 'audio/ogg; codecs=opus',
         });
-        // Send header separately since audio can't carry caption
         await sock.sendMessage(targetJid, { text: header, mentions });
     } else if (stored.type === 'sticker') {
         await sock.sendMessage(targetJid, {
@@ -187,43 +155,54 @@ async function sendRecovered(sock, targetJid, stored) {
             document: buffer,
             mimetype: stored.inner?.documentMessage?.mimetype || 'application/octet-stream',
             fileName: stored.inner?.documentMessage?.fileName || 'file',
-            caption,
-            mentions,
+            caption, mentions,
         });
     }
 }
 
-/**
- * Called from handler.js when `messages.update` fires with REVOKE items.
- * `revokeItems` = array of update items already filtered for messageStubType REVOKE.
- */
+// Helper — resolve owner DM JID
+function ownerJid(sock) {
+    const id = sock.user?.id;
+    if (!id) return null;
+    return id.includes(':') ? id.split(':')[0] + '@s.whatsapp.net' : id;
+}
+
 const handleDelete = async (sock, revokeItems) => {
     try {
-        const cfg = loadConfig();
+        const cfg        = loadConfig();
+        const globalMode = cfg['_global']?.mode; // 'private' | undefined
+        const botJid     = ownerJid(sock);
 
         for (const item of revokeItems) {
             const chatId    = item.key?.remoteJid;
             const deletedId = item.key?.id;
             if (!chatId || !deletedId) continue;
 
-            const chatCfg = cfg[chatId];
-            if (!chatCfg?.mode || chatCfg.mode === 'off') continue;
+            // Skip status updates
+            if (chatId === 'status@broadcast') continue;
+
+            // Determine effective mode:
+            //   1. If global private is on  → always send to owner DM
+            //   2. Else check per-chat setting
+            let targetJid;
+            if (globalMode === 'private' && botJid) {
+                targetJid = botJid;
+            } else {
+                const chatCfg = cfg[chatId];
+                if (!chatCfg?.mode || chatCfg.mode === 'off') continue;
+                if (chatCfg.mode === 'private' && botJid) {
+                    targetJid = botJid;
+                } else {
+                    targetJid = chatId; // chat mode
+                }
+            }
 
             const chatMap = messageStore.get(chatId);
             if (!chatMap) continue;
             const stored = chatMap.get(deletedId);
             if (!stored) continue;
 
-            // Resolve target JID
-            let targetJid = chatId; // default: 'chat' mode
-            if (chatCfg.mode === 'private') {
-                // Send to the bot's own number (sock.user) so it appears in the bot's DM/Saved Messages
-                const botId = sock.user?.id;
-                if (!botId) continue;
-                targetJid = botId.includes(':') ? botId.split(':')[0] + '@s.whatsapp.net' : botId;
-            }
-
-            await sendRecovered(sock, targetJid, stored);
+            await sendRecovered(sock, targetJid, stored, chatId);
         }
     } catch (e) {
         console.error('[ANTIDELETE] handleDelete error:', e.message);
@@ -243,15 +222,19 @@ module.exports = {
 
     async execute(sock, msg, args, extra) {
         const { from, reply } = extra;
-        const sub     = (args[0] || '').toLowerCase();
-        const cfg     = loadConfig();
-        const chatCfg = cfg[from] || { mode: 'off' };
+        const sub = (args[0] || '').toLowerCase();
+        const cfg = loadConfig();
+
+        const globalMode  = cfg['_global']?.mode;
+        const chatMode    = cfg[from]?.mode;
+        const effectiveMode = globalMode === 'private' ? 'private (global)' : (chatMode || 'off');
 
         const statusLabel = () => {
-            if (!chatCfg.mode || chatCfg.mode === 'off') return '❌ OFF';
-            if (chatCfg.mode === 'chat')    return '✅ ON — Chat';
-            if (chatCfg.mode === 'private') return '✅ ON — Private (owner DM)';
-            return chatCfg.mode;
+            if (globalMode === 'private') return '✅ ON — Private *[GLOBAL — all chats → owner DM]*';
+            if (!chatMode || chatMode === 'off') return '❌ OFF';
+            if (chatMode === 'chat')    return '✅ ON — Chat';
+            if (chatMode === 'private') return '✅ ON — Private (this chat → owner DM)';
+            return chatMode;
         };
 
         if (!sub || sub === 'status') {
@@ -261,34 +244,41 @@ module.exports = {
                 `📌 Status: *${statusLabel()}*\n\n` +
                 `Recovers: text · image · video · audio · sticker · document\n\n` +
                 `*Commands:*\n` +
-                `  .antidelete chat     — reveal in this chat\n` +
-                `  .antidelete private  — send to owner's DM silently\n` +
-                `  .antidelete off      — disable\n` +
+                `  .antidelete chat     — reveal in this chat only\n` +
+                `  .antidelete private  — *all* deleted msgs from *all* chats → owner DM\n` +
+                `  .antidelete off      — disable for this chat\n` +
+                `  .antidelete off all  — disable globally\n` +
                 `  .antidelete status   — show current setting`
             );
         }
 
         if (sub === 'on' || sub === 'chat') {
-            chatCfg.mode = 'chat';
-            cfg[from] = chatCfg;
+            cfg[from] = { ...(cfg[from] || {}), mode: 'chat' };
             saveConfig(cfg);
-            return reply('✅ *Anti-Delete* enabled — recovered messages will appear in *this chat*.');
+            return reply('✅ *Anti-Delete* enabled — recovered messages will appear *in this chat*.');
         }
 
         if (sub === 'private') {
-            chatCfg.mode = 'private';
-            cfg[from] = chatCfg;
+            cfg['_global'] = { mode: 'private' };
             saveConfig(cfg);
-            return reply('✅ *Anti-Delete* enabled — recovered messages sent *privately to owner\'s DM*.');
+            return reply(
+                '✅ *Anti-Delete [GLOBAL PRIVATE]* enabled.\n' +
+                'All deleted messages from *every chat* will be forwarded to the *owner\'s DM* silently.'
+            );
         }
 
         if (sub === 'off') {
-            chatCfg.mode = 'off';
-            cfg[from] = chatCfg;
+            if ((args[1] || '').toLowerCase() === 'all') {
+                delete cfg['_global'];
+                saveConfig(cfg);
+                return reply('❌ *Anti-Delete* global private mode disabled.');
+            }
+            cfg[from] = { ...(cfg[from] || {}), mode: 'off' };
+            // Also clear global if disabling locally while global is active (UX choice — skip silently)
             saveConfig(cfg);
-            return reply('❌ *Anti-Delete* disabled.');
+            return reply('❌ *Anti-Delete* disabled for this chat.\n_Tip: use `.antidelete off all` to stop global private mode._');
         }
 
-        return reply('⚠️ Usage: .antidelete chat | private | off | status');
+        return reply('⚠️ Usage: .antidelete chat | private | off | off all | status');
     }
 };
