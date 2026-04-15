@@ -1137,6 +1137,7 @@ const handleMessage = async (sock, msg) => {
       isMod: senderIsSudo,
       isSudo: senderIsSudo,
       prefix: config.prefix,
+      command: commandName,
       reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
       react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
       getCommandCount: () => commands.size,

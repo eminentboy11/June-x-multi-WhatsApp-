@@ -720,6 +720,16 @@ async function startKnightBot() {
                     log(`👁️ Read receipts privacy applied: ${setting}`, 'cyan')
                 }
             } catch (_) {}
+
+            // Apply always-online heartbeat if enabled
+            try {
+                const aolMod = require('./commands/owner/alwaysonline')
+                const aolSettings = aolMod.loadSettings()
+                if (aolSettings.enabled) {
+                    aolMod.startHeartbeat(sock)
+                    log('🟢 Always Online heartbeat started', 'cyan')
+                }
+            } catch (_) {}
         }
     })
 
