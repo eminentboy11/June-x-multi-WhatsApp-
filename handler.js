@@ -1845,62 +1845,124 @@ const initializeAntiCall = (sock) => {
 
 const handleAntiMedia = async (sock, msg, groupMetadata) => {
   try {
-    const from = msg.key.remoteJid;
+    const from   = msg.key.remoteJid;
     const sender = msg.key.participant || msg.key.remoteJid;
     const groupSettings = database.getGroupSettings(from);
-    const msgType = Object.keys(msg.message || {})[0];
+
+    // ── Resolve real media type through all Baileys wrappers ────────────────
+    // Stickers/images can arrive inside ephemeralMessage, viewOnceMessageV2, etc.
+    function resolveType(message) {
+      if (!message) return null;
+      const top = Object.keys(message)[0];
+      if (!top) return null;
+      const wrappers = [
+        'ephemeralMessage',
+        'viewOnceMessage',
+        'viewOnceMessageV2',
+        'viewOnceMessageV2Extension',
+        'documentWithCaptionMessage',
+      ];
+      if (wrappers.includes(top)) {
+        const inner = message[top]?.message;
+        return inner ? Object.keys(inner)[0] : top;
+      }
+      return top;
+    }
+
+    const msgType = resolveType(msg.message);
 
     const checks = [
-      { enabled: groupSettings.antiimage, action: groupSettings.antiimageAction || 'delete', label: 'Anti Image 🖼️', types: ['imageMessage'] },
+      { enabled: groupSettings.antiimage,   action: groupSettings.antiimageAction   || 'delete', label: 'Anti Image 🖼️',   types: ['imageMessage'] },
       { enabled: groupSettings.antisticker, action: groupSettings.antistickerAction || 'delete', label: 'Anti Sticker 🎭', types: ['stickerMessage'] },
-      { enabled: groupSettings.antiaudio, action: groupSettings.antiaudioAction || 'delete', label: 'Anti Audio 🔇', types: ['audioMessage', 'pttMessage'] },
+      { enabled: groupSettings.antiaudio,   action: groupSettings.antiaudioAction   || 'delete', label: 'Anti Audio 🔇',   types: ['audioMessage', 'pttMessage'] },
     ];
 
     for (const check of checks) {
       if (!check.enabled) continue;
       if (!check.types.includes(msgType)) continue;
 
-      const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
-      const senderIsOwnerCheck = isOwner(sender);
-      if (senderIsAdmin || senderIsOwnerCheck) return;
+      const senderIsAdmin    = await isAdmin(sock, sender, from, groupMetadata);
+      const senderIsOwnerChk = isOwner(sender);
+      if (senderIsAdmin || senderIsOwnerChk) return;
 
-      const botIsAdminCheck = await isBotAdmin(sock, from, groupMetadata);
-      if (!botIsAdminCheck) return;
+      const botIsAdminChk = await isBotAdmin(sock, from, groupMetadata);
+      if (!botIsAdminChk) return;
 
+      // ── Delete the message ─────────────────────────────────────────────────
+      // Build a clean key — some wrappers need the participant set explicitly
+      const deleteKey = {
+        remoteJid:   from,
+        fromMe:      msg.key.fromMe || false,
+        id:          msg.key.id,
+        participant: msg.key.participant || undefined,
+      };
+      try { await sock.sendMessage(from, { delete: deleteKey }); } catch (_) {}
+
+      const senderNum = sender.split('@')[0].split(':')[0];
+      const divider   = '━━━━━━━━━━━━━━━━━━━━';
+
+      // ── Fetch all group members for group-wide @mention ────────────────────
+      let allMembers = [];
       try {
-        await sock.sendMessage(from, { delete: msg.key });
+        const meta = groupMetadata || await sock.groupMetadata(from);
+        allMembers = (meta?.participants || []).map(p => p.id);
       } catch (_) {}
 
       if (check.action === 'kick') {
         try {
           await sock.groupParticipantsUpdate(from, [sender], 'remove');
           await sock.sendMessage(from, {
-            text: `${check.label} — @${sender.split('@')[0]} removed for sending blocked media.`,
-            mentions: [sender]
+            text:
+              `${check.label}\n${divider}\n` +
+              `🚫 @${senderNum} has been *removed* from this group.\n` +
+              `📌 Reason: Sending ${check.label.replace(/Anti | 🖼️| 🎭| 🔇/g, '').trim().toLowerCase()} is not allowed here.\n` +
+              `${divider}`,
+            mentions: allMembers,
           });
         } catch (_) {}
+
       } else if (check.action === 'warn') {
-        const result = database.addWarning(from, sender, check.label);
+        const result   = database.addWarning(from, sender, check.label);
         const maxWarns = config.maxWarnings || 3;
+
         if (result.count >= maxWarns) {
           try {
             await sock.groupParticipantsUpdate(from, [sender], 'remove');
             database.clearWarnings(from, sender);
             await sock.sendMessage(from, {
-              text: `${check.label} — @${sender.split('@')[0]} reached ${maxWarns} warnings and has been removed!`,
-              mentions: [sender]
+              text:
+                `${check.label}\n${divider}\n` +
+                `🚫 @${senderNum} has been *removed* from this group.\n` +
+                `📌 Reason: Reached maximum warnings (${maxWarns}/${maxWarns}) for sending ${check.label.replace(/Anti | 🖼️| 🎭| 🔇/g, '').trim().toLowerCase()}.\n` +
+                `${divider}`,
+              mentions: allMembers,
             });
           } catch (_) {}
         } else {
+          // Build warning pips e.g. ⚠️⚠️⬜ for 2/3
+          const pips = '⚠️'.repeat(result.count) + '⬜'.repeat(maxWarns - result.count);
           await sock.sendMessage(from, {
-            text: `${check.label} — @${sender.split('@')[0]} warned (${result.count}/${maxWarns})`,
-            mentions: [sender]
+            text:
+              `${check.label}\n${divider}\n` +
+              `⚠️ *WARNING* issued to @${senderNum}\n\n` +
+              `📌 Reason: Sending ${check.label.replace(/Anti | 🖼️| 🎭| 🔇/g, '').trim().toLowerCase()} is not allowed in this group.\n\n` +
+              `${pips}\n` +
+              `Warnings: *${result.count}/${maxWarns}*\n\n` +
+              `_${maxWarns - result.count} more warning(s) will result in removal._\n` +
+              `${divider}`,
+            mentions: allMembers,
           });
         }
+
       } else {
+        // delete-only mode
         await sock.sendMessage(from, {
-          text: `${check.label} — Message deleted.`,
-          mentions: [sender]
+          text:
+            `${check.label}\n${divider}\n` +
+            `🗑️ @${senderNum}'s message was deleted.\n` +
+            `📌 Sending ${check.label.replace(/Anti | 🖼️| 🎭| 🔇/g, '').trim().toLowerCase()} is not allowed here.\n` +
+            `${divider}`,
+          mentions: allMembers,
         });
       }
       return;
