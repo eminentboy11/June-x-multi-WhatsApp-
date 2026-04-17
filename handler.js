@@ -162,17 +162,26 @@ const getGroupMetadata = getCachedGroupMetadata;
 // Helper functions
 const isOwner = (sender) => {
   if (!sender) return false;
-  
-  // Normalize sender JID to handle LID
-  const normalizedSender = normalizeJidWithLid(sender);
-  const senderNumber = normalizeJid(normalizedSender);
-  
-  // Check against owner numbers
-  return config.ownerNumber.some(owner => {
-    const normalizedOwner = normalizeJidWithLid(owner.includes('@') ? owner : `${owner}@s.whatsapp.net`);
-    const ownerNumber = normalizeJid(normalizedOwner);
-    return ownerNumber === senderNumber;
-  });
+
+  // Extract the raw phone/user number from sender (strips :device and @server)
+  // Works for both standard JIDs (1234@s.whatsapp.net) and device-scoped ones (1234:5@s.whatsapp.net)
+  const rawNum = sender.split('@')[0].split(':')[0];
+
+  // Fast path: direct number match (catches normal and device-scoped JIDs)
+  if (config.ownerNumber.some(o => o.replace(/\D/g, '') === rawNum)) return true;
+
+  // LID-aware path: resolve LID JIDs to phone numbers via session mapping files
+  try {
+    const normalizedSender = normalizeJidWithLid(sender);
+    const senderNumber = normalizeJid(normalizedSender);
+    if (senderNumber && config.ownerNumber.some(owner => {
+      const normalizedOwner = normalizeJidWithLid(owner.includes('@') ? owner : `${owner}@s.whatsapp.net`);
+      const ownerNumber = normalizeJid(normalizedOwner);
+      return ownerNumber === senderNumber;
+    })) return true;
+  } catch (_) {}
+
+  return false;
 };
 
 const isSudo = (sender) => {
