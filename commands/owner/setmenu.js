@@ -21,14 +21,14 @@ const MENU_STYLES = {
 function getSettings() {
   try {
     if (!fs.existsSync(MENU_SETTINGS_FILE)) {
-      const defaults = { menuStyle: '1', showMemory: true, showUptime: true, showPluginCount: true, showProgressBar: true };
+      const defaults = { menuStyle: '2', showMemory: true, showUptime: true, showPluginCount: true, showProgressBar: true };
       fs.mkdirSync(path.dirname(MENU_SETTINGS_FILE), { recursive: true });
       fs.writeFileSync(MENU_SETTINGS_FILE, JSON.stringify(defaults, null, 2));
       return defaults;
     }
     return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8'));
   } catch {
-    return { menuStyle: '1' };
+    return { menuStyle: '2' };
   }
 }
 
