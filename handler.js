@@ -857,6 +857,25 @@ const handleMessage = async (sock, msg) => {
       }
     }
 
+    // My groups: reply to group list with just a number to get group details
+    if (/^\d+$/.test(body.trim())) {
+      const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+      const quotedText = quotedMsg?.conversation || quotedMsg?.extendedTextMessage?.text || '';
+      if (quotedText.includes('📋') && quotedText.includes('Group List')) {
+        const mygroupsCmd = commands.get('mygroups');
+        if (mygroupsCmd) {
+          return mygroupsCmd.execute(sock, msg, [body.trim()], {
+            from,
+            sender,
+            command: 'mygroups',
+            prefix: config.prefix,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
+          });
+        }
+      }
+    }
+
     // ── Chatbot auto-reply (group or DM) ────────────────────────────────────────
     if (!body.startsWith(config.prefix)) {
         if (body.trim() && !msg.key.fromMe) {
