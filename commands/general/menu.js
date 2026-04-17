@@ -28,8 +28,13 @@ const detectPlatform = () => {
 
 function getMenuStyle() {
   try {
-    if (!fs.existsSync(MENU_SETTINGS_FILE)) return '1';
-    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || '1';
+    // Check unified settings store first (survives more restart scenarios)
+    const runtimeSettings = require('../../utils/settings');
+    const fromStore = runtimeSettings.get('menuStyle');
+    if (fromStore && fromStore !== '1') return fromStore;
+    // Fallback to dedicated menuSettings.json
+    if (!fs.existsSync(MENU_SETTINGS_FILE)) return fromStore || '1';
+    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || fromStore || '1';
   } catch {
     return '1';
   }
