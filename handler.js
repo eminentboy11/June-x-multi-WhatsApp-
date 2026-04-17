@@ -1052,8 +1052,33 @@ const handleMessage = async (sock, msg) => {
     if (!command) return;
     
     // fromMe = message sent by the bot's own number → always treat as owner
-    const senderIsOwner = msg.key.fromMe || isOwner(sender);
-    const senderIsSudo  = senderIsOwner || isSudo(sender);
+    // ── Resolve LID sender → phone number JID (Baileys 7.x group LID support) ──
+    // In newer WhatsApp, group participants are identified by LID (@lid) instead of
+    // phone number JIDs. We resolve them using the participant list which contains
+    // phone-number info, so owner/sudo checks work correctly in groups.
+    let resolvedSender = sender;
+    if (isGroup && sender && groupMetadata?.participants) {
+      const senderRaw = sender.split('@')[0];
+      const looksLikeLid = sender.endsWith('@lid') || !/^\d{7,}$/.test(senderRaw);
+      if (looksLikeLid) {
+        const matched = groupMetadata.participants.find(p => {
+          if (!p) return false;
+          const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
+          const pLid = typeof p === 'string' ? '' : (p.lid || '');
+          return pId === sender || pLid === sender;
+        });
+        if (matched && typeof matched === 'object') {
+          const pn = matched.phoneNumber || matched.pn;
+          if (pn) {
+            resolvedSender = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const senderIsOwner = msg.key.fromMe || isOwner(resolvedSender);
+    const senderIsSudo  = senderIsOwner || isSudo(resolvedSender);
 
     // Bot mode check
     {
