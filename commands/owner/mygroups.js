@@ -1,16 +1,19 @@
 /**
- * My Groups — lists every group the bot is in, with JID
+ * My Groups — lists every group the bot is in.
+ * .mygroups         → numbered list
+ * .mygroups <n>     → full details of group #n  (also works when replying to the list)
  * Owner only
  */
 
 const config = require('../../config');
+const { sendButtons } = require('gifted-btns');
 
 module.exports = {
     name: 'mygroups',
     aliases: ['groups', 'grouplist', 'listgroups'],
     category: 'owner',
-    description: 'List all groups the bot is in with their JIDs',
-    usage: '.mygroups',
+    description: 'List all groups the bot is in. Reply with a number for group details.',
+    usage: '.mygroups | .mygroups <number>',
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {
@@ -19,21 +22,79 @@ module.exports = {
         try {
             await sock.sendMessage(jid, { react: { text: '🔄', key: msg.key } });
 
-            // Fetch all groups bot is participating in
+            // Fetch and sort all groups
             const groupsObj = await sock.groupFetchAllParticipating();
-            const groups = Object.values(groupsObj);
+            const groups = Object.values(groupsObj)
+                .sort((a, b) => (a.subject || '').localeCompare(b.subject || ''));
 
             if (!groups.length) {
                 await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
                 return extra.reply('❌ The bot is not in any groups.');
             }
 
-            // Sort alphabetically by name
-            groups.sort((a, b) => (a.subject || '').localeCompare(b.subject || ''));
+            const total = groups.length;
 
-            const CHUNK = 25; // groups per message to avoid length limits
-            const total  = groups.length;
-            const pages  = Math.ceil(total / CHUNK);
+            // ── Detail view ──────────────────────────────────────────────────────
+            // Triggered by: .mygroups <n>  OR  quoting the list and replying with .mygroups <n>
+            const numArg = args[0];
+            if (numArg && /^\d+$/.test(numArg)) {
+                const idx = parseInt(numArg) - 1;
+                if (idx < 0 || idx >= total) {
+                    return extra.reply(`❌ Pick a number between 1 and ${total}.`);
+                }
+
+                const g = groups[idx];
+                const members    = g.participants || [];
+                const admins     = members.filter(p => p.admin).map(p => `@${p.id.split('@')[0].split(':')[0]}`);
+                const memberCount = members.length;
+                const groupJid   = g.id;
+                const name       = g.subject || '(no name)';
+                const desc       = g.desc ? g.desc.trim() : 'No description';
+                const createdAt  = g.creation
+                    ? new Date(g.creation * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi' })
+                    : 'Unknown';
+                const botMeta    = members.find(p => {
+                    const phone = (sock.user?.id || '').split('@')[0].split(':')[0];
+                    return p.id.split('@')[0].split(':')[0] === phone;
+                });
+                const botRole    = botMeta?.admin === 'superadmin' ? '👑 Super Admin' : botMeta?.admin ? '🔰 Admin' : '👤 Member';
+
+                const detail =
+`━━━━━━━━━━━━━━━━━━━
+📋 *Group Details — #${numArg}*
+━━━━━━━━━━━━━━━━━━━
+
+🏷️  *Name:* ${name}
+👥  *Members:* ${memberCount}
+🔰  *Admins (${admins.length}):* ${admins.length ? admins.join(', ') : 'None'}
+🤖  *Bot role:* ${botRole}
+📅  *Created:* ${createdAt}
+📝  *Description:*
+${desc}
+
+━━━━━━━━━━━━━━━━━━━`;
+
+                await sendButtons(sock, jid, {
+                    text: detail,
+                    footer: `> Powered by ${config.botName}`,
+                    buttons: [
+                        {
+                            name: 'cta_copy',
+                            buttonParamsJson: JSON.stringify({
+                                display_text: '📋 Copy JID',
+                                copy_code: groupJid
+                            })
+                        }
+                    ]
+                }, { quoted: msg });
+
+                await sock.sendMessage(jid, { react: { text: '✅', key: msg.key } });
+                return;
+            }
+
+            // ── List view ────────────────────────────────────────────────────────
+            const CHUNK = 25;
+            const pages = Math.ceil(total / CHUNK);
 
             for (let p = 0; p < pages; p++) {
                 const slice = groups.slice(p * CHUNK, (p + 1) * CHUNK);
@@ -44,22 +105,20 @@ module.exports = {
                     : `📋 *Group List — ${total} group${total !== 1 ? 's' : ''}*\n\n`;
 
                 slice.forEach((g, i) => {
-                    const num      = start + i;
-                    const name     = g.subject || '(no name)';
-                    const groupJid = g.id;
-                    const members  = g.participants?.length ?? '?';
+                    const num     = start + i;
+                    const name    = g.subject || '(no name)';
+                    const members = g.participants?.length ?? '?';
                     text += `*${num}.* ${name}\n`;
-                    text += `   📌 \`${groupJid}\`\n`;
                     text += `   👥 ${members} member${members !== 1 ? 's' : ''}\n\n`;
                 });
 
                 if (p === pages - 1) {
-                    text += `_Total: ${total} group${total !== 1 ? 's' : ''}_`;
+                    text += `_Total: ${total} group${total !== 1 ? 's' : ''}_\n\n`;
+                    text += `💡 *Reply to this message with* \`.mygroups <number>\` *for group details + copy JID.*`;
                 }
 
                 await sock.sendMessage(jid, { text }, { quoted: p === 0 ? msg : undefined });
 
-                // Brief pause between pages to avoid flooding
                 if (p < pages - 1) await new Promise(r => setTimeout(r, 500));
             }
 
