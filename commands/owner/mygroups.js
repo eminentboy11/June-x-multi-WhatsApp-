@@ -66,9 +66,9 @@ module.exports = {
 
 🏷️  *Name:* ${name}
 👥  *Members:* ${memberCount}
-🔰  *Admins (${admins.length}):* ${admins.length ? admins.join(', ') : 'None'}
 🤖  *Bot role:* ${botRole}
 📅  *Created:* ${createdAt}
+🧩  *GroupJid:* ${groupJid}
 📝  *Description:*
 ${desc}
 
