@@ -3,8 +3,9 @@
  * Change the menu display style (1-6)
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs       = require('fs');
+const path     = require('path');
+const settings = require('../../utils/settings');
 
 const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
@@ -68,9 +69,10 @@ module.exports = {
         return extra.reply('❌ Invalid style! Please choose a number between *1* and *6*.\n\nExample: *.setmenu 3*');
       }
 
-      const settings = getSettings();
-      settings.menuStyle = style;
-      saveSettings(settings);
+      const menuSettings = getSettings();
+      menuSettings.menuStyle = style;
+      saveSettings(menuSettings);
+      settings.set('menuStyle', style);
 
       await extra.reply(`✅ Menu style has been set to *Style ${style}*!\n\n📋 ${MENU_STYLES[style]}\n\nSend *.menu* to preview the new style.`);
 
