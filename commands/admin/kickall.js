@@ -1,6 +1,6 @@
 /**
  * Kickall / Removeall / Killgc Command
- * Remove all non-bot members from the group.
+ * Tags all group members, then removes all non-bot participants in one call.
  * killgc also makes the bot leave after removing everyone.
  */
 
@@ -8,7 +8,7 @@ module.exports = {
   name: 'kickall',
   aliases: ['removeall', 'killgc'],
   category: 'admin',
-  description: 'Remove all members from the group. Use killgc to also make the bot leave.',
+  description: 'Tag and remove all members from the group. Use killgc to also make the bot leave.',
   usage: '.kickall | .removeall | .killgc',
   groupOnly: true,
   adminOnly: true,
@@ -22,39 +22,35 @@ module.exports = {
       const metadata = await sock.groupMetadata(chatId);
       const participants = metadata.participants || [];
 
+      // Resolve bot's phone number from various JID formats
       const botId = sock.user?.id || '';
-      const botPhoneNumber = botId.includes(':')
-        ? botId.split(':')[0]
-        : botId.includes('@')
-        ? botId.split('@')[0]
-        : botId;
+      const botPhone = botId.split('@')[0].split(':')[0];
 
       const isBotParticipant = (p) => {
         const pPhone = (p.id || '').split('@')[0].split(':')[0];
-        return pPhone === botPhoneNumber;
+        return pPhone === botPhone;
       };
 
-      const toKick = participants.filter((p) => {
-        if (isBotParticipant(p)) return false;
-        return true;
-      });
+      const toKick = participants.filter((p) => !isBotParticipant(p));
 
       if (toKick.length === 0) {
         return extra.reply('❌ No members to remove.');
       }
 
-      await extra.reply(
-        `⏳ Removing *${toKick.length}* member(s)... Please wait.`
-      );
-
       const jids = toKick.map((p) => p.id);
 
-      const chunkSize = 5;
-      for (let i = 0; i < jids.length; i += chunkSize) {
-        const chunk = jids.slice(i, i + chunkSize);
-        await sock.groupParticipantsUpdate(chatId, chunk, 'remove');
-        await new Promise((r) => setTimeout(r, 1500));
-      }
+      // Build a tag message mentioning every member to be kicked
+      const tagLines = jids.map((jid) => `@${jid.split('@')[0].split(':')[0]}`).join(' ');
+      const tagText = `🚨 *Kickall initiated* — removing *${toKick.length}* member(s):\n\n${tagLines}`;
+
+      // Send the tagging message with all mentions in one payload
+      await sock.sendMessage(chatId, {
+        text: tagText,
+        mentions: jids,
+      });
+
+      // Remove all members in a single payload
+      await sock.groupParticipantsUpdate(chatId, jids, 'remove');
 
       if (isKillGc) {
         await sock.sendMessage(chatId, {
