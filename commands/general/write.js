@@ -8,13 +8,28 @@
 
 const fs     = require('fs');
 const path   = require('path');
-const { exec } = require('child_process');
+const { exec, execSync } = require('child_process');
 const crypto = require('crypto');
 const webp   = require('node-webpmux');
-const ffmpegPath = require('ffmpeg-static');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 const config = require('../../config');
+
+// Resolve an ffmpeg binary that has the drawtext filter.
+// ffmpeg-static ships a build WITHOUT drawtext; the system ffmpeg (on Replit/Heroku)
+// usually has it. We try the PATH binary first, then fall back to ffmpeg-static.
+function resolveFFmpeg() {
+    try {
+        const pathBin = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8' }).trim();
+        if (pathBin && fs.existsSync(pathBin)) {
+            const filters = execSync(`"${pathBin}" -filters 2>&1`, { encoding: 'utf8' });
+            if (filters.includes('drawtext')) return pathBin;
+        }
+    } catch (_) {}
+    // Fallback to ffmpeg-static (drawtext may be unavailable — will error gracefully)
+    return require('ffmpeg-static');
+}
+const ffmpegPath = resolveFFmpeg();
 
 const FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
 
@@ -184,7 +199,7 @@ module.exports = {
       } else {
         // ── Image input → output JPEG ───────────────────────────────────────
         const vf = `scale=iw:ih,drawtext=${dtFilter}`;
-        const ffCmd = `"${ffmpegPath}" -y -i "${tempIn}" -vf "${vf}" -q:v 2 "${tempJpg}"`;
+        const ffCmd = `"${ffmpegPath}" -y -i "${tempIn}" -vf "${vf}" -update 1 -q:v 2 "${tempJpg}"`;
 
         await execPromise(ffCmd);
 
