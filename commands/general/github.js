@@ -35,10 +35,10 @@ module.exports = {
                     `🔹 *Owner:* ${repo.owner.login}\n` +
                     `🔹 *Description:* ${repo.description || 'N/A'}\n\n` +
                     `🔹 *Statistics*\n` +
-                    `🥇 *Stars:* ${repo.stargazers_count.toLocaleString()}\n` +
-                    `🍴 *Forks:* ${repo.forks_count.toLocaleString()}\n` +
-                    `🥉 *Watchers:* ${repo.watchers_count.toLocaleString()}\n` +
-                    `👀 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n` +
+                    `🔸 *Stars:* ${repo.stargazers_count.toLocaleString()}\n` +
+                    `🔸 *Forks:* ${repo.forks_count.toLocaleString()}\n` +
+                    `👀 *Watchers:* ${repo.watchers_count.toLocaleString()}\n` +
+                    `🎲 *Size:* ${(repo.size / 1024).toFixed(2)} MB\n\n` +
                     `┗━━━━━━━━━━━━━━━━`;
 
                 buttons = [
@@ -61,6 +61,13 @@ module.exports = {
                         buttonParamsJson: JSON.stringify({
                             display_text: '🍴 Fork Repo',
                             url: `${repo.html_url}/fork`
+                        })
+                    },
+                    {
+                        name: 'cta_copy',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '📋 Copy Repo URL',
+                            copy_code: repo.html_url
                         })
                     }
                 ];
@@ -97,6 +104,13 @@ module.exports = {
                         buttonParamsJson: JSON.stringify({
                             display_text: '🍴 Fork Repo',
                             url: `${REPO_URL}/fork`
+                        })
+                    },
+                    {
+                        name: 'cta_copy',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '📋 Copy Repo URL',
+                            copy_code: REPO_URL
                         })
                     }
                 ];
