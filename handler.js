@@ -1298,6 +1298,12 @@ const handleGroupUpdate = async (sock, update) => {
           const antibot = commands.get('antibot');
           if (antibot?.handleGroupJoin) await antibot.handleGroupJoin(sock, id, participantJid);
         } catch (_) {}
+
+        // AntiForeign check on join
+        try {
+          const antiforeign = commands.get('antiforeign');
+          if (antiforeign?.handleGroupJoin) await antiforeign.handleGroupJoin(sock, id, participantJid);
+        } catch (_) {}
       }
 
       // ── Shared helpers for welcome / goodbye ──────────────────────────────
