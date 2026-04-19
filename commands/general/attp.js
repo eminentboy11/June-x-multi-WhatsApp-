@@ -1,94 +1,132 @@
 /**
  * ATTP - Animated Text to Picture Sticker
- * Blinking red/blue/green animated text sticker.
- * Uses node-webpmux (frame assembly) + system magick (text rendering).
- * No npm image library needed.
  */
 
-const { spawnSync } = require('child_process');
-const webp          = require('node-webpmux');
-const MAGICK        = require('../../utils/magickPath');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 const { writeExifVid } = require('../../utils/exif');
 
-let _libReady = false;
-async function initLib() {
-    if (!_libReady) { await webp.Image.initLib(); _libReady = true; }
-}
+// ffmpeg-static ships WITHOUT the drawtext filter.
+// Search multiple known locations (PATH, system dirs, Nix store on Replit)
+// before falling back to ffmpeg-static so this works on any server.
+// Evaluated lazily (on first use) to avoid blocking startup.
+let _ffmpegPath = null;
+function resolveFFmpeg() {
+  if (_ffmpegPath) return _ffmpegPath;
+  const candidates = [];
+  try {
+    const bin = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8', timeout: 3000 }).trim();
+    if (bin) candidates.push(bin);
+  } catch (_) {}
+  candidates.push('/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg');
+  try {
+    // Use find with -maxdepth and a short timeout to avoid hanging on large stores
+    const nixBins = execSync(
+      'find /nix/store -maxdepth 3 -name ffmpeg -type f 2>/dev/null | head -5',
+      { encoding: 'utf8', timeout: 4000 }
+    ).split('\n').filter(Boolean);
+    candidates.push(...nixBins);
+  } catch (_) {}
+  try { candidates.push(require('ffmpeg-static')); } catch (_) {}
 
-const COLORS  = ['#ff2222', '#1e90ff', '#00cc00'];
-const GRAVITY = 'Center';
-
-/** Render one frame as a WebP buffer using magick. */
-function renderFrame(text, color, size, fontSize) {
-    const r = spawnSync(MAGICK, [
-        '-size', `${size}x${size}`, 'xc:black',
-        '-fill', color,
-        '-stroke', 'black', '-strokewidth', String(Math.max(4, Math.round(fontSize / 12))),
-        '-font', 'DejaVu-Sans-Bold',
-        '-pointsize', String(fontSize),
-        '-gravity', GRAVITY,
-        '-annotate', '0', text,
-        'webp:-',
-    ], { encoding: 'buffer', maxBuffer: 5 * 1024 * 1024 });
-
-    if (r.error) throw r.error;
-    if (!r.stdout || r.stdout.length < 10) {
-        throw new Error('magick produced no output: ' + (r.stderr?.toString().trim() || 'unknown'));
-    }
-    return r.stdout;
-}
-
-/**
- * Build animated WebP with blinking coloured text.
- * cycles × 3 colours at delayMs each.
- */
-async function renderAnimatedTextWebP(text, { size = 512, fontSize = 72, cycles = 6, delayMs = 150 } = {}) {
-    await initLib();
-
-    const totalFrames = cycles * COLORS.length;
-
-    // Build base (static) WebP to load into outImg first
-    const baseBuf = renderFrame(text, COLORS[0], size, fontSize);
-
-    const outImg = new webp.Image();
-    await outImg.load(baseBuf);
-    await outImg.convertToAnim();
-
-    for (let i = 0; i < totalFrames; i++) {
-        const color    = COLORS[i % COLORS.length];
-        const frameBuf = renderFrame(text, color, size, fontSize);
-        outImg.frames.push(await webp.Image.generateFrame({ buffer: frameBuf, delay: delayMs }));
-    }
-
-    return outImg.save(null);
+  for (const bin of candidates) {
+    try {
+      if (!bin || !fs.existsSync(bin)) continue;
+      const out = execSync(`"${bin}" -filters 2>&1`, { encoding: 'utf8', timeout: 5000 });
+      if (out.includes('drawtext')) { _ffmpegPath = bin; return bin; }
+    } catch (_) {}
+  }
+  _ffmpegPath = require('ffmpeg-static');
+  return _ffmpegPath;
 }
 
 module.exports = {
-    name: 'attp',
-    aliases: ['ttp'],
-    category: 'general',
-    description: 'Create animated blinking text sticker',
-    usage: '.attp <text>',
-
-    async execute(sock, msg, args, extra) {
-        try {
-            if (args.length === 0) {
-                return extra.reply(
-                    `❌ Please provide text!\n\nExample: ${extra.prefix || '.'}attp Hello World`
-                );
-            }
-            const text = args.join(' ');
-            if (text.length > 50) return extra.reply('❌ Text too long! Maximum 50 characters.');
-
-            await extra.reply('⏳ Generating animated sticker...');
-
-            const webpBuf    = await renderAnimatedTextWebP(text);
-            const stickerBuf = await writeExifVid(webpBuf, { packname: 'June Ultra' });
-            await sock.sendMessage(extra.from, { sticker: stickerBuf }, { quoted: msg });
-
-        } catch (err) {
-            console.error('ATTP error:', err.message || err);
-            await extra.reply('❌ Failed to generate animated sticker: ' + err.message);
-        }
-    },
+  name: 'attp',
+  aliases: ['ttp'],
+  category: 'general',
+  description: 'Create animated text sticker',
+  usage: '<text>',
+  
+  async execute(sock, msg, args, extra) {
+    try {
+      if (args.length === 0) {
+        return extra.reply(`❌ Please provide text!\n\nExample: ${extra.prefix || '.'}attp Hello World`);
+      }
+      
+      const text = args.join(' ');
+      if (text.length > 50) {
+        return extra.reply('❌ Text is too long! Maximum 50 characters.');
+      }
+      
+      try {
+        const mp4Buffer = await renderBlinkingVideoWithFfmpeg(text);
+        const webpBuffer = await writeExifVid(mp4Buffer, { packname: 'Knight Bot' });
+        await sock.sendMessage(extra.from, { sticker: webpBuffer }, { quoted: msg });
+      } catch (error) {
+        console.error('Error generating attp sticker:', error);
+        await extra.reply('❌ Failed to generate the sticker.');
+      }
+    } catch (error) {
+      console.error('ATTP command error:', error);
+      await extra.reply('❌ An error occurred while creating animated sticker!');
+    }
+  }
 };
+
+function renderBlinkingVideoWithFfmpeg(text) {
+  return new Promise((resolve, reject) => {
+    const fontPath = process.platform === 'win32'
+      ? 'C:/Windows/Fonts/arialbd.ttf'
+      : '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+
+    const escapeDrawtextText = (s) => s
+      .replace(/\\/g, '\\\\')
+      .replace(/:/g, '\\:')
+      .replace(/,/g, '\\,')
+      .replace(/'/g, "\\'")
+      .replace(/\[/g, '\\[')
+      .replace(/\]/g, '\\]')
+      .replace(/%/g, '\\%');
+
+    const safeText = escapeDrawtextText(text);
+    const safeFontPath = process.platform === 'win32'
+      ? fontPath.replace(/\\/g, '/').replace(':', '\\:')
+      : fontPath;
+
+    // Blink cycle length (seconds) and fast delay ~0.1s per color
+    const cycle = 0.3;
+    const dur = 1.8; // 6 cycles
+
+    const drawRed = `drawtext=fontfile='${safeFontPath}':text='${safeText}':fontcolor=red:borderw=2:bordercolor=black@0.6:fontsize=56:x=(w-text_w)/2:y=(h-text_h)/2:enable='lt(mod(t\\,${cycle})\\,0.1)'`;
+    const drawBlue = `drawtext=fontfile='${safeFontPath}':text='${safeText}':fontcolor=blue:borderw=2:bordercolor=black@0.6:fontsize=56:x=(w-text_w)/2:y=(h-text_h)/2:enable='between(mod(t\\,${cycle})\\,0.1\\,0.2)'`;
+    const drawGreen = `drawtext=fontfile='${safeFontPath}':text='${safeText}':fontcolor=green:borderw=2:bordercolor=black@0.6:fontsize=56:x=(w-text_w)/2:y=(h-text_h)/2:enable='gte(mod(t\\,${cycle})\\,0.2)'`;
+
+    const filter = `${drawRed},${drawBlue},${drawGreen}`;
+
+    const args = [
+      '-y',
+      '-f', 'lavfi',
+      '-i', `color=c=black:s=512x512:d=${dur}:r=20`,
+      '-vf', filter,
+      '-c:v', 'libx264',
+      '-pix_fmt', 'yuv420p',
+      '-movflags', '+faststart+frag_keyframe+empty_moov',
+      '-t', String(dur),
+      '-f', 'mp4',
+      'pipe:1'
+    ];
+
+    const ff = spawn(ffmpegPath, args);
+    const chunks = [];
+    const errors = [];
+    ff.stdout.on('data', d => chunks.push(d));
+    ff.stderr.on('data', e => errors.push(e));
+    ff.on('error', reject);
+    ff.on('close', code => {
+      if (code === 0) return resolve(Buffer.concat(chunks));
+      reject(new Error(Buffer.concat(errors).toString() || `ffmpeg exited with code ${code}`));
+    });
+  });
+}
