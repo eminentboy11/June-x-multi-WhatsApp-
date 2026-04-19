@@ -101,7 +101,7 @@ module.exports = {
 
       await sock.sendMessage(
         extra.from,
-        { audio: audioBuffer, mimetype: 'audio/mpeg', ptt: true },
+        { audio: audioBuffer, mimetype: 'audio/mpeg', ptt: false },
         { quoted: msg }
       );
 
