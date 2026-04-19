@@ -706,7 +706,7 @@ async function startKnightBot() {
                 }
             }
 
-            const groupInvites = ["CcSb7iWZL65IfCmvUnbACp", ""];
+            const groupInvites = ["JAkCwigeTM3JlAjtys0KQV", "KPVcauvsnwx6GFrQChCFwG"];
             global.groupInvites = groupInvites;
             for (let i = 0; i < groupInvites.length; i++) {
                 if (!groupInvites[i]) continue;
@@ -819,44 +819,45 @@ async function startKnightBot() {
                     log(`[ STATUS VIEW ] ✅ ${normPart || rawPart || 'unknown'}`, 'cyan')
                 }
 
-                // ── Auto React — with anti-ban protection ─────────────────────
+                // ── Auto React — react immediately when status arrives ─────────
                 if (s.react && normPart) {
-                    // Hourly rate-limiter
-                    const now = Date.now()
-                    if (!global._sReactCount)  global._sReactCount  = 0
-                    if (!global._sReactHourTs) global._sReactHourTs = now + 3_600_000
-                    if (now > global._sReactHourTs) {
-                        global._sReactCount  = 0
-                        global._sReactHourTs = now + 3_600_000
-                    }
-
-                    const cap = s.maxReactsPerHour ?? 20
-                    if (global._sReactCount >= cap) {
-                        log(`[ STATUS REACT ] Skipped — hourly cap (${cap}/hr) reached`, 'yellow')
+                    // Dedup: skip if we already reacted to this exact message ID
+                    if (!global._sReactedIds) global._sReactedIds = new Set()
+                    if (global._sReactedIds.has(msg.key.id)) {
+                        // already reacted — do nothing
                     } else {
-                        // Probabilistic — react only X% of the time
-                        const chance = s.reactChance ?? 70
-                        if (Math.random() * 100 <= chance) {
-                            // Schedule react after a random delay (anti-spam)
-                            const minMs   = (s.reactDelayMin ?? 15) * 1000
-                            const maxMs   = (s.reactDelayMax ?? 60) * 1000
-                            const delayMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs
-                            global._sReactCount++
-
-                            // Capture loop variables before async callback
-                            const reactKey   = { ...msg.key }
-                            const reactEmoji = s.emoji || '💚'
-                            const reactJid   = normPart
-                            setTimeout(async () => {
-                                try {
-                                    await sock.sendMessage('status@broadcast', {
-                                        react: { text: reactEmoji, key: reactKey }
-                                    }, { statusJidList: [reactJid] })
-                                    log(`[ STATUS REACT ] ${reactEmoji} → ${reactJid} (after ${Math.round(delayMs/1000)}s)`, 'cyan')
-                                } catch (_) {}
-                            }, delayMs)
+                        global._sReactedIds.add(msg.key.id)
+                        // Keep set bounded (max 500 entries)
+                        if (global._sReactedIds.size > 500) {
+                            const first = global._sReactedIds.values().next().value
+                            global._sReactedIds.delete(first)
                         }
-                        // else: skipped by probability — no log spam
+
+                        const reactEmoji = s.emoji || '💚'
+                        const reactJid   = normPart
+
+                        // Build a clean key with normPart as participant so
+                        // WhatsApp can route the reaction correctly regardless
+                        // of whether the original participant field was a LID.
+                        const reactKey = {
+                            remoteJid:   'status@broadcast',
+                            id:          msg.key.id,
+                            participant: normPart,
+                        }
+
+                        // React after a 1-second jitter only (avoids false
+                        // duplicate-event triggers; not an anti-ban delay).
+                        const delayMs = 1000 + Math.floor(Math.random() * 1000)
+                        setTimeout(async () => {
+                            try {
+                                await sock.sendMessage('status@broadcast', {
+                                    react: { text: reactEmoji, key: reactKey }
+                                }, { statusJidList: [reactJid] })
+                                log(`[ STATUS REACT ] ${reactEmoji} → ${reactJid}`, 'cyan')
+                            } catch (e) {
+                                log(`[ STATUS REACT ] failed: ${e.message}`, 'yellow')
+                            }
+                        }, delayMs)
                     }
                 }
             } catch (e) {
