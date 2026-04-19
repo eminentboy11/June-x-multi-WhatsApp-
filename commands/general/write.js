@@ -11,6 +11,7 @@
 
 const { spawnSync }    = require('child_process');
 const webp             = require('node-webpmux');
+const MAGICK           = require('../../utils/magickPath');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 const config           = require('../../config');
@@ -56,7 +57,7 @@ const STROKE_W = '5';
  * Returns stdout Buffer (the output image/WebP).
  */
 function magickPipe(args, stdin) {
-    const r = spawnSync('magick', args, {
+    const r = spawnSync(MAGICK, args, {
         input:     stdin,
         encoding:  'buffer',
         maxBuffer: 15 * 1024 * 1024,
