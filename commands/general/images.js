@@ -1,18 +1,11 @@
 /**
- * Image Search Command - Search and send Google Images via g-i-s
+ * Image Search Command - Search and send Google Images via apiskeith API
  */
 
-const gis = require('g-i-s');
+const axios = require('axios');
 const config = require('../../config');
 
-function gisSearch(query) {
-    return new Promise((resolve, reject) => {
-        gis(query, (error, results) => {
-            if (error) return reject(error);
-            resolve(results);
-        });
-    });
-}
+const IMAGE_API = 'https://apiskeith.top/search/images';
 
 module.exports = {
     name: 'image',
@@ -40,17 +33,24 @@ module.exports = {
         await extra.reply(`🔍 Searching images for: *"${query}"*...`);
 
         try {
-            const results = await gisSearch(query);
+            const { data } = await axios.get(IMAGE_API, {
+                params: { query },
+                timeout: 10000
+            });
 
-            if (!results || results.length === 0) {
+            // Handle both array response and { results: [] } shaped response
+            const rawResults = Array.isArray(data) ? data : (data.results ?? data.images ?? []);
+
+            if (!rawResults || rawResults.length === 0) {
                 return await sock.sendMessage(chatId, {
                     text: `❌ No images found for *"${query}"*`
                 }, { quoted: msg });
             }
 
-            const imageUrls = results
-                .map(r => r.url)
-                .filter(url => url && /\.(jpg|jpeg|png|webp)(\?.*)?$/i.test(url))
+            // Normalize: support { url } or { image } or plain string
+            const imageUrls = rawResults
+                .map(r => (typeof r === 'string' ? r : r.url ?? r.image ?? r.link ?? ''))
+                .filter(url => url && /^https?:\/\/.+\.(jpg|jpeg|png|webp)(\?.*)?$/i.test(url))
                 .slice(0, 5);
 
             if (imageUrls.length === 0) {
@@ -59,7 +59,7 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            const botName = config.botName || 'June-X';
+            const botName = config.botName || 'June-Ultra';
 
             for (const url of imageUrls) {
                 try {
@@ -77,9 +77,15 @@ module.exports = {
 
         } catch (error) {
             console.error('Image command error:', error);
+
+            const errMsg = error.response
+                ? `API error ${error.response.status}: ${error.response.statusText}`
+                : error.message || 'Unknown error';
+
             await sock.sendMessage(chatId, {
-                text: `❌ Image search failed: ${error.message || 'Unknown error'}`
+                text: `❌ Image search failed: ${errMsg}`
             }, { quoted: msg });
+            await extra.react('❌');
         }
     }
 };
