@@ -2,8 +2,8 @@ const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
 module.exports = {
-    name: 'getchanelid',
-    aliases: ['chanelid', 'jidch', 'chatid', 'getjid', 'chjid'],
+    name: 'getjid',
+    aliases: ['chanelid', 'idch', 'chatid', 'groupjid'],
     category: 'general',
     description: 'Get JID/info of the current chat or a WhatsApp channel URL',
     usage: '.getchanelid [whatsapp channel URL]',
