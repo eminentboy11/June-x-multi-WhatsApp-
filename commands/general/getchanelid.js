@@ -75,11 +75,7 @@ module.exports = {
 
                 const text =
                     `📡 *WhatsApp Channel Info*\n\n` +
-                    `📌 *Name:* ${res.name || 'N/A'}\n` +
-                    `👥 *Followers:* ${subscriberFmt}\n` +
-                    `📊 *Status:* ${res.state || 'N/A'}\n` +
-                    `✅ *Verified:* ${isVerified ? 'Yes ✔️' : 'No'}\n\n` +
-                    `🔑 *Full JID:*\n\`\`\`${resolvedJid}\`\`\`\n` +
+                    `🔑 *Full JID:*\n\`\`\`${resolvedJid}\`\`\`\n`+
                     `🔢 *Channel ID:*\n\`\`\`${resolvedCode}\`\`\``;
 
                 return sendButtons(sock, chatId, {
