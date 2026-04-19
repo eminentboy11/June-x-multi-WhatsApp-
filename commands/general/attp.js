@@ -7,6 +7,7 @@
 
 const { spawnSync } = require('child_process');
 const webp          = require('node-webpmux');
+const MAGICK        = require('../../utils/magickPath');
 const { writeExifVid } = require('../../utils/exif');
 
 let _libReady = false;
@@ -19,7 +20,7 @@ const GRAVITY = 'Center';
 
 /** Render one frame as a WebP buffer using magick. */
 function renderFrame(text, color, size, fontSize) {
-    const r = spawnSync('magick', [
+    const r = spawnSync(MAGICK, [
         '-size', `${size}x${size}`, 'xc:black',
         '-fill', color,
         '-stroke', 'black', '-strokewidth', String(Math.max(4, Math.round(fontSize / 12))),
