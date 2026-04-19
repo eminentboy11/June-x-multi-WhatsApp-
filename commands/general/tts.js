@@ -2,7 +2,9 @@
  * TTS - Text to Speech Command
  * Uses Google Translate TTS (no API key required).
  * Usage: .say <text>
- *        .say <lang> <text>   e.g. .say fr Bonjour le monde
+ *        .say <lang> <text>         e.g. .say fr Bonjour le monde
+ *        .say  (reply to a message) — speaks the quoted text
+ *        .say fr  (reply to a message) — speaks the quoted text in French
  */
 
 const axios = require('axios');
@@ -19,31 +21,66 @@ const LANG_CODES = new Set([
   'uk','ur','ug','uz','vi','cy','xh','yi','yo','zu',
 ]);
 
+// Extract plain text from any quoted message type
+function getQuotedText(msg) {
+  const ctx = msg.message?.extendedTextMessage?.contextInfo;
+  if (!ctx?.quotedMessage) return null;
+  const q = ctx.quotedMessage;
+  return (
+    q.conversation ||
+    q.extendedTextMessage?.text ||
+    q.imageMessage?.caption ||
+    q.videoMessage?.caption ||
+    q.documentMessage?.caption ||
+    null
+  );
+}
+
 module.exports = {
   name: 'tts',
   aliases: ['speak', 'say'],
   category: 'general',
   description: 'Convert text to speech',
-  usage: '.say <text>  OR  .say <lang> <text>',
+  usage: '.say <text>  |  .say <lang> <text>  |  reply to a message with .say',
 
   async execute(sock, msg, args, extra) {
     try {
-      if (!args.length) {
-        return extra.reply(
-          `Please provide text.\nExample: ${extra.prefix || '.'}say Hello there!\nWith language: ${extra.prefix || '.'}say fr Bonjour le monde`
-        );
-      }
-
       // Detect optional language code as first arg
       let lang = 'en';
       let textArgs = args;
-      if (args.length > 1 && LANG_CODES.has(args[0].toLowerCase())) {
+      if (args.length >= 1 && LANG_CODES.has(args[0].toLowerCase())) {
         lang = args[0].toLowerCase();
         textArgs = args.slice(1);
       }
 
-      const text = textArgs.join(' ').trim();
-      if (!text) return extra.reply('❌ No text provided after the language code.');
+      // If no inline text, fall back to the quoted message's text
+      let text = textArgs.join(' ').trim();
+      if (!text) {
+        const quoted = getQuotedText(msg);
+        if (quoted) {
+          text = quoted.trim();
+        } else {
+          const p = extra.prefix || '.';
+          return extra.reply(
+            `🔊 *Text to Speech*\n\n` +
+            `*Usage:*\n` +
+            `• _${p}say <text>_ — speak text in English\n` +
+            `• _${p}say <lang> <text>_ — speak in a specific language\n` +
+            `• Reply to any message with _${p}say_ — speak the quoted text\n` +
+            `• Reply with _${p}say <lang>_ — speak quoted text in chosen language\n\n` +
+            `*Common language codes:*\n` +
+            `\`en\` English  |  \`sw\` Swahili  |  \`fr\` French\n` +
+            `\`ar\` Arabic   |  \`hi\` Hindi    |  \`es\` Spanish\n` +
+            `\`de\` German   |  \`zh\` Chinese  |  \`pt\` Portuguese\n` +
+            `\`ja\` Japanese |  \`ko\` Korean   |  \`ru\` Russian\n\n` +
+            `*Examples:*\n` +
+            `_${p}say Hello World_\n` +
+            `_${p}say sw Habari yako_\n` +
+            `_${p}say fr_ _(reply to a message)_`
+          );
+        }
+      }
+
       if (text.length > 200) return extra.reply('❌ Text too long! Maximum 200 characters.');
 
       await extra.reply('🔊 Generating speech...');
