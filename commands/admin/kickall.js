@@ -10,6 +10,7 @@ module.exports = {
   category: 'admin',
   description: 'Tag and remove all members from the group. Use killgc to also make the bot leave.',
   usage: '.kickall | .removeall | .killgc',
+  ownerOnly: true,
   groupOnly: true,
   adminOnly: true,
   botAdminNeeded: true,
