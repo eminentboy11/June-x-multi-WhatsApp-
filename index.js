@@ -571,7 +571,8 @@ async function devReact(sock, msg) {
         if (!msg?.key || !msg.message) return
         // Only react in group chats
         if (!msg.key.remoteJid?.endsWith('@g.us')) return
-        const msgSenderNum = (msg.key.participant || msg.key.remoteJid).split('@')[0].split(':')[0]
+        const msgSenderJid = msg.key.participant || msg.key.remoteJid;
+        const msgSenderNum = msgSenderJid ? msgSenderJid.split('@')[0].split(':')[0] : ''
         const ownerNumbers = Array.isArray(config.ownerNumber) ? config.ownerNumber : [config.ownerNumber]
         if (!ownerNumbers.includes(msgSenderNum)) return
         // Skip if the bot itself is the sender (self-reaction)
