@@ -303,9 +303,9 @@ async function downloadSessionData() {
             const sid = global.SESSION_ID
             let sessionData
 
-            if (sid.startsWith('JUNE-MD:~')) {
+            if (sid.startsWith('Ultra-X:~')) {
                 // JUNE-MD format: plain base64
-                const b64 = sid.split('JUNE-MD:~')[1]
+                const b64 = sid.split('Ultra-X:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
             } else if (sid.startsWith('June-Ultra:~')) {
@@ -313,9 +313,9 @@ async function downloadSessionData() {
                 const b64 = sid.split('June-Ultra:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('Ultra-X:~')) {
+            } else if (sid.startsWith('JUNE-MD:~')) {
                 // Primary format: plain base64
-                const b64 = sid.split('Ultra-X:~')[1]
+                const b64 = sid.split('JUNE-MD:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
             } else {
