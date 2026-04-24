@@ -138,10 +138,100 @@ const findParticipant = (participants = [], userIds) => {
   }) || null;
 };
 
+/**
+ * Build a list of candidate JIDs to try for a target user, handling
+ * @lid → phone-number resolution using both the lid-mapping cache and
+ * the current group's participant list (which contains phoneNumber/pn).
+ */
+const resolveTargetJidVariants = (jid, groupMetadata) => {
+  if (!jid) return [];
+  const variants = new Set();
+  variants.add(jid);
+
+  for (const v of buildComparableIds(jid)) variants.add(v);
+
+  if (groupMetadata && Array.isArray(groupMetadata.participants)) {
+    const isLid = jid.endsWith('@lid') || jid.endsWith('@hosted.lid');
+    const matched = groupMetadata.participants.find(p => {
+      if (!p) return false;
+      const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
+      const pLid = typeof p === 'string' ? '' : (p.lid || '');
+      return pId === jid || pLid === jid;
+    });
+    if (matched && typeof matched === 'object') {
+      if (matched.id)  variants.add(matched.id);
+      if (matched.lid) variants.add(matched.lid);
+      const pn = matched.phoneNumber || matched.pn;
+      if (pn) {
+        const pnJid = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
+        variants.add(pnJid);
+      }
+    }
+    // also try matching against bare user portion
+    if (isLid || jid.includes('@')) {
+      const bare = jid.split('@')[0].split(':')[0];
+      const matched2 = groupMetadata.participants.find(p => {
+        if (!p) return false;
+        const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
+        const pLid = typeof p === 'string' ? '' : (p.lid || '');
+        return pId.startsWith(bare + '@') || pLid.startsWith(bare + '@');
+      });
+      if (matched2 && typeof matched2 === 'object') {
+        if (matched2.id)  variants.add(matched2.id);
+        if (matched2.lid) variants.add(matched2.lid);
+        const pn2 = matched2.phoneNumber || matched2.pn;
+        if (pn2) variants.add(pn2.includes('@') ? pn2 : `${pn2}@s.whatsapp.net`);
+      }
+    }
+  }
+
+  return Array.from(variants).filter(Boolean);
+};
+
+/**
+ * Try profilePictureUrl across every variant of a JID until one succeeds.
+ * Returns { url, jid } on success, or throws the last error.
+ */
+const tryFetchProfilePictureUrl = async (sock, jid, groupMetadata) => {
+  const variants = resolveTargetJidVariants(jid, groupMetadata);
+  let lastErr;
+  for (const v of variants) {
+    try {
+      const url = await sock.profilePictureUrl(v, 'image');
+      if (url) return { url, jid: v };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr) throw lastErr;
+  return { url: null, jid };
+};
+
+/**
+ * Pretty display for an LID/JID — prefers phone number if known.
+ */
+const displayUserTag = (jid, groupMetadata) => {
+  if (!jid) return '';
+  if (jid.endsWith('@lid') && groupMetadata?.participants) {
+    const matched = groupMetadata.participants.find(p => {
+      if (!p || typeof p === 'string') return false;
+      return p.id === jid || p.lid === jid;
+    });
+    if (matched) {
+      const pn = matched.phoneNumber || matched.pn;
+      if (pn) return pn.split('@')[0];
+    }
+  }
+  return jid.split('@')[0];
+};
+
 module.exports = {
   findParticipant,
   buildComparableIds,
   normalizeJidWithLid,
-  getLidMappingValue
+  getLidMappingValue,
+  resolveTargetJidVariants,
+  tryFetchProfilePictureUrl,
+  displayUserTag,
 };
 
