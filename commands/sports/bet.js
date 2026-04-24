@@ -12,31 +12,43 @@ module.exports = {
     await extra.react('🎰');
     try {
       const data = await keithApi('/bet');
-      const r = data.result || data;
+      const matches = data.result || data;
+
       let text = '🎰 *BET TIPS & ODDS*\n━━━━━━━━━━━━━━━\n\n';
 
-      if (typeof r === 'string') { text += r; }
-      else if (Array.isArray(r)) {
-        for (const [i, tip] of r.slice(0, 15).entries()) {
-          const match = tip.match || tip.game || tip.teams || tip.event || '';
-          const league = tip.league || tip.competition || tip.tournament || '';
-          const prediction = tip.prediction || tip.tip || tip.pick || '';
-          const odds = tip.odds || tip.odd || '';
-          const time = tip.time || tip.date || tip.kickoff || '';
-          const result = tip.result || tip.score || '';
+      if (typeof matches === 'string') {
+        text += matches;
+      } else if (Array.isArray(matches) && matches.length) {
+        for (const [i, match] of matches.slice(0, 15).entries()) {
+          const { match: matchName, league, time, predictions } = match;
+          const { fulltime, over_2_5, bothTeamToScore, value_bets } = predictions;
 
-          text += `┏ *${i + 1}. ${match}*\n`;
-          if (league) text += `┃ 🏆 ${league}\n`;
+          // Determine the most likely full‑time outcome
+          const fulltimeEntries = Object.entries(fulltime);
+          const bestFulltime = fulltimeEntries.reduce((a, b) => (a[1] > b[1] ? a : b));
+          const fulltimeTip = `${bestFulltime[0]} (${bestFulltime[1].toFixed(1)}%)`;
+
+          // Over 2.5 – show the higher probability option
+          const overTip = over_2_5.yes >= over_2_5.no ? 'Yes' : 'No';
+          const overPct = over_2_5[overTip.toLowerCase()];
+
+          // Both teams to score – always show "Yes" percentage
+          const bttsPct = bothTeamToScore.yes;
+
+          text += `┏ *${i + 1}. ${matchName}*\n`;
+          text += `┃ 🏆 ${league}\n`;
           if (time) text += `┃ 🕐 ${time}\n`;
-          if (prediction) text += `┃ 💡 Tip: *${prediction}*\n`;
-          if (odds) text += `┃ 📊 Odds: ${odds}\n`;
-          if (result) text += `┃ ✅ Result: ${result}\n`;
+          text += `┃ 💡 Full‑time: ${fulltimeTip}\n`;
+          text += `┃ 📊 Over 2.5: ${overTip} (${overPct.toFixed(1)}%) | BTTS: Yes (${bttsPct.toFixed(1)}%)\n`;
+          text += `┃ 💰 Value bet: ${value_bets === 1 ? 'Yes' : 'No'}\n`;
           text += '┗━━━━━━━━━━━━━━━\n\n';
         }
-        if (r.length === 0) text += '_No tips available right now_';
+      } else if (typeof matches === 'object') {
+        text += formatObj(matches);
       } else {
-        text += formatObj(r);
+        text += '_No tips available right now_';
       }
+
       await extra.reply(text.trim());
     } catch (e) {
       await extra.reply(`❌ Bet tips error: ${e.message}`);
