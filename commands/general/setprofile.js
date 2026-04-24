@@ -3,6 +3,7 @@ const path = require('path');
 const axios = require('axios');
 const { Jimp } = require('jimp');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
 
 function toJid(input) {
   if (!input) return null;
@@ -30,17 +31,18 @@ module.exports = {
       const ctx = msg.message?.extendedTextMessage?.contextInfo
                 || msg.message?.imageMessage?.contextInfo
                 || {};
+      const groupMeta = extra.groupMetadata || null;
 
       let buffer = null;
       let sourceLabel = '';
+      let targetUser = null;
 
       // 1) Phone number argument: .setppfull 254798570132
-      let targetUser = null;
       if (args && args.length && args[0]) {
         targetUser = toJid(args[0]);
       }
 
-      // 2) Mention / tag: .setppfull @user
+      // 2) Mention / tag (may be @lid in groups)
       if (!targetUser && Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
         targetUser = ctx.mentionedJid[0];
       }
@@ -77,26 +79,27 @@ module.exports = {
       // 4) If we have a target user but no buffer yet, fetch their profile picture
       if (!buffer && targetUser) {
         await extra.react('⏳');
-        let ppUrl;
+        const tag = displayUserTag(targetUser, groupMeta);
+        let result;
         try {
-          ppUrl = await sock.profilePictureUrl(targetUser, 'image');
+          result = await tryFetchProfilePictureUrl(sock, targetUser, groupMeta);
         } catch (e) {
           const code = e?.output?.statusCode;
           const m = (e?.message || '').toLowerCase();
           if (code === 401 || m.includes('forbidden') || m.includes('unauthorized')) {
-            return extra.reply(`❌ @${targetUser.split('@')[0]}'s profile picture is private.`);
+            return extra.reply(`❌ @${tag}'s profile picture is private.`);
           }
           if (code === 404 || code === 500 || m.includes('not found') || m.includes('item-not-found')) {
-            return extra.reply(`❌ No profile picture set for @${targetUser.split('@')[0]}.`);
+            return extra.reply(`❌ No profile picture set for @${tag}.`);
           }
           return extra.reply('❌ Could not fetch that user\'s profile picture.');
         }
-        if (!ppUrl) {
-          return extra.reply(`❌ No profile picture found for @${targetUser.split('@')[0]}.`);
+        if (!result || !result.url) {
+          return extra.reply(`❌ No profile picture found for @${tag}.`);
         }
-        const response = await axios.get(ppUrl, { responseType: 'arraybuffer', timeout: 30000 });
+        const response = await axios.get(result.url, { responseType: 'arraybuffer', timeout: 30000 });
         buffer = Buffer.from(response.data);
-        sourceLabel = `@${targetUser.split('@')[0]}'s profile picture`;
+        sourceLabel = `@${tag}'s profile picture`;
       }
 
       if (!buffer) {

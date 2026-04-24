@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
 
 function toJid(input) {
   if (!input) return null;
@@ -13,7 +14,7 @@ module.exports = {
   name: 'getpp',
   aliases: ['gp', 'getpic', 'getdp'],
   category: 'general',
-  description: 'Get profile picture of a user (works in DMs and groups)',
+  description: 'Get profile picture of a user (works in DMs and groups, supports @lid)',
   usage: '.getpp <phone> | reply | tag | (no arg = your own)',
 
   async execute(sock, msg, args, extra) {
@@ -29,19 +30,19 @@ module.exports = {
         targetUser = toJid(args[0]);
       }
 
-      // 2) Reply to a message
+      // 2) Mention / tag (may be @lid in groups)
+      if (!targetUser && Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
+        targetUser = ctx.mentionedJid[0];
+      }
+
+      // 3) Reply to a message
       if (!targetUser && ctx.quotedMessage) {
         targetUser = ctx.participant
           || ctx.remoteJid
           || msg.message?.extendedTextMessage?.contextInfo?.participant;
       }
 
-      // 3) Mention / tag
-      if (!targetUser && Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
-        targetUser = ctx.mentionedJid[0];
-      }
-
-      // 4) Default — sender themselves (works in both DMs and groups)
+      // 4) Default — sender themselves (works in DMs and groups)
       if (!targetUser) {
         targetUser = extra.sender
           || msg.key.participant
@@ -53,33 +54,35 @@ module.exports = {
       }
 
       const from = extra.from || msg.key.remoteJid;
+      const groupMeta = extra.groupMetadata || null;
+      const tag = displayUserTag(targetUser, groupMeta);
 
-      let ppUrl;
+      let result;
       try {
-        ppUrl = await sock.profilePictureUrl(targetUser, 'image');
+        result = await tryFetchProfilePictureUrl(sock, targetUser, groupMeta);
       } catch (e) {
         const code = e?.output?.statusCode;
         const m = (e?.message || '').toLowerCase();
         if (code === 401 || m.includes('forbidden') || m.includes('unauthorized')) {
-          return extra.reply(`❌ @${targetUser.split('@')[0]}'s profile picture is private.`);
+          return extra.reply(`❌ @${tag}'s profile picture is private.`);
         }
         if (code === 404 || code === 500 || m.includes('not found') || m.includes('item-not-found')) {
-          return extra.reply(`❌ No profile picture set for @${targetUser.split('@')[0]}.`);
+          return extra.reply(`❌ No profile picture set for @${tag}.`);
         }
         return extra.reply('❌ Could not fetch profile picture for this user.');
       }
 
-      if (!ppUrl) {
-        return extra.reply(`❌ No profile picture found for @${targetUser.split('@')[0]}.`);
+      if (!result || !result.url) {
+        return extra.reply(`❌ No profile picture found for @${tag}.`);
       }
 
-      const response = await axios.get(ppUrl, { responseType: 'arraybuffer', timeout: 30000 });
+      const response = await axios.get(result.url, { responseType: 'arraybuffer', timeout: 30000 });
       const buffer = Buffer.from(response.data);
 
       await sock.sendMessage(from, {
         image: buffer,
-        caption: `👤 Profile picture of @${targetUser.split('@')[0]}`,
-        mentions: [targetUser],
+        caption: `👤 Profile picture of @${tag}`,
+        mentions: [targetUser, result.jid].filter((v, i, a) => v && a.indexOf(v) === i),
       }, { quoted: msg });
 
     } catch (error) {
