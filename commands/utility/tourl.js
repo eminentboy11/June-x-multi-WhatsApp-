@@ -9,7 +9,7 @@ async function uploadToImgBB(filePath, filename) {
     const buffer = await fs.promises.readFile(filePath);
     const form = new FormData();
     form.append('image', buffer.toString('base64'));
-    const apiKey = ;
+    const apiKey = '041e0067533623124cf24d5f1f1c7a71';
     if (!apiKey) throw new Error('IMGBB_API_KEY not set');
     const res = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, form, {
         headers: form.getHeaders(),
