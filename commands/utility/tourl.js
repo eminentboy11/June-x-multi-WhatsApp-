@@ -9,7 +9,7 @@ async function uploadToImgBB(filePath, filename) {
     const buffer = await fs.promises.readFile(filePath);
     const form = new FormData();
     form.append('image', buffer.toString('base64'));
-    const apiKey = process.env.IMGBB_API_KEY;
+    const apiKey = ;
     if (!apiKey) throw new Error('IMGBB_API_KEY not set');
     const res = await axios.post(`https://api.imgbb.com/1/upload?key=${apiKey}`, form, {
         headers: form.getHeaders(),
@@ -18,82 +18,6 @@ async function uploadToImgBB(filePath, filename) {
     const url = res.data?.data?.url;
     if (url && url.startsWith('http')) return url;
     throw new Error('ImgBB: no URL in response');
-}
-
-async function uploadToCatbox(filePath, filename) {
-    const form = new FormData();
-    form.append('reqtype', 'fileupload');
-    form.append('fileToUpload', fs.createReadStream(filePath), filename);
-    const res = await axios.post('https://catbox.moe/user/api.php', form, {
-        headers: form.getHeaders(),
-        timeout: 120000,
-    });
-    const url = res.data?.trim();
-    if (url && url.startsWith('http')) return url;
-    throw new Error(url || `HTTP ${res.status}`);
-}
-
-async function uploadToUguu(filePath, filename) {
-    const form = new FormData();
-    form.append('files[]', fs.createReadStream(filePath), filename);
-    const res = await axios.post('https://uguu.se/upload.php', form, {
-        headers: form.getHeaders(),
-        timeout: 60000,
-    });
-    const data = res.data;
-    if (data.success && data.files?.[0]?.url) return data.files[0].url;
-    throw new Error(data.description || 'No URL returned');
-}
-
-async function uploadToPomf(filePath, filename) {
-    const form = new FormData();
-    form.append('files[]', fs.createReadStream(filePath), filename);
-    const res = await axios.post('https://pomf.lain.la/upload.php', form, {
-        headers: form.getHeaders(),
-        timeout: 60000,
-    });
-    const data = res.data;
-    if (data.success && data.files?.[0]?.url) return `https://pomf.lain.la/${data.files[0].url}`;
-    throw new Error('No URL returned');
-}
-
-async function uploadToFileio(filePath, filename) {
-    const form = new FormData();
-    form.append('file', fs.createReadStream(filePath), filename);
-    const res = await axios.post('https://file.io', form, {
-        headers: form.getHeaders(),
-        params: { expires: '1d' },
-        timeout: 60000,
-    });
-    if (res.data.success) return res.data.link;
-    throw new Error(res.data.message || 'Upload failed');
-}
-
-const UPLOAD_SERVICES = [
-    { name: 'ImgBB',   fn: uploadToImgBB,   supports: '*' },
-    { name: 'Catbox',  fn: uploadToCatbox,  supports: '*' },
-    { name: 'Uguu',    fn: uploadToUguu,    supports: '*' },
-    { name: 'Pomf',    fn: uploadToPomf,    supports: '*' },
-    { name: 'File.io', fn: uploadToFileio,  supports: '*' },
-];
-
-async function uploadWithFallback(filePath, filename) {
-    const errors = [];
-    for (const service of UPLOAD_SERVICES) {
-        try {
-            console.log(`[URL] Trying ${service.name}...`);
-            const url = await service.fn(filePath, filename);
-            if (url && typeof url === 'string' && url.startsWith('http')) {
-                console.log(`[URL] Success via ${service.name}: ${url}`);
-                return { url, service: service.name, success: true };
-            }
-        } catch (e) {
-            console.log(`[URL] ${service.name} failed: ${e.message}`);
-            errors.push(`${service.name}: ${e.message}`);
-            await new Promise(r => setTimeout(r, 500));
-        }
-    }
-    return { url: null, service: null, success: false, errors };
 }
 
 const MEDIA_HANDLERS = {
@@ -137,7 +61,7 @@ module.exports = {
     name: 'tourl',
     aliases: ['url', 'upload', 'tolink'],
     category: 'utility',
-    description: 'Upload media to get a direct URL',
+    description: 'Upload media to get a direct URL (uses ImgBB only)',
     usage: '.tourl (reply to media)',
 
     async execute(sock, msg, args, extra) {
@@ -175,20 +99,14 @@ module.exports = {
             try {
                 await sock.sendMessage(extra.from, { react: { text: '⏫', key: msg.key } });
 
-                const result = await uploadWithFallback(tempPath, filename);
-
-                if (!result.success) {
-                    await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
-                    let errText = '❌ Failed to convert media to URL.\n\n_Upload attempts:_\n';
-                    result.errors.forEach((err, i) => { errText += `${i + 1}. ${err}\n`; });
-                    return await sock.sendMessage(extra.from, { text: errText }, { quoted: msg });
-                }
+                // Upload using ImgBB only
+                const url = await uploadToImgBB(tempPath, filename);
 
                 await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
 
                 const responseText = `📎 *Media URL* 📎\n\n` +
-                    `🔗 *Link:* ${result.url}\n` +
-                    `📤 *Via:* ${result.service}\n` +
+                    `🔗 *Link:* ${url}\n` +
+                    `📤 *Via:* ImgBB\n` +
                     `📁 *Type:* ${media.type}\n` +
                     `📦 *Size:* ${sizeMB} MB`;
 
@@ -200,19 +118,23 @@ module.exports = {
                             name: 'cta_url',
                             buttonParamsJson: JSON.stringify({
                                 display_text: '🔗 Open Link',
-                                url: result.url
+                                url: url
                             })
                         },
                         {
                             name: 'cta_copy',
                             buttonParamsJson: JSON.stringify({
                                 display_text: '📋 Copy URL',
-                                copy_code: result.url
+                                copy_code: url
                             })
                         }
                     ]
                 }, { quoted: msg });
 
+            } catch (uploadError) {
+                await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
+                console.error('[ImgBB Upload Error]', uploadError.message);
+                await sock.sendMessage(extra.from, { text: `❌ Upload failed: ${uploadError.message}` }, { quoted: msg });
             } finally {
                 setTimeout(() => {
                     try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
