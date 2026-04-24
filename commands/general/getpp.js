@@ -1,75 +1,89 @@
 const axios = require('axios');
 
+function toJid(input) {
+  if (!input) return null;
+  let s = String(input).trim();
+  if (s.includes('@')) return s;
+  s = s.replace(/[^0-9]/g, '');
+  if (!s) return null;
+  return `${s}@s.whatsapp.net`;
+}
+
 module.exports = {
   name: 'getpp',
-  aliases: ['gp', 'getpic'],
+  aliases: ['gp', 'getpic', 'getdp'],
   category: 'general',
-  description: 'Get profile picture of a user',
-  usage: '.getpp (reply to message or tag user)',
-  
+  description: 'Get profile picture of a user (works in DMs and groups)',
+  usage: '.getpp <phone> | reply | tag | (no arg = your own)',
+
   async execute(sock, msg, args, extra) {
     try {
       let targetUser = null;
-      
-      // Check if it's a reply
-      const quotedMessage = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-      if (quotedMessage) {
-        // Get the participant who sent the quoted message
-        targetUser = msg.message.extendedTextMessage.contextInfo.participant;
-      } else {
-        // Check if user is tagged
-        const mentionedJid = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-        if (mentionedJid && mentionedJid.length > 0) {
-          targetUser = mentionedJid[0];
-        } else {
-          // If no reply or tag, use the sender of current message
-          targetUser = extra.sender;
-        }
+      const ctx = msg.message?.extendedTextMessage?.contextInfo
+                || msg.message?.imageMessage?.contextInfo
+                || msg.message?.videoMessage?.contextInfo
+                || {};
+
+      // 1) Phone number / JID argument: .getpp 254798570132
+      if (args && args.length && args[0]) {
+        targetUser = toJid(args[0]);
       }
-      
+
+      // 2) Reply to a message
+      if (!targetUser && ctx.quotedMessage) {
+        targetUser = ctx.participant
+          || ctx.remoteJid
+          || msg.message?.extendedTextMessage?.contextInfo?.participant;
+      }
+
+      // 3) Mention / tag
+      if (!targetUser && Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
+        targetUser = ctx.mentionedJid[0];
+      }
+
+      // 4) Default — sender themselves (works in both DMs and groups)
       if (!targetUser) {
-        return extra.reply('❌ Could not identify target user. Please reply to a message or tag a user.');
+        targetUser = extra.sender
+          || msg.key.participant
+          || msg.key.remoteJid;
       }
-      
+
+      if (!targetUser) {
+        return extra.reply('❌ Could not identify target user.\n\nUsage:\n• .getpp 254798570132\n• .getpp @user\n• Reply to a message with .getpp');
+      }
+
+      const from = extra.from || msg.key.remoteJid;
+
+      let ppUrl;
       try {
-        // Try to get the profile picture
-        const ppUrl = await sock.profilePictureUrl(targetUser, 'image');
-        
-        if (!ppUrl) {
-          return extra.reply('❌ Profile picture not found for this user.');
+        ppUrl = await sock.profilePictureUrl(targetUser, 'image');
+      } catch (e) {
+        const code = e?.output?.statusCode;
+        const m = (e?.message || '').toLowerCase();
+        if (code === 401 || m.includes('forbidden') || m.includes('unauthorized')) {
+          return extra.reply(`❌ @${targetUser.split('@')[0]}'s profile picture is private.`);
         }
-        
-        // Download the profile picture
-        const response = await axios.get(ppUrl, { responseType: 'arraybuffer' });
-        const buffer = Buffer.from(response.data);
-        
-        // Send the profile picture
-        await sock.sendMessage(extra.from, { 
-          image: buffer,
-          caption: `👤 Profile picture of @${targetUser.split('@')[0]}`,
-          mentions: [targetUser]
-        }, { quoted: msg });
-        
-      } catch (profileError) {
-        // Handle different types of errors
-        if (profileError.message?.includes('item-not-found') || 
-            profileError.output?.statusCode === 404 || 
-            profileError.output?.statusCode === 500 ||
-            profileError.message?.includes('not found')) {
-          return extra.reply('❌ Profile picture not found for this user.');
-        } else if (profileError.output?.statusCode === 401 || 
-                   profileError.message?.includes('forbidden') || 
-                   profileError.message?.includes('unauthorized')) {
-          return extra.reply('❌ Profile picture not found. The user\'s profile picture is private or not available.');
-        } else {
-          // Don't show error in console for normal cases, just inform user
-          return extra.reply('❌ Profile picture not found for this user.');
+        if (code === 404 || code === 500 || m.includes('not found') || m.includes('item-not-found')) {
+          return extra.reply(`❌ No profile picture set for @${targetUser.split('@')[0]}.`);
         }
+        return extra.reply('❌ Could not fetch profile picture for this user.');
       }
-      
+
+      if (!ppUrl) {
+        return extra.reply(`❌ No profile picture found for @${targetUser.split('@')[0]}.`);
+      }
+
+      const response = await axios.get(ppUrl, { responseType: 'arraybuffer', timeout: 30000 });
+      const buffer = Buffer.from(response.data);
+
+      await sock.sendMessage(from, {
+        image: buffer,
+        caption: `👤 Profile picture of @${targetUser.split('@')[0]}`,
+        mentions: [targetUser],
+      }, { quoted: msg });
+
     } catch (error) {
-      // Don't show error in console, just inform user
-      extra.reply('❌ Profile picture not found for this user.');
+      try { await extra.reply('❌ Profile picture not found for this user.'); } catch (_) {}
     }
-  }
+  },
 };
