@@ -37,14 +37,16 @@ module.exports = {
       let sourceLabel = '';
       let targetUser = null;
 
-      // 1) Phone number argument: .setppfull 254798570132
-      if (args && args.length && args[0]) {
-        targetUser = toJid(args[0]);
+      // 1) Mention / tag — checked FIRST so .setppfull @user uses the real JID
+      //    (not the literal @1234 text in args, which can be a wrong number for @lid users)
+      if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
+        targetUser = ctx.mentionedJid[0];
       }
 
-      // 2) Mention / tag (may be @lid in groups)
-      if (!targetUser && Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
-        targetUser = ctx.mentionedJid[0];
+      // 2) Phone number argument: .setppfull 254798570132
+      //    Only if it's a plain number (no '@' literal text from a tag)
+      if (!targetUser && args && args.length && args[0] && !args[0].startsWith('@')) {
+        targetUser = toJid(args[0]);
       }
 
       // 3) Reply — could be to an image/sticker OR to a user (use their pp)
