@@ -6,8 +6,10 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const JsConfuser = require('js-confuser');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+// Lazy-loaded — js-confuser is ~2 MB and only needed when this command actually runs
+let JsConfuser = null;
+const getJsConfuser = () => (JsConfuser ||= require('js-confuser'));
 
 module.exports = {
     name: 'encrypt',
@@ -87,7 +89,7 @@ module.exports = {
                 react: { text: "⚙️", key: msg.key }
             });
 
-            const obfuscatedCode = await JsConfuser.obfuscate(originalCode, {
+            const obfuscatedCode = await getJsConfuser().obfuscate(originalCode, {
                 target: "node",
                 preset: "high",
                 compact: true,
