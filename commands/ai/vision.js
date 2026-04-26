@@ -11,6 +11,7 @@ const fs   = require('fs');
 const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
+const { vision: nemotronVision } = require('../../utils/nvidia');
 
 // ── Upload helpers ────────────────────────────────────────────────────────────
 
@@ -138,20 +139,30 @@ module.exports = {
     fs.writeFileSync(tempPath, quotedMedia.buffer);
 
     try {
-      // Upload image
-      const imageUrl = await uploadImage(tempPath);
-
       // Notify user
       await sock.sendMessage(from, {
         text: '🔍 _Analyzing image, please wait..._'
       }, { quoted: msg });
 
-      // Call Gemini Vision API
-      const apiUrl = `https://api.bk9.dev/ai/geminiimg?url=${encodeURIComponent(imageUrl)}&q=${encodeURIComponent(question)}`;
-      const response = await axios.get(apiUrl, { timeout: 60000 });
+      let result = '';
 
-      const result = response.data?.BK9;
-      if (!result) throw new Error('API returned an empty response');
+      // Primary: Gemini Vision via bk9 (needs image URL)
+      try {
+        const imageUrl = await uploadImage(tempPath);
+        const apiUrl   = `https://api.bk9.dev/ai/geminiimg?url=${encodeURIComponent(imageUrl)}&q=${encodeURIComponent(question)}`;
+        const response = await axios.get(apiUrl, { timeout: 60000 });
+        result = response.data?.BK9 || '';
+        if (!result) throw new Error('Gemini returned an empty response');
+      } catch (primaryErr) {
+        console.warn('[Vision] primary (Gemini) failed, falling back to Nemotron VL:', primaryErr.message);
+        // Fallback: NVIDIA Nemotron VL (sends raw image bytes — no upload needed)
+        const nemo = await nemotronVision(question, quotedMedia.buffer, {
+          maxTokens: 2048, timeoutMs: 90000,
+        });
+        result = String(nemo).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        if (!result) throw primaryErr;
+        result = `🎨 _via Nemotron VL (fallback)_\n\n${result}`;
+      }
 
       await sock.sendMessage(from, { text: result }, { quoted: msg });
 
