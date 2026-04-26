@@ -91,7 +91,7 @@ module.exports = {
           `━━━━━━━━━━━━━━━━━\n` +
           `${answer}\n` +
           `━━━━━━━━━━━━━━━━━\n` +
-          `🐺 *Powered by ${getOwnerName()}*`,
+          `> powered by *${getOwnerName()}*`,
       }, { quoted: msg });
 
     } catch (err) {
