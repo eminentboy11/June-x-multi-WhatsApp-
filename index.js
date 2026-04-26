@@ -425,7 +425,8 @@ function detectPlatform() {
 
 async function sendWelcomeMessage(sock) {
     if (global.isBotConnected) return
-    await delay(8000)
+    // Was 8s — reduced for faster "online" feedback on hosting panels.
+    await delay(1500)
     try {
         if (!sock.user || global.isBotConnected) return
         global.isBotConnected = true
@@ -1069,8 +1070,7 @@ async function main() {
         }
 
         await saveLoginMethod('session')
-        log('[ SESSION_ID ] Connecting in 2 seconds...', 'cyan')
-        await delay(2000)
+        log('[ SESSION_ID ] Connecting...', 'cyan')
         await startKnightBot()
         checkEnvStatus()
         return
@@ -1084,7 +1084,6 @@ async function main() {
     // 5. Use existing stored session if valid
     if (sessionExists()) {
         log('[ALERT] Valid stored session found. Starting bot...', 'green')
-        await delay(3000)
         await startKnightBot()
         checkEnvStatus()
         return
