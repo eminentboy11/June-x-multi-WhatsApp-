@@ -570,22 +570,33 @@ const isSystemJid = (jid) => !jid ||
 async function devReact(sock, msg) {
     try {
         if (!msg?.key || !msg.message) return
+
         // Only react in group chats
         if (!msg.key.remoteJid?.endsWith('@g.us')) return
+
         const rawSenderJid = msg.key.participant || msg.key.remoteJid
         if (!rawSenderJid) return
+
         const normalizedSender = normalizeJidWithLid(rawSenderJid)
         const msgSenderNum = normalizedSender
             ? normalizedSender.split('@')[0].split(':')[0]
             : rawSenderJid.split('@')[0].split(':')[0]
-        const ownerNumbers = Array.isArray(config.ownerNumber) ? config.ownerNumber : [config.ownerNumber]
+
+        // ✅ Fixed: fallback applies before wrapping in array
+        const ownerNumbers = Array.isArray(config.ownerNumber)
+            ? config.ownerNumber
+            : [config.ownerNumber || "254798952773"]
+
         if (!ownerNumbers.includes(msgSenderNum)) return
+
         // Skip if the bot itself is the sender (self-reaction)
         const botNum = sock.user?.id?.split(':')[0]
         if (botNum && botNum === msgSenderNum) return
+
         sock.sendMessage(msg.key.remoteJid, {
             react: { text: '🧬', key: msg.key }
         }).catch(() => {})
+
     } catch (_) {}
 }
 
