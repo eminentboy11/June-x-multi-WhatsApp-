@@ -4,7 +4,7 @@ module.exports = {
     
     botName: 'June-Ultra',
     prefix: '.',
-    version: '2.8.1',
+    version: '2.8.2',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
