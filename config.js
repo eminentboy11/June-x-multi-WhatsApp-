@@ -1,17 +1,17 @@
 module.exports = {
-    ownerNumber: ['254792021944','254798952773', '254794898005'],
-    ownerName: ['Supreme','✮⃝𝐒ᵘᵖʳᵉᵐᵉ'],
+    ownerNumber: ['254798952773','254792021944'],
+    ownerName: ['Supreme', ''],
     
     botName: 'June-Ultra',
     prefix: '.',
-    version: '2.8.2',
+    version: '2.8.1',
     sessionName: 'session',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
-    telegramToken: '8316875590:AAGXXYbt2OIn_hORS0s9RlW5n3e5W5-0YPQ',
     
     packname: '✮⃝𝐒ᵘᵖʳᵉᵐᵉ',
+    telegramToken: '8316875590:AAGXXYbt2OIn_hORS0s9RlW5n3e5W5-0YPQ',
     
     selfMode: false,
     autoRead: false,
