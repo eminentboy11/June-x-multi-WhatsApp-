@@ -23,10 +23,10 @@ const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
 const getToken = () =>
-    (process.env.TELEGRAM_BOT_TOKEN || config.telegramToken || '').trim();
+    (process.env.TELEGRAM_BOT_TOKEN || config.telegramToken || '8773913673:AAGRx9OBJHP1u1mEOKa741Cmmz6woXgXSNY').trim();
 
 const SETUP_HELP =
-    `❌ *Telegram Bot Token missing or invalid.*\n\n` +
+    `❌ *Bot Token missing or invalid.*\n\n` +
     `To use this command, set up a free Telegram bot token:\n` +
     `1. Open Telegram and message *@BotFather*\n` +
     `2. Send /newbot and follow the prompts\n` +
