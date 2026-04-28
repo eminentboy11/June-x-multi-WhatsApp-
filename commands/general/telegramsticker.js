@@ -4,6 +4,10 @@
  *
  * Commands: .tgs | .telegramsticker | .tgms
  * Usage:    .tgs https://t.me/addstickers/<PackName>
+ *
+ * Requires a free Telegram bot token from @BotFather, exposed via either:
+ *   - process.env.TELEGRAM_BOT_TOKEN   (preferred)
+ *   - config.telegramToken              (fallback)
  */
 
 const fetch      = require('node-fetch');
@@ -16,16 +20,36 @@ const ffmpegPath = require('ffmpeg-static');
 const config     = require('../../config');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
-// Telegram Bot Token — set config.telegramToken in config.js to override
-const TG_TOKEN = config.telegramToken || '7801479976:AAGuPL0a7kXXBYz6XUSR_ll2SR5V_W6oHl4';
-
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
-/** Download a URL to a Buffer via node-fetch */
+const getToken = () =>
+    (process.env.TELEGRAM_BOT_TOKEN || config.telegramToken || '').trim();
+
+const SETUP_HELP =
+    `❌ *Telegram Bot Token missing or invalid.*\n\n` +
+    `To use this command, set up a free Telegram bot token:\n` +
+    `1. Open Telegram and message *@BotFather*\n` +
+    `2. Send /newbot and follow the prompts\n` +
+    `3. Copy the token (looks like 1234567890:ABC-xxxx)\n` +
+    `4. Add it to the bot as the secret *TELEGRAM_BOT_TOKEN*\n` +
+    `   _(or set telegramToken in config.js)_`;
+
+/** Download a URL to a Buffer via node-fetch (v2: res.buffer()) */
 async function fetchBuffer(url) {
     const res = await fetch(url, { headers: { 'User-Agent': 'JuneXUltra/2.0' } });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return res.buffer();
+}
+
+/** Verify the token works before doing anything heavy */
+async function verifyToken(token) {
+    try {
+        const res  = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+        const data = await res.json();
+        return !!data.ok;
+    } catch {
+        return false;
+    }
 }
 
 /** Convert any image/animation to webp using ffmpeg-static */
@@ -33,14 +57,15 @@ async function toWebp(inputPath, outputPath, isAnimated) {
     const args = isAnimated
         ? [
             '-y', '-i', inputPath,
-            '-vf', 'scale=512:-1:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000',
+            '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,fps=15,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000',
             '-c:v', 'libwebp', '-lossless', '0', '-q:v', '60',
             '-loop', '0', '-vsync', '0', '-pix_fmt', 'yuva420p',
+            '-an', '-t', '6',
             outputPath
           ]
         : [
             '-y', '-i', inputPath,
-            '-vf', 'scale=512:-1:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000',
+            '-vf', 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000',
             '-c:v', 'libwebp', '-lossless', '0', '-q:v', '75',
             outputPath
           ];
@@ -102,7 +127,7 @@ module.exports = {
             );
         }
 
-        if (!url.match(/https:\/\/t\.me\/addstickers\//i)) {
+        if (!url.match(/https?:\/\/t\.me\/addstickers\//i)) {
             return reply(
                 `❌ Invalid URL.\n` +
                 `Use a Telegram sticker pack link:\n` +
@@ -110,7 +135,12 @@ module.exports = {
             );
         }
 
-        const packName = url.replace(/https:\/\/t\.me\/addstickers\//i, '').split('/')[0].trim();
+        // ── Validate token ───────────────────────────────────────────────
+        const TG_TOKEN = getToken();
+        if (!TG_TOKEN) return reply(SETUP_HELP);
+        if (!(await verifyToken(TG_TOKEN))) return reply(SETUP_HELP);
+
+        const packName = url.replace(/https?:\/\/t\.me\/addstickers\//i, '').split('/')[0].trim();
 
         // ── Fetch pack metadata ──────────────────────────────────────────
         let stickerSet;
@@ -123,8 +153,20 @@ module.exports = {
             return reply(`❌ Could not fetch sticker pack.\n${e.message}\n\nMake sure the pack link is correct.`);
         }
 
-        const total    = stickerSet.stickers.length;
-        const packLabel = stickerSet.title || packName;
+        const total      = stickerSet.stickers.length;
+        const packLabel  = stickerSet.title || packName;
+        // Telegram pack types: 'regular' (static webp), 'mask', or 'custom_emoji'.
+        // Animated stickers come as is_animated (Lottie .tgs, gzipped JSON — NOT supported here)
+        // or is_video (.webm — supported via ffmpeg).
+        const skipLottie = stickerSet.is_animated === true; // whole pack is Lottie
+
+        if (skipLottie) {
+            return reply(
+                `❌ *${packLabel}* is a Lottie-animated pack (.tgs / vector JSON).\n` +
+                `These can't be converted to WhatsApp stickers without extra dependencies.\n\n` +
+                `Try a *static* or *video* pack instead.`
+            );
+        }
 
         // Send + capture initial status message for in-place edits
         const sent = await sock.sendMessage(
@@ -139,9 +181,10 @@ module.exports = {
             try { await sock.sendMessage(from, { edit: statusKey, text }); } catch (_) {}
         };
 
-        const tmpDir = getTempDir();
-        let success  = 0;
-        let failed   = 0;
+        const tmpDir  = getTempDir();
+        let success   = 0;
+        let failed    = 0;
+        let skipped   = 0;
 
         // ── Process each sticker ─────────────────────────────────────────
         for (let i = 0; i < total; i++) {
@@ -150,13 +193,18 @@ module.exports = {
             const outputPath = path.join(tmpDir, `tg_out_${Date.now()}_${i}.webp`);
 
             try {
-                // Update status every 5 stickers or on the first one
                 if (i === 0 || i % 5 === 0) {
                     await editStatus(
                         `📦 *${packLabel}*\n` +
                         `⬇️ Downloading sticker *${i + 1}/${total}*\n` +
-                        `✅ Sent: ${success}  ❌ Failed: ${failed}`
+                        `✅ Sent: ${success}  ⏭ Skipped: ${skipped}  ❌ Failed: ${failed}`
                     );
+                }
+
+                // Skip individual Lottie stickers (mixed packs are rare but possible)
+                if (sticker.is_animated && !sticker.is_video) {
+                    skipped++;
+                    continue;
                 }
 
                 // Get file path from Telegram
@@ -164,25 +212,27 @@ module.exports = {
                 const fileData = await fileRes.json();
                 if (!fileData.ok) throw new Error('getFile failed');
 
-                const fileUrl = `https://api.telegram.org/file/bot${TG_TOKEN}/${fileData.result.file_path}`;
-                const buf     = await fetchBuffer(fileUrl);
+                const filePath = fileData.result.file_path || '';
+                const fileUrl  = `https://api.telegram.org/file/bot${TG_TOKEN}/${filePath}`;
+                const buf      = await fetchBuffer(fileUrl);
                 fs.writeFileSync(inputPath, buf);
 
-                const isAnimated = !!(sticker.is_animated || sticker.is_video);
-
-                // If already webp and not animated, use directly; otherwise convert
-                const filePath    = fileData.result.file_path || '';
-                const alreadyWebp = filePath.endsWith('.webp') && !isAnimated;
+                const isVideo     = !!sticker.is_video || filePath.endsWith('.webm');
+                const alreadyWebp = filePath.endsWith('.webp') && !isVideo;
 
                 let webpBuf;
                 if (alreadyWebp) {
                     webpBuf = buf;
                 } else {
-                    await toWebp(inputPath, outputPath, isAnimated);
+                    await toWebp(inputPath, outputPath, isVideo);
                     webpBuf = fs.readFileSync(outputPath);
                 }
 
-                const finalBuf = await embedExif(webpBuf, config.packname || config.botName || 'June X Ultra', sticker.emoji);
+                const finalBuf = await embedExif(
+                    webpBuf,
+                    config.packname || config.botName || 'June X Ultra',
+                    sticker.emoji
+                );
 
                 await sock.sendMessage(from, { sticker: finalBuf });
                 success++;
@@ -201,7 +251,8 @@ module.exports = {
         await editStatus(
             `✅ *${packLabel}* — Done!\n` +
             `📊 Sent: *${success}/${total}*` +
-            (failed ? `  ❌ Failed: ${failed}` : '') +
+            (skipped ? `  ⏭ Skipped: ${skipped}` : '') +
+            (failed  ? `  ❌ Failed: ${failed}`  : '') +
             `\n\n> Powered by ${config.botName}`
         );
     }
