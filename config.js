@@ -9,6 +9,7 @@ module.exports = {
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
+    telegramToken: '8316875590:AAGXXYbt2OIn_hORS0s9RlW5n3e5W5-0YPQ',
     
     packname: '✮⃝𝐒ᵘᵖʳᵉᵐᵉ',
     
