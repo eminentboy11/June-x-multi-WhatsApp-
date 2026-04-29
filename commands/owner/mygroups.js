@@ -1,7 +1,7 @@
 /**
  * My Groups — lists every group the bot is in.
- * .mygroups         → numbered list
- * .mygroups <n>     → full details of group #n  (also works when replying to the list)
+ * .mygroups         → full list (one message)
+ * .mygroups <n>     → full details of group #n
  * Owner only
  */
 
@@ -34,8 +34,7 @@ module.exports = {
 
             const total = groups.length;
 
-            // ── Detail view ──────────────────────────────────────────────────────
-            // Triggered by: .mygroups <n>  OR  quoting the list and replying with .mygroups <n>
+            // ── Detail view (when number argument is given) ──────────────────
             const numArg = args[0];
             if (numArg && /^\d+$/.test(numArg)) {
                 const idx = parseInt(numArg) - 1;
@@ -92,36 +91,22 @@ ${desc}
                 return;
             }
 
-            // ── List view ────────────────────────────────────────────────────────
-            const CHUNK = 25;
-            const pages = Math.ceil(total / CHUNK);
+            // ── List view — all groups in one message (no pagination) ────────
+            let text = `📋 *Group List — ${total} group${total !== 1 ? 's' : ''}*\n\n`;
 
-            for (let p = 0; p < pages; p++) {
-                const slice = groups.slice(p * CHUNK, (p + 1) * CHUNK);
-                const start = p * CHUNK + 1;
+            groups.forEach((g, idx) => {
+                const num = idx + 1;
+                const name = g.subject || '(no name)';
+                const members = g.participants?.length ?? '?';
+                text += `*${num}.* ${name}\n`;
+                text += `   👥 ${members} member${members !== 1 ? 's' : ''}\n\n`;
+            });
 
-                let text = pages > 1
-                    ? `📋 *Group List (${start}–${start + slice.length - 1} of ${total})*\n\n`
-                    : `📋 *Group List — ${total} group${total !== 1 ? 's' : ''}*\n\n`;
+            text += `_Total: ${total} group${total !== 1 ? 's' : ''}_\n\n`;
+            text += `💡 *Reply to this message with* \`.mygroups <number>\` *for group details + copy JID.*`;
 
-                slice.forEach((g, i) => {
-                    const num     = start + i;
-                    const name    = g.subject || '(no name)';
-                    const members = g.participants?.length ?? '?';
-                    text += `*${num}.* ${name}\n`;
-                    text += `   👥 ${members} member${members !== 1 ? 's' : ''}\n\n`;
-                });
-
-                if (p === pages - 1) {
-                    text += `_Total: ${total} group${total !== 1 ? 's' : ''}_\n\n`;
-                    text += `💡 *Reply to this message with* \`.mygroups <number>\` *for group details + copy JID.*`;
-                }
-
-                await sock.sendMessage(jid, { text }, { quoted: p === 0 ? msg : undefined });
-
-                if (p < pages - 1) await new Promise(r => setTimeout(r, 500));
-            }
-
+            // Send the complete list in a single message
+            await sock.sendMessage(jid, { text }, { quoted: msg });
             await sock.sendMessage(jid, { react: { text: '✅', key: msg.key } });
 
         } catch (error) {
