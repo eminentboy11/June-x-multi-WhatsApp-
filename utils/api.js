@@ -175,10 +175,10 @@ const APIs = {
       throw lastError;
     };
     
-    const apiUrl = `https://izumiiiiiiii.dpdns.org/downloader/youtube?url=${encodeURIComponent(youtubeUrl)}&format=mp3`;
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.result?.download) return res.data.result;
-    throw new Error('Izumi youtube?url returned no download');
+    if (res?.data?.result?.download_url) return res.data.result;
+    throw new Error('youtube?url returned no download');
   },
   
   getIzumiDownloadByQuery: async (query) => {
@@ -205,10 +205,10 @@ const APIs = {
       throw lastError;
     };
     
-    const apiUrl = `https://izumiiiiiiii.dpdns.org/downloader/youtube-play?query=${encodeURIComponent(query)}`;
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(query)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.result?.download) return res.data.result;
-    throw new Error('Izumi youtube-play returned no download');
+    if (res?.data?.result?.download_url) return res.data.result;
+    throw new Error(' youtube-play returned no download');
   },
   
   getYupraDownloadByUrl: async (youtubeUrl) => {
@@ -271,16 +271,16 @@ const APIs = {
       throw lastError;
     };
     
-    const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`;
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.dl) {
+    if (res?.data?.result?.download_url) {
       return {
-        download: res.data.dl,
-        title: res.data.title,
-        thumbnail: res.data.thumb
+        download: res.data.result.download_url,
+        title: res.data.result.title,
+        thumbnail: res.data.result.thumbnail
       };
     }
-    throw new Error('Okatsu ytmp3 returned no download');
+    throw new Error(' ytmp3 returned no download');
   },
   
   getApisKeithAudioByUrl: async (youtubeUrl) => {
