@@ -1,4 +1,4 @@
-/**
+""/**
  * Kickall / Removeall / Killgc Command
  * Tags all group members, then removes all non-bot participants in one call.
  * killgc also makes the bot leave after removing everyone.

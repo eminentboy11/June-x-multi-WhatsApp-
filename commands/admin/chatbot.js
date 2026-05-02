@@ -5,19 +5,20 @@ const path = require('path');
 const SETTINGS_FILE = path.join(__dirname, '../../data/chatbot_settings.json');
 
 const AGENTS = {
-    keith:      { label: 'Keith AI',              emoji: '🤖', type: 'text',      endpoint: '/keithai' },
-    gpt:        { label: 'GPT-4',                 emoji: '💡', type: 'text',      endpoint: '/ai/gpt4' },
-    gemini:     { label: 'Gemini',                emoji: '✨', type: 'text',      endpoint: '/ai/gemini' },
-    claude:     { label: 'Claude',                emoji: '🧠', type: 'text',      endpoint: '/ai/claudeai' },
-    deepseek:   { label: 'DeepSeek R1',           emoji: '🔍', type: 'text',      endpoint: '/ai/deepseek' },
-    grok:       { label: 'Grok (xAI)',            emoji: '⚡', type: 'text',      endpoint: '/ai/grok' },
-    meta:       { label: 'Meta AI (LLaMA)',        emoji: '🦙', type: 'text',      endpoint: '/ai/metai' },
-    mistral:    { label: 'Mistral',               emoji: '🌀', type: 'text',      endpoint: '/ai/mistral' },
-    perplexity: { label: 'Perplexity',            emoji: '🔮', type: 'text',      endpoint: '/ai/perplexity' },
-    vision:     { label: 'Vision (Gemini Image)', emoji: '👁️',  type: 'vision',    endpoint: null },
-    meme:       { label: 'Meme (random)',          emoji: '😂', type: 'meme',      endpoint: null },
-    memesearch: { label: 'Meme Search',            emoji: '🔎', type: 'memesearch', endpoint: null },
-    all:        { label: 'All Agents (smart)',     emoji: '🌐', type: 'all',       endpoint: null },
+    gpt:        { label: 'GPT-4',                      emoji: '💡', type: 'text',      endpoint: '/ai/gpt4' },
+    gemini:     { label: 'Gemini',                     emoji: '✨', type: 'text',      endpoint: '/ai/gemini' },
+    claude:     { label: 'Claude',                     emoji: '🧠', type: 'text',      endpoint: '/ai/claudeai' },
+    deepseek:   { label: 'DeepSeek R1',                emoji: '🔍', type: 'text',      endpoint: '/ai/deepseek' },
+    grok:       { label: 'Grok (xAI)',                 emoji: '⚡', type: 'text',      endpoint: '/ai/grok' },
+    meta:       { label: 'Meta AI (LLaMA)',             emoji: '🦙', type: 'text',      endpoint: '/ai/metai' },
+    mistral:    { label: 'Mistral',                    emoji: '🌀', type: 'text',      endpoint: '/ai/mistral' },
+    perplexity: { label: 'Perplexity',                 emoji: '🔮', type: 'text',      endpoint: '/ai/perplexity' },
+    nemotron:   { label: 'Nemotron VL (NVIDIA)',        emoji: '🎨', type: 'nemotron',  endpoint: null },
+    vision:     { label: 'Vision (Gemini Image)',       emoji: '👁️',  type: 'vision',    endpoint: null },
+    meme:       { label: 'Meme (random)',               emoji: '😂', type: 'meme',      endpoint: null },
+    memesearch: { label: 'Meme Search',                emoji: '🔎', type: 'memesearch', endpoint: null },
+    random:     { label: 'Random — all AIs, no Keith', emoji: '🎲', type: 'random',    endpoint: null },
+    all:        { label: 'All AIs in order, no Keith', emoji: '🌐', type: 'all',       endpoint: null },
 };
 
 function loadSettings() {
@@ -26,7 +27,7 @@ function loadSettings() {
             return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         }
     } catch {}
-    return { enabled: false, agent: 'keith' };
+    return { enabled: false, agent: 'random' };
 }
 
 function saveSettings(data) {
