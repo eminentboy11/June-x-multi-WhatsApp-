@@ -2,13 +2,12 @@
  * AntiDelete — recovers deleted messages (text, image, video, audio, sticker).
  *
  * Modes:
- *   chat    → reveals deleted msg in the same chat it was deleted from
- *   private → global mode — ALL deleted msgs across ALL chats go to owner's DM
- *   off     → disabled for the current chat (or globally if no per-chat entry)
+ *   chat    → GLOBAL: reveals deleted msg in the same chat it was deleted from (all chats)
+ *   private → GLOBAL: ALL deleted msgs across ALL chats go to owner's DM
+ *   off     → disabled globally
  *
  * Config keys in data/antidelete.json:
- *   "_global" : { mode: "private" }  — applies across every chat
- *   "<chatJid>": { mode: "chat"|"off" }  — per-chat override
+ *   "_global" : { mode: "chat" | "private" }  — applies across every chat
  */
 
 const fs       = require('fs');
@@ -198,8 +197,11 @@ function ownerJid(sock) {
 const handleDelete = async (sock, revokeItems) => {
     try {
         const cfg        = loadConfig();
-        const globalMode = cfg['_global']?.mode; // 'private' | undefined
+        const globalMode = cfg['_global']?.mode; // 'chat' | 'private' | undefined
         const botJid     = ownerJid(sock);
+
+        // If global mode is off/not set, do nothing
+        if (!globalMode || globalMode === 'off') return;
 
         for (const item of revokeItems) {
             const chatId    = item.key?.remoteJid;
@@ -209,20 +211,16 @@ const handleDelete = async (sock, revokeItems) => {
             // Skip status updates
             if (chatId === 'status@broadcast') continue;
 
-            // Determine effective mode:
-            //   1. If global private is on  → always send to owner DM
-            //   2. Else check per-chat setting
+            // Determine target:
+            //   chat    → send back to the same chat the message was deleted from
+            //   private → send to owner's DM
             let targetJid;
             if (globalMode === 'private' && botJid) {
                 targetJid = botJid;
+            } else if (globalMode === 'chat') {
+                targetJid = chatId;
             } else {
-                const chatCfg = cfg[chatId];
-                if (!chatCfg?.mode || chatCfg.mode === 'off') continue;
-                if (chatCfg.mode === 'private' && botJid) {
-                    targetJid = botJid;
-                } else {
-                    targetJid = chatId; // chat mode
-                }
+                continue;
             }
 
             const chatMap = messageStore.get(chatId);
@@ -253,16 +251,12 @@ module.exports = {
         const sub = (args[0] || '').toLowerCase();
         const cfg = loadConfig();
 
-        const globalMode  = cfg['_global']?.mode;
-        const chatMode    = cfg[from]?.mode;
-        const effectiveMode = globalMode === 'private' ? 'private (global)' : (chatMode || 'off');
+        const globalMode = cfg['_global']?.mode;
 
         const statusLabel = () => {
+            if (globalMode === 'chat')    return '✅ ON — Chat *[GLOBAL — all chats]*';
             if (globalMode === 'private') return '✅ ON — Private *[GLOBAL — all chats → owner DM]*';
-            if (!chatMode || chatMode === 'off') return '❌ OFF';
-            if (chatMode === 'chat')    return '✅ ON — Chat';
-            if (chatMode === 'private') return '✅ ON — Private (this chat → owner DM)';
-            return chatMode;
+            return '❌ OFF';
         };
 
         if (!sub || sub === 'status') {
@@ -272,18 +266,20 @@ module.exports = {
                 `📌 Status: *${statusLabel()}*\n\n` +
                 `Recovers: text · image · video · audio · sticker · document\n\n` +
                 `*Commands:*\n` +
-                `  .antidelete chat     — reveal in this chat only\n` +
-                `  .antidelete private  — *all* deleted msgs from *all* chats → owner DM\n` +
-                `  .antidelete off      — disable for this chat\n` +
-                `  .antidelete off all  — disable globally\n` +
+                `  .antidelete on       — enable globally (deleted msgs shown in each chat)\n` +
+                `  .antidelete private  — enable globally (all deleted msgs → owner DM)\n` +
+                `  .antidelete off      — disable globally\n` +
                 `  .antidelete status   — show current setting`
             );
         }
 
         if (sub === 'on' || sub === 'chat') {
-            cfg[from] = { ...(cfg[from] || {}), mode: 'chat' };
+            cfg['_global'] = { mode: 'chat' };
             saveConfig(cfg);
-            return reply('✅ *Anti-Delete* enabled — recovered messages will appear *in this chat*.');
+            return reply(
+                '✅ *Anti-Delete [GLOBAL]* enabled.\n' +
+                'Deleted messages from *every chat* will be revealed *in the same chat* they were deleted from.'
+            );
         }
 
         if (sub === 'private') {
@@ -296,17 +292,11 @@ module.exports = {
         }
 
         if (sub === 'off') {
-            if ((args[1] || '').toLowerCase() === 'all') {
-                delete cfg['_global'];
-                saveConfig(cfg);
-                return reply('❌ *Anti-Delete* global private mode disabled.');
-            }
-            cfg[from] = { ...(cfg[from] || {}), mode: 'off' };
-            // Also clear global if disabling locally while global is active (UX choice — skip silently)
+            delete cfg['_global'];
             saveConfig(cfg);
-            return reply('❌ *Anti-Delete* disabled for this chat.\n_Tip: use `.antidelete off all` to stop global private mode._');
+            return reply('❌ *Anti-Delete* disabled globally.');
         }
 
-        return reply('⚠️ Usage: .antidelete chat | private | off | off all | status');
+        return reply('⚠️ Usage: .antidelete on | private | off | status');
     }
 };

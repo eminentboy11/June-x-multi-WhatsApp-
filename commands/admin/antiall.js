@@ -67,7 +67,7 @@ module.exports = {
 
       const editCfg  = loadJson(ANTIEDIT_PATH);
       lines.push(`  ${icon(botCfg[from]?.enabled)} 🤖 Anti-Bot`);
-      lines.push(`  ${icon(delCfg[from]?.mode && delCfg[from].mode !== 'off')} 🗑️ Anti-Delete`);
+      lines.push(`  ${icon(delCfg['_global']?.mode && delCfg['_global'].mode !== 'off')} 🗑️ Anti-Delete`);
       lines.push(`  ${icon(editCfg[from]?.mode && editCfg[from].mode !== 'off')} ✏️ Anti-Edit`);
 
       return reply(
@@ -92,7 +92,7 @@ module.exports = {
       saveJson(ANTIBOT_PATH, botCfg);
 
       const delCfg = loadJson(ANTIDEL_PATH);
-      delCfg[from] = { ...(delCfg[from] || {}), mode: 'chat' };
+      delCfg['_global'] = { mode: 'chat' };
       saveJson(ANTIDEL_PATH, delCfg);
 
       const editCfgOn = loadJson(ANTIEDIT_PATH);
@@ -122,7 +122,7 @@ module.exports = {
       saveJson(ANTIBOT_PATH, botCfg);
 
       const delCfg = loadJson(ANTIDEL_PATH);
-      delCfg[from] = { ...(delCfg[from] || {}), mode: 'off' };
+      delete delCfg['_global'];
       saveJson(ANTIDEL_PATH, delCfg);
 
       const editCfgOff = loadJson(ANTIEDIT_PATH);
