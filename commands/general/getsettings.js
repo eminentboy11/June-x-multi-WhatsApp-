@@ -1,6 +1,20 @@
 const { sendButtons } = require('gifted-btns');
 const config   = require('../../config');
 const database = require('../../database');
+const fs       = require('fs');
+const path     = require('path');
+
+const ANTIDEL_PATH = path.join(__dirname, '../../data/antidelete.json');
+function getAntideleteStatus() {
+    try {
+        if (!fs.existsSync(ANTIDEL_PATH)) return '❌ OFF';
+        const cfg = JSON.parse(fs.readFileSync(ANTIDEL_PATH, 'utf8'));
+        const mode = cfg['_global']?.mode;
+        if (mode === 'chat')    return '✅ ON (chat)';
+        if (mode === 'private') return '✅ ON (private→DM)';
+        return '❌ OFF';
+    } catch { return '❌ OFF'; }
+}
 
 module.exports = {
     name: 'getsettings',
@@ -64,7 +78,7 @@ module.exports = {
                     `${gs.antisticker ? on : off} Anti Sticker (${gs.antistickerAction || 'delete'})\n` +
                     `${gs.antiaudio ? on : off} Anti Audio (${gs.antiaudioAction || 'delete'})\n` +
                     `${gs.antiSpam ? on : off} Anti Spam\n` +
-                    `${gs.antidelete ? on : off} Anti Delete\n\n` +
+                    `${getAntideleteStatus()} Anti Delete\n\n` +
                     `👋 *Welcome/Goodbye*\n` +
                     `${gs.welcome ? on : off} Welcome\n` +
                     `${gs.goodbye ? on : off} Goodbye\n\n` +
