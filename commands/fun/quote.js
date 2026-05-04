@@ -1,4 +1,4 @@
-const { keithApi } = require('../../utils/keithApi');
+const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
 
 module.exports = {
   name: 'quote',

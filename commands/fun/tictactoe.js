@@ -7,7 +7,7 @@
  *  .ttt                 → shows usage
  */
 
-const TicTacToe = require('../../utils/tictactoe');
+const TicTacToe = require(require('path').join(global.__CORE__, 'utils', 'tictactoe'));
 
 // Sentinel JID for the AI opponent (never matches a real user)
 const BOT_ID = 'bot@tictactoe.local';

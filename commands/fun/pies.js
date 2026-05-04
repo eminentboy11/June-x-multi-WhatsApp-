@@ -21,7 +21,7 @@ module.exports = {
                    '';
       
       // Extract command from message (e.g., ".india" or ".pies india")
-      const config = require('../../config');
+      const config = require(require('path').join(global.__ROOT__, 'config'));
       const prefix = config.prefix || '.';
       const parts = text.trim().split(/\s+/);
       const commandUsed = parts[0]?.replace(prefix, '').toLowerCase() || '';

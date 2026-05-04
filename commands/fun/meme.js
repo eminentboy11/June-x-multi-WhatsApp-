@@ -2,7 +2,7 @@
  * Meme Command - Send random memes
  */
 
-const APIs = require('../../utils/api');
+const APIs = require(require('path').join(global.__CORE__, 'utils', 'api'));
 const axios = require('axios');
 
 module.exports = {
