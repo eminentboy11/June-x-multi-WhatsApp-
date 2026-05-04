@@ -5,7 +5,7 @@
  * .unmute        — (no mention) reopens the group so all members can talk
  */
 
-const database = require('../../database');
+const database = require(require('path').join(global.__CORE__, 'database'));
 
 module.exports = {
     name: 'unmute',

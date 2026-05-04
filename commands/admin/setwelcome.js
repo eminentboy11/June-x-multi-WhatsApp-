@@ -2,7 +2,7 @@
  * Set Welcome - Customize welcome message
  */
 
-const db = require('../../database');
+const db = require(require('path').join(global.__CORE__, 'database'));
 
 module.exports = {
   name: 'setwelcome',
@@ -55,7 +55,7 @@ module.exports = {
 
       // reset to default
       if (input.toLowerCase() === 'reset') {
-        const { defaultGroupSettings } = require('../../config');
+        const { defaultGroupSettings } = require(require('path').join(global.__ROOT__, 'config'));
         db.updateGroupSettings(groupId, { welcomeMessage: defaultGroupSettings.welcomeMessage });
         return await sock.sendMessage(groupId, {
           text: `✅ Welcome message reset to default.`
@@ -77,7 +77,7 @@ module.exports = {
         .replace(/groupDesc/g, 'Group description here')
         .replace(/time/g, new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }))
         .replace(/#memberCount/g, '?')
-        .replace(/botName/g, require('../../config').botName);
+        .replace(/botName/g, require(require('path').join(global.__ROOT__, 'config')).botName);
 
       await sock.sendMessage(groupId, {
         text: `✅ *Welcome message updated!*\n\n*Preview:*\n${preview}`,

@@ -7,7 +7,7 @@
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
-const { getLidMappingValue } = require('../../utils/jidHelper');
+const { getLidMappingValue } = require(require('path').join(global.__CORE__, 'utils', 'jidHelper'));
 
 module.exports = {
     name: 'vcf',

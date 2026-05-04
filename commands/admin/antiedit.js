@@ -13,7 +13,7 @@
 
 const fs     = require('fs');
 const path   = require('path');
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 const CONFIG_PATH = path.join(__dirname, '../../data/antiedit.json');
 

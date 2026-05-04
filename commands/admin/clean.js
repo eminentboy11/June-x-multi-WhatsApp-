@@ -20,7 +20,7 @@ module.exports = {
       }
 
       const jid = extra.from;
-      const { store } = require('../../index');
+      const { store } = require(require('path').join(global.__ROOT__, 'index'));
       
       // Check if message is a reply
       const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;

@@ -2,7 +2,7 @@
  * Set Goodbye - Customize goodbye message
  */
 
-const db = require('../../database');
+const db = require(require('path').join(global.__CORE__, 'database'));
 
 module.exports = {
   name: 'setgoodbye',

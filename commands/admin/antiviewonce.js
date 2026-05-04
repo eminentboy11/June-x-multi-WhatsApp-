@@ -10,7 +10,7 @@
  */
 
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const database = require('../../database');
+const database = require(require('path').join(global.__CORE__, 'database'));
 
 // All known viewOnce wrappers, in priority order
 const VO_WRAPPERS = [

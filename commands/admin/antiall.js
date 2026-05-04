@@ -8,7 +8,7 @@
 
 const fs   = require('fs');
 const path = require('path');
-const database = require('../../database');
+const database = require(require('path').join(global.__CORE__, 'database'));
 
 const ANTIBOT_PATH   = path.join(__dirname, '../../data/antibot.json');
 const ANTIDEL_PATH   = path.join(__dirname, '../../data/antidelete.json');

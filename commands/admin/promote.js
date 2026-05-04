@@ -2,7 +2,7 @@
  * Promote Command - Make member admin
  */
 
-const { findParticipant } = require('../../utils/jidHelper');
+const { findParticipant } = require(require('path').join(global.__CORE__, 'utils', 'jidHelper'));
 
 module.exports = {
   name: 'promote',

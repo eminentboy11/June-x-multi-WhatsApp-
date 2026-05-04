@@ -1,4 +1,4 @@
-const database = require('../../database');
+const database = require(require('path').join(global.__CORE__, 'database'));
 
 // In-memory tracker: { groupId: { userId: [timestamps] } }
 const spamTracker = new Map();

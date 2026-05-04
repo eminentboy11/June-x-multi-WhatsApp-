@@ -4,7 +4,7 @@
  * Activity is tracked via utils/groupstats.js -> addMessage on every message.
  */
 
-const { getInactiveUsers } = require('../../utils/groupstats');
+const { getInactiveUsers } = require(require('path').join(global.__CORE__, 'utils', 'groupstats'));
 
 module.exports = {
   name: 'kickinactive',

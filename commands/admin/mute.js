@@ -5,7 +5,7 @@
  * .mute         — (no mention) locks the entire group so only admins can talk
  */
 
-const database = require('../../database');
+const database = require(require('path').join(global.__CORE__, 'database'));
 
 module.exports = {
     name: 'mute',

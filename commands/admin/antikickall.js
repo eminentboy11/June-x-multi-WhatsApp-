@@ -12,7 +12,7 @@
  * Config stored per-group in the database: antikickall (bool)
  */
 
-const database = require('../../database');
+const database = require(require('path').join(global.__CORE__, 'database'));
 
 const BLOCKED_CMDS = new Set(['kickall', 'removeall', 'killgc', 'killgroup', 'killall']);
 
