@@ -11,7 +11,7 @@ const fs   = require('fs');
 const path = require('path');
 const axios = require('axios');
 const FormData = require('form-data');
-const { vision: nemotronVision } = require('../../utils/nvidia');
+const { vision: nemotronVision } = require(require('path').join(global.__CORE__, 'utils', 'nvidia'));
 
 // ── Upload helpers ────────────────────────────────────────────────────────────
 

@@ -9,8 +9,8 @@
  */
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { chat, vision, DEFAULT_MODEL } = require('../../utils/nvidia');
-const config = require('../../config');
+const { chat, vision, DEFAULT_MODEL } = require(require('path').join(global.__CORE__, 'utils', 'nvidia'));
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 const URL_RE = /\bhttps?:\/\/\S+\.(?:jpe?g|png|webp|gif|bmp)(?:\?\S*)?/i;
 
