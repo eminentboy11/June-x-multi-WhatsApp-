@@ -2,7 +2,7 @@
  * Auto-React Command - Configure automatic reactions
  */
 
-const { load, save } = require('../../utils/autoReact');
+const { load, save } = require(require('path').join(global.__CORE__, 'utils', 'autoReact'));
 
 module.exports = {
   name: 'autoreact',

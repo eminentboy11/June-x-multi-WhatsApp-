@@ -5,7 +5,7 @@
  * Owner only
  */
 
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 const { sendButtons } = require('gifted-btns');
 
 module.exports = {

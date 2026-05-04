@@ -1,4 +1,4 @@
-const { getMode, setMode } = require('../../utils/presenceSettings');
+const { getMode, setMode } = require(require('path').join(global.__CORE__, 'utils', 'presenceSettings'));
 
 module.exports = {
     name: 'autorecording',

@@ -1,4 +1,4 @@
-const { getCurrentFont, setCurrentFont, getFontList, FONTS, applyFont } = require('../../utils/fontConverter');
+const { getCurrentFont, setCurrentFont, getFontList, FONTS, applyFont } = require(require('path').join(global.__CORE__, 'utils', 'fontConverter'));
 
 module.exports = {
   name: 'setfont',

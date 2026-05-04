@@ -1,5 +1,5 @@
-const database = require('../../database');
-const config = require('../../config');
+const database = require(require('path').join(global.__CORE__, 'database'));
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 module.exports = {
     name: 'sudolist',

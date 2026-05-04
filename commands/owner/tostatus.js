@@ -5,7 +5,7 @@
  */
 
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 const STATUS_JID = 'status@broadcast';
 

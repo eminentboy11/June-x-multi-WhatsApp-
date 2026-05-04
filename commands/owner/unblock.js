@@ -5,7 +5,7 @@
  *   sock.updateBlockStatus(jid, 'unblock')
  */
 
-const { normalizeJidWithLid } = require('../../utils/jidHelper');
+const { normalizeJidWithLid } = require(require('path').join(global.__CORE__, 'utils', 'jidHelper'));
 
 function phoneToJid(raw) {
   const digits = String(raw).replace(/[\s\-().+,]/g, '').replace(/^0+/, '');
