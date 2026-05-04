@@ -1,5 +1,5 @@
-const { keithApi } = require('../../utils/keithApi');
-const { formatObj } = require('../../utils/sportsFormatter');
+const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
+const { formatObj } = require(require('path').join(global.__CORE__, 'utils', 'sportsFormatter'));
 
 module.exports = {
   name: 'bet',
