@@ -12,9 +12,9 @@
  *   .spotify <spotify track url>  — download directly by URL
  */
 
-const { keithApi } = require('../../utils/keithApi');
+const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
 const axios = require('axios');
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 const RETRY_DELAY = 3000; // ms between retries
 

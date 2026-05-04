@@ -9,7 +9,7 @@ const path = require('path');
 const { execFile } = require('child_process');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const ffmpegPath = require('ffmpeg-static');
-const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
+const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
 
 const MAX_DURATION = 60;   // seconds — WhatsApp PTV cap
 const SIZE         = 480;  // square edge in pixels

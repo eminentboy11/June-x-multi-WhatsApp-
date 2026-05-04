@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
+const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
 const ffmpegPath = require('ffmpeg-static');
 
 module.exports = {

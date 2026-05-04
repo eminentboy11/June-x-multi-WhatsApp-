@@ -3,7 +3,7 @@
  */
 
 const axios = require('axios');
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 // Store processed message IDs to prevent duplicates
 const processedMessages = new Set();

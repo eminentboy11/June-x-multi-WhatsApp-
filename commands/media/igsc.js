@@ -10,8 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const webp = require('node-webpmux');
 const crypto = require('crypto');
-const config = require('../../config');
-const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
+const config = require(require('path').join(global.__ROOT__, 'config'));
+const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
 
 // Function to extract unique media URLs (same as .ig command)
 function extractUniqueMedia(mediaData) {

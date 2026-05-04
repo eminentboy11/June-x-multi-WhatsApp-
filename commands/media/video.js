@@ -1,6 +1,6 @@
 const yts = require('yt-search');
-const APIs = require('../../utils/api');
-const config = require('../../config');
+const APIs = require(require('path').join(global.__CORE__, 'utils', 'api'));
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 module.exports = {
   name: 'ytvideo',
