@@ -2,8 +2,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { toAudio } = require('../../utils/converter');
-const { webp2mp4 } = require('../../utils/webp2mp4');
+const { toAudio } = require(require('path').join(global.__CORE__, 'utils', 'converter'));
+const { webp2mp4 } = require(require('path').join(global.__CORE__, 'utils', 'webp2mp4'));
 
 const TEMP_DIR = path.join(os.tmpdir(), 'june-x-conv');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
