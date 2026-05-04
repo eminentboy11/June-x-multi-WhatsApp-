@@ -4,7 +4,7 @@
  * Reply to the output with .fancy <number> to get that style alone.
  */
 
-const { FONTS } = require('../../utils/fontConverter');
+const { FONTS } = require(require('path').join(global.__CORE__, 'utils', 'fontConverter'));
 
 const NORMAL_LOWER  = 'abcdefghijklmnopqrstuvwxyz';
 const NORMAL_UPPER  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';

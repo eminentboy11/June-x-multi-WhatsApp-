@@ -1,6 +1,6 @@
 /* by supreme */
-const config = require('../../config');
-const { applyFont } = require('../../utils/fontConverter');
+const config = require(require('path').join(global.__ROOT__, 'config'));
+const { applyFont } = require(require('path').join(global.__CORE__, 'utils', 'fontConverter'));
 
 function createFakeContact(message) {
     return {

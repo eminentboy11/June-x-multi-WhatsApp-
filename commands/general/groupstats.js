@@ -1,6 +1,6 @@
 // commands/admin/groupstats.js
 
-const { getStats } = require('../../utils/groupstats');
+const { getStats } = require(require('path').join(global.__CORE__, 'utils', 'groupstats'));
 
 module.exports = {
     name: 'groupstats',

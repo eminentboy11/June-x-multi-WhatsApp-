@@ -1,8 +1,8 @@
-const config = require('../../config');
-const { loadCommands } = require('../../utils/commandLoader');
+const config = require(require('path').join(global.__ROOT__, 'config'));
+const { loadCommands } = require(require('path').join(global.__CORE__, 'utils', 'commandLoader'));
 const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
 const { sendButtons } = require('gifted-btns');
-const { applyFont } = require('../../utils/fontConverter');
+const { applyFont } = require(require('path').join(global.__CORE__, 'utils', 'fontConverter'));
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -29,7 +29,7 @@ const detectPlatform = () => {
 function getMenuStyle() {
   try {
     // Check unified settings store first (survives more restart scenarios)
-    const runtimeSettings = require('../../utils/settings');
+    const runtimeSettings = require(require('path').join(global.__CORE__, 'utils', 'settings'));
     const fromStore = runtimeSettings.get('menuStyle');
     if (fromStore && fromStore !== '1') return fromStore;
     // Fallback to dedicated menuSettings.json
@@ -91,7 +91,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
   const hostName = detectPlatform();
   const uptimeFormatted = formatUptime();
-  const { getModeLabel } = require('../../utils/botMode');
+  const { getModeLabel } = require(require('path').join(global.__CORE__, 'utils', 'botMode'));
   const currentMode = getModeLabel();
   const totalMemory = os.totalmem();
   const botUsedMemory = process.memoryUsage().rss;

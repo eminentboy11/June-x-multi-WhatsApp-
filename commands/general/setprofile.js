@@ -3,7 +3,7 @@ const path = require('path');
 const axios = require('axios');
 const { Jimp } = require('jimp');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
+const { tryFetchProfilePictureUrl, displayUserTag } = require(require('path').join(global.__CORE__, 'utils', 'jidHelper'));
 
 function toJid(input) {
   if (!input) return null;

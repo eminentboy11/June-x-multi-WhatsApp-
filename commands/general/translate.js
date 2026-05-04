@@ -2,7 +2,7 @@
  * Translate Command - Translate text to different languages
  */
 
-const APIs = require('../../utils/api');
+const APIs = require(require('path').join(global.__CORE__, 'utils', 'api'));
 
 module.exports = {
   name: 'translate',

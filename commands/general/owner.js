@@ -2,7 +2,7 @@
  * Owner Command - Sends bot owner's contact card (vCard)
  */
 
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 module.exports = {
     name: 'owner',

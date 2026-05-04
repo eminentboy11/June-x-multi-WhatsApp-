@@ -4,7 +4,7 @@
 
 const axios = require('axios');
 const { sendButtons } = require('gifted-btns');
-const config = require('../../config');
+const config = require(require('path').join(global.__ROOT__, 'config'));
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 

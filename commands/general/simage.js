@@ -3,7 +3,7 @@
  */
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { webp2png } = require('../../utils/webp2mp4');
+const { webp2png } = require(require('path').join(global.__CORE__, 'utils', 'webp2mp4'));
 
 module.exports = {
   name: 'simage',
@@ -60,7 +60,7 @@ module.exports = {
 
       if (isAnimated) {
         // Animated sticker → MP4 (FFmpeg decodes animated WebP natively)
-        const { webp2mp4 } = require('../../utils/webp2mp4');
+        const { webp2mp4 } = require(require('path').join(global.__CORE__, 'utils', 'webp2mp4'));
         const mp4Buffer = await webp2mp4(stickerBuffer);
         if (!mp4Buffer || mp4Buffer.length === 0) throw new Error('MP4 buffer is empty');
         await sock.sendMessage(extra.from, {

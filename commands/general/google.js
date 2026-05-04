@@ -1,4 +1,4 @@
-const { keithApi } = require('../../utils/keithApi');
+const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
 
 // Recursively extract an array of search results from any response shape
 function extractResults(data) {
