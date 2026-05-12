@@ -2,7 +2,7 @@
  * Set Bot Name Command - Change bot name in config
  */
 
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 const fs = require('fs');
 const path = require('path');
 

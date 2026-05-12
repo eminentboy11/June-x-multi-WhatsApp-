@@ -1,6 +1,6 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 const { sendButtons } = require('gifted-btns');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 const fs   = require('fs');
 const path = require('path');
 

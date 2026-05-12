@@ -3,7 +3,7 @@
  * Set bot mode: public | private | group | pm
  */
 
-const botMode = require(require('path').join(global.__CORE__, 'utils', 'botMode'));
+const botMode = require('../../utils/botMode');
 
 module.exports = {
   name: 'mode',

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
+const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
 // Max file size: 10MB for profile pictures
 const MAX_FILE_SIZE = 10 * 1024 * 1024;

@@ -5,7 +5,7 @@
 
 const fs       = require('fs');
 const path     = require('path');
-const settings = require(require('path').join(global.__CORE__, 'utils', 'settings'));
+const settings = require('../../utils/settings');
 
 const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
