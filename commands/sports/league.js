@@ -1,5 +1,5 @@
-const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
-const { formatStandings, formatScorers, formatMatches, formatObj } = require(require('path').join(global.__CORE__, 'utils', 'sportsFormatter'));
+const { keithApi } = require('../../utils/keithApi');
+const { formatStandings, formatScorers, formatMatches, formatObj } = require('../../utils/sportsFormatter');
 
 const LEAGUES = {
   laliga:     { name: 'La Liga',     prefix: '/laliga',     flag: '🇪🇸' },

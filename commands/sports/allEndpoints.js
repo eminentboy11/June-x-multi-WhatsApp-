@@ -1,4 +1,4 @@
-const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
+const { keithApi } = require('../../utils/keithApi');
 const {
   formatStandings,
   formatScorers,
@@ -6,7 +6,7 @@ const {
   formatLivescore,
   formatNews,
   formatObj,
-} = require(require('path').join(global.__CORE__, 'utils', 'sportsFormatter'));
+} = require('../../utils/sportsFormatter');
 
 const LEAGUES = {
   epl:        { name: 'EPL',         prefix: '/epl',        flag: '🏴󠁧󠁢󠁥󠁮󠁧󠁿' },
