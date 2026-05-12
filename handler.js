@@ -876,37 +876,6 @@ const handleMessage = async (sock, msg) => {
       }
     }
 
-    // ── @all trigger — tag all members when someone types @all in a group ───────
-    if (isGroup && !msg.key.fromMe && /^@all\b/i.test(body)) {
-        try {
-            const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
-            const senderIsOwner = isOwner(sender);
-            if (senderIsAdmin || senderIsOwner) {
-                const allCmd = commands.get('all');
-                if (allCmd?.execute) {
-                    const allArgs = body.replace(/^@all\s*/i, '').trim().split(/\s+/).filter(Boolean);
-                    await allCmd.execute(sock, msg, allArgs, {
-                        from,
-                        sender,
-                        isGroup,
-                        groupMetadata,
-                        groupName: groupMetadata?.subject || null,
-                        isOwner: senderIsOwner,
-                        isAdmin: senderIsAdmin,
-                        isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
-                        isMod: isMod(sender),
-                        isSudo: isSudo(sender),
-                        prefix: config.prefix,
-                        command: 'all',
-                        reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
-                        react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
-                    });
-                }
-            }
-        } catch (_) {}
-        return;
-    }
-
     // ── Chatbot auto-reply (group or DM) ────────────────────────────────────────
     if (!body.startsWith(config.prefix)) {
         if (body.trim() && !msg.key.fromMe) {
@@ -920,15 +889,13 @@ const handleMessage = async (sock, msg) => {
                 if (isGroupChatbot || isDmChatbot) {
                     const { keithApi } = require('./utils/keithApi');
                     const axios = require('axios');
-                    const agent = settings.agent || 'random';
+                    const agent = settings.agent || 'keith';
 
                     try { await sock.sendPresenceUpdate('composing', from); } catch (_) {}
 
-                    // ── Text agent list ───────────────────────────────────────────
-                    // pool:false  → only used when that agent is explicitly selected;
-                    //               excluded from the random / all auto-pools
+                    // ── Text agent list (in priority/fallback order) ──────────────
                     const TEXT_AGENTS = [
-                        { id: 'keith',      endpoint: '/keithai',       pool: false },
+                        { id: 'keith',      endpoint: '/keithai' },
                         { id: 'gpt',        endpoint: '/ai/gpt4' },
                         { id: 'gemini',     endpoint: '/ai/gemini' },
                         { id: 'claude',     endpoint: '/ai/claudeai' },
@@ -938,8 +905,6 @@ const handleMessage = async (sock, msg) => {
                         { id: 'mistral',    endpoint: '/ai/mistral' },
                         { id: 'perplexity', endpoint: '/ai/perplexity' },
                     ];
-                    // Pool = all text agents except those marked pool:false (i.e. no Keith)
-                    const POOL_AGENTS = TEXT_AGENTS.filter(a => a.pool !== false);
 
                     async function tryTextAgent(endpoint) {
                         const data = await keithApi(endpoint, { q: body });
@@ -947,19 +912,7 @@ const handleMessage = async (sock, msg) => {
                     }
 
                     async function tryAllTextAgents() {
-                        for (const ag of POOL_AGENTS) {
-                            try {
-                                const res = await tryTextAgent(ag.endpoint);
-                                if (res) return res;
-                            } catch (_) {}
-                        }
-                        return null;
-                    }
-
-                    // Pick a random agent each call (from pool — no Keith); fall back to others
-                    async function tryRandomAgent() {
-                        const shuffled = [...POOL_AGENTS].sort(() => Math.random() - 0.5);
-                        for (const ag of shuffled) {
+                        for (const ag of TEXT_AGENTS) {
                             try {
                                 const res = await tryTextAgent(ag.endpoint);
                                 if (res) return res;
@@ -1072,53 +1025,6 @@ const handleMessage = async (sock, msg) => {
                                 await sendRandomMeme();
                             }
 
-                        } else if (agent === 'nemotron') {
-                            // NVIDIA Nemotron VL — handles both text chat and image vision
-                            const { chat: nvidiaChat, vision: nvidiaVision, DEFAULT_MODEL: NEMO_MODEL } = require('./utils/nvidia');
-                            const imageMessage = await getImageMessage();
-                            let nemoResult;
-                            if (imageMessage) {
-                                try {
-                                    const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-                                    const chunks = [];
-                                    const stream = await downloadContentFromMessage(imageMessage, 'image');
-                                    for await (const chunk of stream) chunks.push(chunk);
-                                    const imgBuf = Buffer.concat(chunks);
-                                    nemoResult = await nvidiaVision(
-                                        body.trim() || 'Describe this image in detail.',
-                                        imgBuf,
-                                        { model: NEMO_MODEL, maxTokens: 2048, timeoutMs: 90000 }
-                                    );
-                                } catch (_) {}
-                            }
-                            if (!nemoResult && body.trim()) {
-                                nemoResult = await nvidiaChat(body.trim(), {
-                                    model: NEMO_MODEL,
-                                    maxTokens: 2048,
-                                    timeoutMs: 90000,
-                                });
-                            }
-                            if (nemoResult) {
-                                const clean = String(nemoResult)
-                                    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-                                    .trim();
-                                await sock.sendMessage(from, { text: clean }, { quoted: msg });
-                            }
-
-                        } else if (agent === 'random') {
-                            const imageMessage = await getImageMessage();
-                            if (imageMessage) {
-                                try {
-                                    const vr = await runVision(imageMessage, body || 'Describe this image');
-                                    if (vr) {
-                                        await sock.sendMessage(from, { text: vr }, { quoted: msg });
-                                        return;
-                                    }
-                                } catch (_) {}
-                            }
-                            const result = await tryRandomAgent();
-                            if (result) await sock.sendMessage(from, { text: String(result) }, { quoted: msg });
-
                         } else if (agent === 'all') {
                             const imageMessage = await getImageMessage();
                             if (imageMessage) {
@@ -1192,69 +1098,6 @@ const handleMessage = async (sock, msg) => {
 
     const senderIsOwner = msg.key.fromMe || isOwner(resolvedSender);
     const senderIsSudo  = senderIsOwner || isSudo(resolvedSender);
-
-    // ── Anti-KickAll interception ─────────────────────────────────────────────
-    // If the group has antikickall on and a non-owner tries a destruction command,
-    // punish them (delete msg → demote → warn → kick) instead of executing it.
-    if (isGroup && !senderIsOwner) {
-      try {
-        const antikickallCmd = commands.get('antikickall');
-        const blockedCmds    = antikickallCmd?.BLOCKED_CMDS;
-        if (blockedCmds?.has(commandName)) {
-          const gs = database.getGroupSettings(from);
-          if (gs.antikickall) {
-            // 1. Delete the message
-            try { await sock.sendMessage(from, { delete: msg.key }); } catch (_) {}
-
-            const senderNum = sender.split('@')[0].split(':')[0];
-            const divider   = '━━━━━━━━━━━━━━━━━━━━';
-            const botIsAdm  = await isBotAdmin(sock, from, groupMetadata);
-
-            // 2. Demote if admin
-            const senderIsAdm = await isAdmin(sock, sender, from, groupMetadata);
-            if (senderIsAdm && botIsAdm) {
-              try { await sock.groupParticipantsUpdate(from, [sender], 'demote'); } catch (_) {}
-            }
-
-            // 3. Issue warning
-            const warnResult = database.addWarning(from, sender, `Attempted .${commandName}`);
-            const maxWarns   = config.maxWarnings || 3;
-
-            // 4. Kick them
-            if (botIsAdm) {
-              try { await sock.groupParticipantsUpdate(from, [sender], 'remove'); } catch (_) {}
-              await sock.sendMessage(from, {
-                text:
-                  `🛡️ *Anti-KickAll Protection Triggered!*\n${divider}\n` +
-                  `⚠️ @${senderNum} attempted \`.${commandName}\` — a group-destruction command.\n\n` +
-                  `*Actions taken:*\n` +
-                  `  🗑️ Message deleted\n` +
-                  (senderIsAdm ? `  ⬇️ Demoted from admin\n` : '') +
-                  `  ⚠️ Warning issued (${warnResult.count}/${maxWarns})\n` +
-                  `  🚫 Removed from group\n` +
-                  `${divider}`,
-                mentions: [sender],
-              });
-            } else {
-              await sock.sendMessage(from, {
-                text:
-                  `🛡️ *Anti-KickAll Protection Triggered!*\n${divider}\n` +
-                  `⚠️ @${senderNum} attempted \`.${commandName}\` — a group-destruction command.\n\n` +
-                  `*Actions taken:*\n` +
-                  `  🗑️ Message deleted\n` +
-                  (senderIsAdm ? `  ⬇️ Demoted from admin\n` : '') +
-                  `  ⚠️ Warning issued (${warnResult.count}/${maxWarns})\n` +
-                  `  ℹ️ _Bot needs admin rights to kick._\n` +
-                  `${divider}`,
-                mentions: [sender],
-              });
-            }
-            return; // Block command execution entirely
-          }
-        }
-      } catch (_akErr) {}
-    }
-    // ─────────────────────────────────────────────────────────────────────────
 
     // Bot mode check
     {
@@ -2017,12 +1860,6 @@ const initializeAntiCall = (sock) => {
       if (revokeUpdates.length) {
         const antidelete = commands.get('antidelete');
         if (antidelete?.handleDelete) await antidelete.handleDelete(sock, revokeUpdates);
-
-        // AntiDeleteStatus — handle deleted statuses (status@broadcast revokes)
-        const antideletestatus = commands.get('antideletestatus');
-        if (antideletestatus?.handleStatusDelete) {
-          await antideletestatus.handleStatusDelete(sock, revokeUpdates);
-        }
       }
 
       // Handle edits
@@ -2095,7 +1932,6 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
 
     const checks = [
       { enabled: groupSettings.antiimage,   action: groupSettings.antiimageAction   || 'delete', label: 'Anti Image 🖼️',   types: ['imageMessage'] },
-      { enabled: groupSettings.antivideo,   action: groupSettings.antivideoAction   || 'delete', label: 'Anti Video 🎬',   types: ['videoMessage'] },
       { enabled: groupSettings.antisticker, action: groupSettings.antistickerAction || 'delete', label: 'Anti Sticker 🎭', types: ['stickerMessage'] },
       { enabled: groupSettings.antiaudio,   action: groupSettings.antiaudioAction   || 'delete', label: 'Anti Audio 🔇',   types: ['audioMessage', 'pttMessage'] },
     ];
@@ -2211,6 +2047,5 @@ module.exports = {
   isSudo,
   getGroupMetadata,
   findParticipant,
-  getCommandCount: () => commands.size,
-  commands
+  getCommandCount: () => commands.size
 };

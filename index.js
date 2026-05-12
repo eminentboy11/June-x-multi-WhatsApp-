@@ -57,7 +57,6 @@ const { rmSync } = require('fs')
 const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
-const database = require('./database')
 
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true'
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
@@ -153,21 +152,22 @@ function saveStoredMessages(data) {
 
 global.messageBackup = loadStoredMessages()
 
-// ─── Error Counter Helpers (backed by database) ───────────────────────────────
+// ─── Error Counter Helpers ────────────────────────────────────────────────────
 
 function loadErrorCount() {
     try {
-        const meta = database.getSessionMeta()
-        return { count: meta.errorCount || 0, last_error_timestamp: meta.lastErrorTimestamp || 0 }
+        if (fs.existsSync(SESSION_ERROR_FILE)) {
+            return JSON.parse(fs.readFileSync(SESSION_ERROR_FILE, 'utf-8'))
+        }
     } catch (e) {
         log(`Error loading error count: ${e.message}`, 'red', true)
-        return { count: 0, last_error_timestamp: 0 }
     }
+    return { count: 0, last_error_timestamp: 0 }
 }
 
 function saveErrorCount(data) {
     try {
-        database.saveSessionMeta({ errorCount: data.count, lastErrorTimestamp: data.last_error_timestamp })
+        fs.writeFileSync(SESSION_ERROR_FILE, JSON.stringify(data, null, 2))
     } catch (e) {
         log(`Error saving error count: ${e.message}`, 'red', true)
     }
@@ -175,10 +175,12 @@ function saveErrorCount(data) {
 
 function deleteErrorCountFile() {
     try {
-        database.resetSessionErrors()
-        log('✅ Session error count reset.', 'green')
+        if (fs.existsSync(SESSION_ERROR_FILE)) {
+            fs.unlinkSync(SESSION_ERROR_FILE)
+            log('✅ Session error count reset.', 'green')
+        }
     } catch (e) {
-        log(`Failed to reset error count: ${e.message}`, 'red', true)
+        log(`Failed to delete error count file: ${e.message}`, 'red', true)
     }
 }
 
@@ -245,26 +247,16 @@ const question = (text) => rl
     ? new Promise(resolve => rl.question(text, resolve))
     : Promise.resolve('')
 
-// ─── Session Helpers (login method stored in database) ────────────────────────
+// ─── Session Helpers ──────────────────────────────────────────────────────────
 
 async function saveLoginMethod(method) {
-    try {
-        database.saveSessionMeta({ loginMethod: method })
-    } catch (e) {
-        // Fallback: write to file so startup never blocks
-        await fs.promises.mkdir(sessionDir, { recursive: true })
-        await fs.promises.writeFile(loginFile, JSON.stringify({ method }, null, 2))
-    }
+    await fs.promises.mkdir(sessionDir, { recursive: true })
+    await fs.promises.writeFile(loginFile, JSON.stringify({ method }, null, 2))
 }
 
 async function getLastLoginMethod() {
-    try {
-        const meta = database.getSessionMeta()
-        if (meta.loginMethod) return meta.loginMethod
-    } catch (_) {}
-    // Legacy fallback: check flat file from old installs
     if (fs.existsSync(loginFile)) {
-        try { return JSON.parse(fs.readFileSync(loginFile, 'utf-8')).method } catch (_) {}
+        return JSON.parse(fs.readFileSync(loginFile, 'utf-8')).method
     }
     return null
 }
@@ -651,30 +643,15 @@ async function startKnightBot() {
 
     // ── Connection Updates ──────────────────────────────────────────────────────
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update
-
-        // QR generated means the session is invalid — treat as logged-out
-        if (qr && !sessionExists()) {
-            log(chalk.white.bgYellowBright('[ QR ] Session invalid — clearing and restarting login...'), 'white')
-            clearSessionFiles()
-            await delay(3000)
-            return main()
-        }
+        const { connection, lastDisconnect } = update
 
         if (connection === 'close') {
             global.isBotConnected = false
-            const errOutput   = lastDisconnect?.error?.output
-            const statusCode  = errOutput?.statusCode ?? lastDisconnect?.error?.output?.payload?.statusCode
-            const errorMsg    = lastDisconnect?.error?.message || ''
-
-            // ── Logged-out / session revoked ───────────────────────────────────
-            const loggedOut = statusCode === DisconnectReason.loggedOut
-                || statusCode === 401
-                || errorMsg.toLowerCase().includes('logged out')
+            const statusCode = lastDisconnect?.error?.output?.statusCode
+            const loggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401
 
             if (loggedOut) {
                 log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session...`), 'white')
-                database.saveSessionMeta({ loginMethod: null })
                 clearSessionFiles()
                 log('Session cleared. Returning to login menu in 10 seconds...', 'yellow')
                 for (let i = 10; i > 0; i--) {
@@ -683,71 +660,32 @@ async function startKnightBot() {
                 }
                 log('Restarting login flow...', 'green')
                 return main()
-            }
-
-            // ── Account banned (403) ───────────────────────────────────────────
-            if (statusCode === 403) {
-                log(chalk.white.bgRedBright('🚫 Disconnected [403] — account banned or blocked by WhatsApp.'), 'white')
-                log('Clearing session and exiting. Contact WhatsApp support.', 'red')
-                clearSessionFiles()
-                process.exit(1)
-            }
-
-            // ── Guard: only one reconnect loop at a time ───────────────────────
-            if (global.isReconnecting) {
-                log(`[RECONNECT] Already reconnecting — skipping duplicate close event.`, 'yellow')
-                return
-            }
-            global.isReconnecting = true
-
-            try {
-                // ── Restart required (515) — fresh socket needed, reconnect fast ─
-                const restartRequired = statusCode === DisconnectReason.restartRequired
-                    || statusCode === 515
-                    || errorMsg.toLowerCase().includes('restart required')
-
-                if (restartRequired) {
-                    log(`[RECONNECT] Restart required (515) — reconnecting immediately...`, 'cyan')
-                    global.isReconnecting = false
-                    startKnightBot()
+            } else {
+                // Guard: only one reconnect at a time
+                if (global.isReconnecting) {
+                    log(`[RECONNECT] Already reconnecting — skipping duplicate close event.`, 'yellow')
                     return
                 }
+                global.isReconnecting = true
 
                 const is408 = await handle408Error(statusCode)
 
-                // ── Compute wait time based on error class ─────────────────────
+                // 440 = Conflict (another session active) — wait longer before retry
                 let waitMs
                 if (is408) {
-                    // Exponential backoff for timeouts: 5s → 10s → 20s → 40s (cap 60s)
+                    // Exponential-ish backoff for timeouts: 5s → 10s → 20s (cap 60s)
                     waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
                 } else if (statusCode === 440) {
-                    // 440 = Conflict (another session) — wait longer
                     waitMs = 20000
-                } else if (statusCode === 428 || errorMsg.toLowerCase().includes('stream')) {
-                    // 428 = stream error — short wait then reconnect
-                    waitMs = 8000
-                } else if (!statusCode) {
-                    // Network drop (no status) — quick retry
-                    waitMs = 5000
                 } else {
                     waitMs = 5000
                 }
 
-                log(`Connection closed [${statusCode ?? 'unknown'}]. Reconnecting in ${waitMs / 1000}s...`, 'yellow')
+                log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
                 await delay(waitMs)
-            } finally {
-                // Always clear the guard, even if something above throws
                 global.isReconnecting = false
-            }
-
-            try {
-                startKnightBot()
-            } catch (startErr) {
-                log(`[RECONNECT] startKnightBot failed: ${startErr.message} — retrying in 10s`, 'red', true)
-                await delay(10000)
                 startKnightBot()
             }
-
         } else if (connection === 'open') {
             global.isReconnecting = false   // Clear reconnect guard on successful open
             global.errorRetryCount = 0      // Reset timeout counter on successful connect
@@ -856,13 +794,6 @@ async function startKnightBot() {
                 if (existing.length > 20) existing.shift()
                 global.statusStore.set(normPart, existing)
             }
-
-            // ── AntiDeleteStatus — store every incoming status for recovery ───
-            try {
-                const adStatus = handler.commands?.get('antideletestatus')
-                    || require('./commands/admin/antideletestatus')
-                if (adStatus?.storeStatusMessage) adStatus.storeStatusMessage(msg)
-            } catch (_) {}
 
             try {
                 const asvMod = require('./commands/owner/autostatusview')

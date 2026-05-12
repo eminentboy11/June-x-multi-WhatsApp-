@@ -7,12 +7,11 @@ const path = require('path');
 const config = require('./config');
 
 const DB_PATH = path.join(__dirname, 'database');
-const GROUPS_DB   = path.join(DB_PATH, 'groups.json');
-const USERS_DB    = path.join(DB_PATH, 'users.json');
+const GROUPS_DB = path.join(DB_PATH, 'groups.json');
+const USERS_DB = path.join(DB_PATH, 'users.json');
 const WARNINGS_DB = path.join(DB_PATH, 'warnings.json');
-const MODS_DB     = path.join(DB_PATH, 'mods.json');
-const MUTED_DB    = path.join(DB_PATH, 'muted.json');
-const SESSION_DB  = path.join(DB_PATH, 'session.json');
+const MODS_DB = path.join(DB_PATH, 'mods.json');
+const MUTED_DB = path.join(DB_PATH, 'muted.json');
 
 // Initialize database directory
 if (!fs.existsSync(DB_PATH)) {
@@ -26,12 +25,11 @@ const initDB = (filePath, defaultData = {}) => {
   }
 };
 
-initDB(GROUPS_DB,   {});
-initDB(USERS_DB,    {});
+initDB(GROUPS_DB, {});
+initDB(USERS_DB, {});
 initDB(WARNINGS_DB, {});
-initDB(MODS_DB,     { moderators: [] });
-initDB(MUTED_DB,    {});
-initDB(SESSION_DB,  { loginMethod: null, errorCount: 0, lastErrorTimestamp: 0 });
+initDB(MODS_DB, { moderators: [] });
+initDB(MUTED_DB, {});
 
 // Read database
 const readDB = (filePath) => {
@@ -176,26 +174,6 @@ const isModerator = (userId) => {
   return false;
 };
 
-// ── Session Metadata (login method + error counter) ───────────────────────────
-const getSessionMeta = () => {
-  const defaults = { loginMethod: null, errorCount: 0, lastErrorTimestamp: 0 };
-  try {
-    return { ...defaults, ...readDB(SESSION_DB) };
-  } catch (_) {
-    return defaults;
-  }
-};
-
-const saveSessionMeta = (data) => {
-  const current = getSessionMeta();
-  return writeDB(SESSION_DB, { ...current, ...data });
-};
-
-const resetSessionErrors = () => {
-  const current = getSessionMeta();
-  return writeDB(SESSION_DB, { ...current, errorCount: 0, lastErrorTimestamp: 0 });
-};
-
 // Bad Words per group
 const getBadWords = (groupId) => {
   const groups = readDB(GROUPS_DB);
@@ -286,7 +264,4 @@ module.exports = {
   unmuteUser,
   isUserMuted,
   getMutedUsers,
-  getSessionMeta,
-  saveSessionMeta,
-  resetSessionErrors,
 };
