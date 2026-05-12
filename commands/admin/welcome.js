@@ -2,7 +2,7 @@
  * Welcome - Enable/disable welcome messages
  */
 
-const db = require(require('path').join(global.__CORE__, 'database'));
+const db = require('../../database');
 
 module.exports = {
   name: 'welcome',
