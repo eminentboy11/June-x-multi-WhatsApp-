@@ -87,6 +87,7 @@ global._activeIntervals = []
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 global.__CORE__ = __dirname
+global.__ROOT__ = __dirname
 
 const config = require('./config')
 
