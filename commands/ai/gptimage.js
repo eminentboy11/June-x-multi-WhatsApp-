@@ -6,7 +6,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { webp2png } = require(require('path').join(global.__CORE__, 'utils', 'webp2mp4'));
+const { webp2png } = require('../../utils/webp2mp4');
 const Jimp = require('jimp');
 
 module.exports = {

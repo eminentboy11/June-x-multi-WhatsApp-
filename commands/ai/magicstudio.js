@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { chat: nemotronChat } = require(require('path').join(global.__CORE__, 'utils', 'nvidia'));
+const { chat: nemotronChat } = require('../../utils/nvidia');
 
 module.exports = {
   name: 'imagine',
