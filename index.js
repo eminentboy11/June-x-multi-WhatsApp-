@@ -86,6 +86,8 @@ global._activeIntervals = []
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
+global.__CORE__ = __dirname
+
 const config = require('./config')
 
 // ─── Apply Persisted Runtime Settings ─────────────────────────────────────────
