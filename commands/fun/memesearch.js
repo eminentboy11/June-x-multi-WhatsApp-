@@ -7,7 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
-const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
+const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
 const BASE = 'https://api.shizo.top/tools/meme-search';
 

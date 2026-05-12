@@ -1,4 +1,4 @@
-const { keithApi } = require(require('path').join(global.__CORE__, 'utils', 'keithApi'));
+const { keithApi } = require('../../utils/keithApi');
 
 module.exports = {
   name: 'nhie',

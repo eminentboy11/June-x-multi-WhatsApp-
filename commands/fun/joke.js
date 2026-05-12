@@ -2,7 +2,7 @@
  * Joke Command - Send random jokes
  */
 
-const APIs = require(require('path').join(global.__CORE__, 'utils', 'api'));
+const APIs = require('../../utils/api');
 
 module.exports = {
   name: 'joke',
