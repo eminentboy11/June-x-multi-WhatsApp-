@@ -3,7 +3,7 @@
  */
 
 const { igdl } = require('ruhend-scraper');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 // Store processed message IDs to prevent duplicates
 const processedMessages = new Set();

@@ -1,5 +1,5 @@
 const yts = require('yt-search');
-const APIs = require(require('path').join(global.__CORE__, 'utils', 'api'));
+const APIs = require('../../utils/api');
 
 module.exports = {
     name: 'song',
