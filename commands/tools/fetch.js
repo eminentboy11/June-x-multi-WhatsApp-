@@ -1,5 +1,5 @@
 const axios = require('axios');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 module.exports = {
     name: 'fetch',

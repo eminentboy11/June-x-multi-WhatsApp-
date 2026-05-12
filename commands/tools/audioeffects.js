@@ -3,7 +3,7 @@ const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { toPTT } = require(require('path').join(global.__CORE__, 'utils', 'converter'));
+const { toPTT } = require('../../utils/converter');
 const ffmpegPath = require('ffmpeg-static');
 
 const TEMP_DIR = path.join(os.tmpdir(), 'june-x-audio');
