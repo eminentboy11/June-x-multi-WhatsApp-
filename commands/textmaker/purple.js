@@ -3,7 +3,7 @@
  */
 
 const mumaker = require('mumaker');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 module.exports = {
   name: 'purple',
