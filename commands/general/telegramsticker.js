@@ -17,8 +17,8 @@ const crypto     = require('crypto');
 const { spawn }  = require('child_process');
 const webp       = require('node-webpmux');
 const ffmpegPath = require('ffmpeg-static');
-const config     = require(require('path').join(global.__ROOT__, 'config'));
-const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
+const config     = require('../../config');
+const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 

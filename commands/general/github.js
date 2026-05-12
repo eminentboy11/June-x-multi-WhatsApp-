@@ -1,6 +1,6 @@
 const { sendButtons } = require('gifted-btns');
 const axios  = require('axios');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 const GITHUB_USER = 'Vinpink2';
 const GITHUB_REPO = 'June_X_Ultra';

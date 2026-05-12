@@ -3,7 +3,7 @@
  */
 
 const axios = require('axios');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 const IMAGE_API = 'https://apiskeith.top/search/images';
 

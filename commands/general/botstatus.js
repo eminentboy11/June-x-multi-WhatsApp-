@@ -1,5 +1,5 @@
 const os = require('os');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 function formatUptime(ms) {
     const s = Math.floor(ms / 1000);
@@ -67,7 +67,7 @@ module.exports = {
                 `🔹 *Cores:* ${cpuCount}\n` +
                 `🔹 *Timezone:* ${config.timezone || 'UTC'}\n\n` +
                 `✨ *Bot Behavior*\n━━━━━━━━━━━━━━━\n` +
-                `${require(require('path').join(global.__CORE__, 'utils', 'botMode')).getModeLabel()} Mode\n` +
+                `${require('../../utils/botMode').getModeLabel()} Mode\n` +
                 `${config.autoRead ? '✅' : '❌'} Auto Read\n` +
                 `${config.autoTyping ? '✅' : '❌'} Auto Typing\n` +
                 `${config.autoReact ? '✅' : '❌'} Auto React (${config.autoReactMode || 'bot'})\n` +

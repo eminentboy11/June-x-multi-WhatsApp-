@@ -10,8 +10,8 @@ const crypto = require('crypto');
 const webp = require('node-webpmux');
 const ffmpegPath = require('ffmpeg-static');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const config = require(require('path').join(global.__ROOT__, 'config'));
-const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
+const config = require('../../config');
+const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
 // Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;

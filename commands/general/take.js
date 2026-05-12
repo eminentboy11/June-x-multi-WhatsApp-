@@ -6,7 +6,7 @@
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const webp = require('node-webpmux');
 const crypto = require('crypto');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const config = require('../../config');
 
 module.exports = {
   name: 'take',

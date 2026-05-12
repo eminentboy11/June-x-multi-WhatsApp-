@@ -5,8 +5,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const config = require(require('path').join(global.__ROOT__, 'config'));
-const { loadCommands } = require(require('path').join(global.__CORE__, 'utils', 'commandLoader'));
+const config = require('../../config');
+const { loadCommands } = require('../../utils/commandLoader');
 const { sendButtons } = require('gifted-btns');
 
 module.exports = {

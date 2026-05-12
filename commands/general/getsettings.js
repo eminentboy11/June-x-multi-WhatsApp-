@@ -1,20 +1,6 @@
 const { sendButtons } = require('gifted-btns');
-const config   = require(require('path').join(global.__ROOT__, 'config'));
-const database = require(require('path').join(global.__CORE__, 'database'));
-const fs       = require('fs');
-const path     = require('path');
-
-const ANTIDEL_PATH = path.join(__dirname, '../../data/antidelete.json');
-function getAntideleteStatus() {
-    try {
-        if (!fs.existsSync(ANTIDEL_PATH)) return '❌ OFF';
-        const cfg = JSON.parse(fs.readFileSync(ANTIDEL_PATH, 'utf8'));
-        const mode = cfg['_global']?.mode;
-        if (mode === 'chat')    return '✅ ON (chat)';
-        if (mode === 'private') return '✅ ON (private→DM)';
-        return '❌ OFF';
-    } catch { return '❌ OFF'; }
-}
+const config   = require('../../config');
+const database = require('../../database');
 
 module.exports = {
     name: 'getsettings',
@@ -78,7 +64,7 @@ module.exports = {
                     `${gs.antisticker ? on : off} Anti Sticker (${gs.antistickerAction || 'delete'})\n` +
                     `${gs.antiaudio ? on : off} Anti Audio (${gs.antiaudioAction || 'delete'})\n` +
                     `${gs.antiSpam ? on : off} Anti Spam\n` +
-                    `${getAntideleteStatus()} Anti Delete\n\n` +
+                    `${gs.antidelete ? on : off} Anti Delete\n\n` +
                     `👋 *Welcome/Goodbye*\n` +
                     `${gs.welcome ? on : off} Welcome\n` +
                     `${gs.goodbye ? on : off} Goodbye\n\n` +
@@ -106,7 +92,7 @@ module.exports = {
                 // Presence mode label — read live from presence.json
                 let presenceMode = '❌ OFF';
                 try {
-                    const { getMode } = require(require('path').join(global.__CORE__, 'utils', 'presenceSettings'));
+                    const { getMode } = require('../../utils/presenceSettings');
                     const pm = getMode();
                     if (pm === 'recordtype') presenceMode = '🎙️⌨️ Record+Type';
                     else if (pm === 'recording') presenceMode = '🎙️ Recording';
@@ -123,7 +109,7 @@ module.exports = {
                     `🕐 Timezone: *${config.timezone || 'UTC'}*\n` +
                     `🎨 Pack Name: *${config.packname || 'N/A'}*\n\n` +
                     `📌 *Bot Behaviour*\n` +
-                    `${require(require('path').join(global.__CORE__, 'utils', 'botMode')).getModeLabel()} Mode\n` +
+                    `${require('../../utils/botMode').getModeLabel()} Mode\n` +
                     `${config.autoRead     ? '✅' : '❌'} Auto Read\n` +
                     `${config.autoBio      ? '✅' : '❌'} Auto Bio\n` +
                     `${config.autoSticker  ? '✅' : '❌'} Auto Sticker\n` +

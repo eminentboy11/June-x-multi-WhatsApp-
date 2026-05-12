@@ -6,7 +6,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { writeExifVid } = require(require('path').join(global.__CORE__, 'utils', 'exif'));
+const { writeExifVid } = require('../../utils/exif');
 
 // ffmpeg-static ships WITHOUT the drawtext filter.
 // Search multiple known locations (PATH, system dirs, Nix store on Replit)

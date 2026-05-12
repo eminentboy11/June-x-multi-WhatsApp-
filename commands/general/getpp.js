@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { tryFetchProfilePictureUrl, displayUserTag } = require(require('path').join(global.__CORE__, 'utils', 'jidHelper'));
+const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
 
 function toJid(input) {
   if (!input) return null;

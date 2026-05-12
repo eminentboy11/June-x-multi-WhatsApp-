@@ -1,6 +1,6 @@
 const os = require('os');
-const config = require(require('path').join(global.__ROOT__, 'config'));
-const { loadCommands } = require(require('path').join(global.__CORE__, 'utils', 'commandLoader'));
+const config = require('../../config');
+const { loadCommands } = require('../../utils/commandLoader');
 
 const botStartTime = Date.now() - Math.floor(process.uptime() * 1000);
 

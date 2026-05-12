@@ -16,8 +16,8 @@ const crypto = require('crypto');
 const sharp  = require('sharp');
 const webp   = require('node-webpmux');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { getTempDir, deleteTempFile } = require(require('path').join(global.__CORE__, 'utils', 'tempManager'));
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
+const config = require('../../config');
 
 // ─── ffmpeg resolver (used only for animated stickers/video) ────────────────
 // Searches several known locations so it works on Replit, Heroku, VPS, etc.

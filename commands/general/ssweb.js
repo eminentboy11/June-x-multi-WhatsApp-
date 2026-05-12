@@ -2,7 +2,7 @@
  * SSWeb - Screenshot Website Command
  */
 
-const APIs = require(require('path').join(global.__CORE__, 'utils', 'api'));
+const APIs = require('../../utils/api');
 
 module.exports = {
   name: 'ssweb',
