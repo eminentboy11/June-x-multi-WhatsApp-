@@ -5,7 +5,7 @@ module.exports = {
     botName: 'June-Ultra',
     prefix: '.',
     version: '2.8.2',
-    sessionName: 'session',
+    sessionName: '',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
