@@ -28,10 +28,13 @@ module.exports = {
         react: { text: '📥', key: msg.key }
       });
       
-      const screenshotBuffer = await APIs.screenshotWebsite(url);
-      
+      const screenshotData = await APIs.screenshotWebsite(url);
+      const imagePayload = typeof screenshotData === 'string'
+        ? { url: screenshotData }
+        : screenshotData;
+
       await sock.sendMessage(extra.from, {
-        image: screenshotBuffer,
+        image: imagePayload,
       }, { quoted: msg });
       
     } catch (error) {
