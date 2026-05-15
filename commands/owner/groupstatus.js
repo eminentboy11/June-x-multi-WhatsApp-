@@ -1,7 +1,13 @@
+/**
+ * Group Status — post text, image, video or audio to a group's story (WhatsApp Group Status)
+ * Compatible with @whiskeysockets/baileys v7.0.0-rc.10
+ */
+
 const crypto = require('crypto');
 const {
   generateWAMessageContent,
   generateWAMessageFromContent,
+  prepareWAMessageMedia,
   downloadContentFromMessage,
 } = require('@whiskeysockets/baileys');
 const { PassThrough } = require('stream');
@@ -9,13 +15,12 @@ const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-// Single default color for text statuses (purple)
 const PURPLE_COLOR = '#9C27B0';
 
 module.exports = {
   name: 'groupstatus',
   aliases: ['togstatus', 'swgc', 'gs', 'gstatus'],
-  description: 'Post replied media or text as a WhatsApp group status (new Group Status feature).',
+  description: 'Post replied media or text as a WhatsApp group status (Group Story feature).',
   usage: '.groupstatus [caption] [groupJid]  — groupJid required when used in private chat',
   category: 'owner',
   ownerOnly: true,
@@ -25,7 +30,6 @@ module.exports = {
       const from = extra.from;
 
       // Resolve target group JID
-      // When used from a private chat, the last argument must be a group JID (ends with @g.us)
       let targetJid = null;
       let captionArgs = [...(args || [])];
 
@@ -45,17 +49,20 @@ module.exports = {
           '  `.swgc` (reply to image/video/audio)\n\n' +
           '*From private chat:*\n' +
           '  `.swgc Hello everyone <groupjid>`\n' +
-          '  `.swgc <groupjid>` (reply to media)\n\n' +
-          ''
+          '  `.swgc <groupjid>` (reply to media)\n\n'
         );
       }
 
       const caption = captionArgs.join(' ').trim();
 
-      const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
+      const ctxInfo = msg.message?.extendedTextMessage?.contextInfo
+        || msg.message?.imageMessage?.contextInfo
+        || msg.message?.videoMessage?.contextInfo
+        || msg.message?.audioMessage?.contextInfo;
+
       const hasQuoted = !!ctxInfo?.quotedMessage;
 
-      // CASE 1: No quoted message -> treat as TEXT group status
+      // CASE 1: No quoted message → text group status
       if (!hasQuoted) {
         if (!caption) {
           return extra.reply(
@@ -65,24 +72,24 @@ module.exports = {
             '  `.swgc` (reply to image/video/audio)\n\n' +
             '*From private chat:*\n' +
             '  `.swgc Hello everyone <groupjid>`\n' +
-            '  `.swgc <groupjid>` (reply to media)\n\n' +
-            ''
+            '  `.swgc <groupjid>` (reply to media)\n\n'
           );
         }
 
         try {
-          await groupStatus(sock, targetJid, {
+          await sendGroupStatus(sock, targetJid, {
+            type: 'text',
             text: caption,
             backgroundColor: PURPLE_COLOR,
           });
-          return extra.reply('💯');
+          return extra.reply('✅ Text status posted!');
         } catch (e) {
           console.error('groupstatus text error:', e);
           return extra.reply('❌ Failed to post text group status: ' + (e.message || e));
         }
       }
 
-      // CASE 2: Quoted media -> image/video/audio group status
+      // CASE 2: Quoted media
       const targetMessage = {
         key: {
           remoteJid: from,
@@ -94,31 +101,23 @@ module.exports = {
 
       const mtype = Object.keys(targetMessage.message)[0] || '';
 
-      const downloadBuf = async () => {
-        const qmsg = targetMessage.message;
-        if (/image/i.test(mtype))   return await downloadMedia(qmsg, 'image');
-        if (/video/i.test(mtype))   return await downloadMedia(qmsg, 'video');
-        if (/audio/i.test(mtype))   return await downloadMedia(qmsg, 'audio');
-        if (/sticker/i.test(mtype)) return await downloadMedia(qmsg, 'sticker'); // download sticker correctly
-        return null;
-      };
-
-      // IMAGE (also handles stickers)
+      // IMAGE / STICKER
       if (/image|sticker/i.test(mtype)) {
         let buf;
         try {
-          buf = await downloadBuf();
-        } catch {
-          return extra.reply('❌ Failed to download image');
+          buf = await downloadMedia(targetMessage.message, /sticker/i.test(mtype) ? 'sticker' : 'image');
+        } catch (e) {
+          return extra.reply('❌ Failed to download image: ' + e.message);
         }
         if (!buf) return extra.reply('❌ Could not download image');
 
         try {
-          await groupStatus(sock, targetJid, {
-            image: buf,
+          await sendGroupStatus(sock, targetJid, {
+            type: 'image',
+            buffer: buf,
             caption: caption || '',
           });
-          return extra.reply('✅');
+          return extra.reply('✅ Image status posted!');
         } catch (e) {
           console.error('groupstatus image error:', e);
           return extra.reply('❌ Failed to post image group status: ' + (e.message || e));
@@ -129,56 +128,48 @@ module.exports = {
       if (/video/i.test(mtype)) {
         let buf;
         try {
-          buf = await downloadBuf();
-        } catch {
-          return extra.reply('❌ Failed to download video');
+          buf = await downloadMedia(targetMessage.message, 'video');
+        } catch (e) {
+          return extra.reply('❌ Failed to download video: ' + e.message);
         }
         if (!buf) return extra.reply('❌ Could not download video');
 
         try {
-          await groupStatus(sock, targetJid, {
-            video: buf,
+          await sendGroupStatus(sock, targetJid, {
+            type: 'video',
+            buffer: buf,
             caption: caption || '',
           });
-          return extra.reply('✅');
+          return extra.reply('✅ Video status posted!');
         } catch (e) {
           console.error('groupstatus video error:', e);
           return extra.reply('❌ Failed to post video group status: ' + (e.message || e));
         }
       }
 
-      // AUDIO (voice-style group status)
+      // AUDIO
       if (/audio/i.test(mtype)) {
         let buf;
         try {
-          buf = await downloadBuf();
-        } catch {
-          return extra.reply('❌ Failed to download audio');
+          buf = await downloadMedia(targetMessage.message, 'audio');
+        } catch (e) {
+          return extra.reply('❌ Failed to download audio: ' + e.message);
         }
         if (!buf) return extra.reply('❌ Could not download audio');
 
-        let vn;
-        try {
-          vn = await toVN(buf);
-        } catch {
-          vn = buf;
-        }
+        let vn = buf;
+        try { vn = await toVN(buf); } catch (_) {}
 
         let waveform;
-        try {
-          waveform = await generateWaveform(buf);
-        } catch {
-          waveform = undefined;
-        }
+        try { waveform = await generateWaveform(buf); } catch (_) {}
 
         try {
-          await groupStatus(sock, targetJid, {
-            audio: vn,
-            mimetype: 'audio/ogg; codecs=opus',
-            ptt: true,
+          await sendGroupStatus(sock, targetJid, {
+            type: 'audio',
+            buffer: vn,
             waveform,
           });
-          return extra.reply('✅');
+          return extra.reply('✅ Audio status posted!');
         } catch (e) {
           console.error('groupstatus audio error:', e);
           return extra.reply('❌ Failed to post audio group status: ' + (e.message || e));
@@ -193,30 +184,76 @@ module.exports = {
   },
 };
 
-// ---- Helpers ----
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 async function downloadMedia(msg, type) {
   const mediaMsg = msg[`${type}Message`] || msg;
   const stream = await downloadContentFromMessage(mediaMsg, type);
   const chunks = [];
-  for await (const chunk of stream) {
-    chunks.push(chunk);
-  }
+  for await (const chunk of stream) chunks.push(chunk);
   return Buffer.concat(chunks);
 }
 
-async function groupStatus(sock, jid, content) {
-  const { backgroundColor } = content;
-  delete content.backgroundColor;
-
-  const inside = await generateWAMessageContent(content, {
-    upload: sock.waUploadToServer,
-    backgroundColor: backgroundColor || PURPLE_COLOR,
-  });
-
+/**
+ * Send a group status (group story) message.
+ * Uses prepareWAMessageMedia for media types so that uploads work correctly
+ * with Baileys v7.0.0-rc.10.
+ */
+async function sendGroupStatus(sock, jid, content) {
   const secret = crypto.randomBytes(32);
+  let inside;
 
-  const msg = generateWAMessageFromContent(
+  if (content.type === 'text') {
+    inside = await generateWAMessageContent(
+      { text: content.text },
+      {
+        upload: sock.waUploadToServer,
+        backgroundColor: content.backgroundColor || PURPLE_COLOR,
+      }
+    );
+  } else if (content.type === 'image') {
+    const prepared = await prepareWAMessageMedia(
+      { image: content.buffer },
+      { upload: sock.waUploadToServer }
+    );
+    inside = {
+      imageMessage: {
+        ...prepared.imageMessage,
+        caption: content.caption || '',
+      },
+    };
+  } else if (content.type === 'video') {
+    const prepared = await prepareWAMessageMedia(
+      { video: content.buffer },
+      { upload: sock.waUploadToServer }
+    );
+    inside = {
+      videoMessage: {
+        ...prepared.videoMessage,
+        caption: content.caption || '',
+      },
+    };
+  } else if (content.type === 'audio') {
+    const prepared = await prepareWAMessageMedia(
+      {
+        audio: content.buffer,
+        mimetype: 'audio/ogg; codecs=opus',
+        ptt: true,
+      },
+      { upload: sock.waUploadToServer }
+    );
+    inside = {
+      audioMessage: {
+        ...prepared.audioMessage,
+        waveform: content.waveform,
+        ptt: true,
+      },
+    };
+  } else {
+    throw new Error('Unknown group status content type: ' + content.type);
+  }
+
+  const outMsg = generateWAMessageFromContent(
     jid,
     {
       messageContextInfo: { messageSecret: secret },
@@ -230,8 +267,8 @@ async function groupStatus(sock, jid, content) {
     {}
   );
 
-  await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
-  return msg;
+  await sock.relayMessage(jid, outMsg.message, { messageId: outMsg.key.id });
+  return outMsg;
 }
 
 function toVN(buffer) {
@@ -239,9 +276,7 @@ function toVN(buffer) {
     const input = new PassThrough();
     const output = new PassThrough();
     const chunks = [];
-
     input.end(buffer);
-
     ffmpeg(input)
       .noVideo()
       .audioCodec('libopus')
@@ -251,7 +286,6 @@ function toVN(buffer) {
       .on('error', reject)
       .on('end', () => resolve(Buffer.concat(chunks)))
       .pipe(output);
-
     output.on('data', (c) => chunks.push(c));
   });
 }
@@ -260,9 +294,7 @@ function generateWaveform(buffer, bars = 64) {
   return new Promise((resolve, reject) => {
     const input = new PassThrough();
     input.end(buffer);
-
     const chunks = [];
-
     ffmpeg(input)
       .audioChannels(1)
       .audioFrequency(16000)
@@ -272,27 +304,18 @@ function generateWaveform(buffer, bars = 64) {
         const raw = Buffer.concat(chunks);
         const samples = raw.length / 2;
         const amps = [];
-
         for (let i = 0; i < samples; i++) {
           amps.push(Math.abs(raw.readInt16LE(i * 2)) / 32768);
         }
-
         const size = Math.floor(amps.length / bars);
         if (size === 0) return resolve(undefined);
-
         const avg = Array.from({ length: bars }, (_, i) =>
-          amps
-            .slice(i * size, (i + 1) * size)
-            .reduce((a, b) => a + b, 0) / size
+          amps.slice(i * size, (i + 1) * size).reduce((a, b) => a + b, 0) / size
         );
-
         const max = Math.max(...avg);
         if (max === 0) return resolve(undefined);
-
         resolve(
-          Buffer.from(
-            avg.map((v) => Math.floor((v / max) * 100))
-          ).toString('base64')
+          Buffer.from(avg.map((v) => Math.floor((v / max) * 100))).toString('base64')
         );
       })
       .pipe()
