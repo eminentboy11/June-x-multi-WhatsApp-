@@ -7,7 +7,6 @@ const crypto = require('crypto');
 const {
   generateWAMessageContent,
   generateWAMessageFromContent,
-  prepareWAMessageMedia,
   downloadContentFromMessage,
 } = require('@whiskeysockets/baileys');
 const { PassThrough } = require('stream');
@@ -55,14 +54,11 @@ module.exports = {
 
       const caption = captionArgs.join(' ').trim();
 
-      const ctxInfo = msg.message?.extendedTextMessage?.contextInfo
-        || msg.message?.imageMessage?.contextInfo
-        || msg.message?.videoMessage?.contextInfo
-        || msg.message?.audioMessage?.contextInfo;
+      // Unwrap any container (ephemeral etc.) to find contextInfo
+      const ctxInfo = extractContextInfo(msg);
+      const hasQuoted = !!(ctxInfo?.quotedMessage);
 
-      const hasQuoted = !!ctxInfo?.quotedMessage;
-
-      // CASE 1: No quoted message → text group status
+      // ── CASE 1: No quoted message → text group status ──────────────────────
       if (!hasQuoted) {
         if (!caption) {
           return extra.reply(
@@ -75,7 +71,6 @@ module.exports = {
             '  `.swgc <groupjid>` (reply to media)\n\n'
           );
         }
-
         try {
           await sendGroupStatus(sock, targetJid, {
             type: 'text',
@@ -84,43 +79,39 @@ module.exports = {
           });
           return extra.reply('✅ Text status posted!');
         } catch (e) {
-          console.error('groupstatus text error:', e);
-          return extra.reply('❌ Failed to post text group status: ' + (e.message || e));
+          console.error('[groupstatus] text error:', e);
+          return extra.reply('❌ Failed to post text status: ' + (e.message || e));
         }
       }
 
-      // CASE 2: Quoted media
+      // ── CASE 2: Quoted media ────────────────────────────────────────────────
+      const quotedMsg = ctxInfo.quotedMessage;
+      const mtype = Object.keys(quotedMsg)[0] || '';
+
       const targetMessage = {
         key: {
           remoteJid: from,
           id: ctxInfo.stanzaId,
           participant: ctxInfo.participant,
         },
-        message: ctxInfo.quotedMessage,
+        message: quotedMsg,
       };
-
-      const mtype = Object.keys(targetMessage.message)[0] || '';
 
       // IMAGE / STICKER
       if (/image|sticker/i.test(mtype)) {
         let buf;
         try {
-          buf = await downloadMedia(targetMessage.message, /sticker/i.test(mtype) ? 'sticker' : 'image');
+          buf = await downloadMedia(quotedMsg, /sticker/i.test(mtype) ? 'sticker' : 'image');
         } catch (e) {
           return extra.reply('❌ Failed to download image: ' + e.message);
         }
         if (!buf) return extra.reply('❌ Could not download image');
-
         try {
-          await sendGroupStatus(sock, targetJid, {
-            type: 'image',
-            buffer: buf,
-            caption: caption || '',
-          });
+          await sendGroupStatus(sock, targetJid, { type: 'image', buffer: buf, caption: caption || '' });
           return extra.reply('✅ Image status posted!');
         } catch (e) {
-          console.error('groupstatus image error:', e);
-          return extra.reply('❌ Failed to post image group status: ' + (e.message || e));
+          console.error('[groupstatus] image error:', e);
+          return extra.reply('❌ Failed to post image status: ' + (e.message || e));
         }
       }
 
@@ -128,22 +119,17 @@ module.exports = {
       if (/video/i.test(mtype)) {
         let buf;
         try {
-          buf = await downloadMedia(targetMessage.message, 'video');
+          buf = await downloadMedia(quotedMsg, 'video');
         } catch (e) {
           return extra.reply('❌ Failed to download video: ' + e.message);
         }
         if (!buf) return extra.reply('❌ Could not download video');
-
         try {
-          await sendGroupStatus(sock, targetJid, {
-            type: 'video',
-            buffer: buf,
-            caption: caption || '',
-          });
+          await sendGroupStatus(sock, targetJid, { type: 'video', buffer: buf, caption: caption || '' });
           return extra.reply('✅ Video status posted!');
         } catch (e) {
-          console.error('groupstatus video error:', e);
-          return extra.reply('❌ Failed to post video group status: ' + (e.message || e));
+          console.error('[groupstatus] video error:', e);
+          return extra.reply('❌ Failed to post video status: ' + (e.message || e));
         }
       }
 
@@ -151,7 +137,7 @@ module.exports = {
       if (/audio/i.test(mtype)) {
         let buf;
         try {
-          buf = await downloadMedia(targetMessage.message, 'audio');
+          buf = await downloadMedia(quotedMsg, 'audio');
         } catch (e) {
           return extra.reply('❌ Failed to download audio: ' + e.message);
         }
@@ -164,21 +150,17 @@ module.exports = {
         try { waveform = await generateWaveform(buf); } catch (_) {}
 
         try {
-          await sendGroupStatus(sock, targetJid, {
-            type: 'audio',
-            buffer: vn,
-            waveform,
-          });
+          await sendGroupStatus(sock, targetJid, { type: 'audio', buffer: vn, waveform });
           return extra.reply('✅ Audio status posted!');
         } catch (e) {
-          console.error('groupstatus audio error:', e);
-          return extra.reply('❌ Failed to post audio group status: ' + (e.message || e));
+          console.error('[groupstatus] audio error:', e);
+          return extra.reply('❌ Failed to post audio status: ' + (e.message || e));
         }
       }
 
       return extra.reply('❌ Unsupported media type. Reply to an image, video, or audio.');
     } catch (e) {
-      console.error('groupstatus command error (outer):', e);
+      console.error('[groupstatus] outer error:', e);
       return extra.reply('❌ Error: ' + (e.message || e));
     }
   },
@@ -186,8 +168,34 @@ module.exports = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-async function downloadMedia(msg, type) {
-  const mediaMsg = msg[`${type}Message`] || msg;
+/**
+ * Walk through ephemeral/viewOnce wrappers and return the contextInfo
+ * from whichever inner message type contains it.
+ */
+function extractContextInfo(msg) {
+  let m = msg.message;
+  if (!m) return null;
+
+  // Unwrap common containers
+  if (m.ephemeralMessage?.message)      m = m.ephemeralMessage.message;
+  if (m.viewOnceMessageV2?.message)     m = m.viewOnceMessageV2.message;
+  if (m.viewOnceMessage?.message)       m = m.viewOnceMessage.message;
+  if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
+
+  return (
+    m.extendedTextMessage?.contextInfo  ||
+    m.imageMessage?.contextInfo         ||
+    m.videoMessage?.contextInfo         ||
+    m.audioMessage?.contextInfo         ||
+    m.documentMessage?.contextInfo      ||
+    m.stickerMessage?.contextInfo       ||
+    null
+  );
+}
+
+async function downloadMedia(quotedMsg, type) {
+  // quotedMsg is the raw quoted message object e.g. { imageMessage: {...} }
+  const mediaMsg = quotedMsg[`${type}Message`] || quotedMsg;
   const stream = await downloadContentFromMessage(mediaMsg, type);
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
@@ -195,73 +203,57 @@ async function downloadMedia(msg, type) {
 }
 
 /**
- * Send a group status (group story) message.
- * Uses prepareWAMessageMedia for media types so that uploads work correctly
- * with Baileys v7.0.0-rc.10.
+ * Build and send a group status (group story) message.
+ *
+ * Key fix for Baileys v7: generateWAMessageContent returns a proto.Message
+ * object — we must NOT spread it. Instead we mutate it directly (add
+ * messageContextInfo) and pass it as-is into groupStatusMessageV2.message.
+ * This preserves all binary fields (mediaKey, fileEncSha256, etc.) that
+ * would be lost or corrupted by JSON.parse/JSON.stringify or object spread.
  */
 async function sendGroupStatus(sock, jid, content) {
   const secret = crypto.randomBytes(32);
-  let inside;
+
+  // Build the source content for generateWAMessageContent
+  let msgContent;
+  const uploadOptions = { upload: sock.waUploadToServer };
 
   if (content.type === 'text') {
-    inside = await generateWAMessageContent(
-      { text: content.text },
-      {
-        upload: sock.waUploadToServer,
-        backgroundColor: content.backgroundColor || PURPLE_COLOR,
-      }
-    );
+    msgContent = { text: content.text };
+    uploadOptions.backgroundColor = content.backgroundColor || PURPLE_COLOR;
   } else if (content.type === 'image') {
-    const prepared = await prepareWAMessageMedia(
-      { image: content.buffer },
-      { upload: sock.waUploadToServer }
-    );
-    inside = {
-      imageMessage: {
-        ...prepared.imageMessage,
-        caption: content.caption || '',
-      },
-    };
+    msgContent = { image: content.buffer, caption: content.caption || '' };
   } else if (content.type === 'video') {
-    const prepared = await prepareWAMessageMedia(
-      { video: content.buffer },
-      { upload: sock.waUploadToServer }
-    );
-    inside = {
-      videoMessage: {
-        ...prepared.videoMessage,
-        caption: content.caption || '',
-      },
-    };
+    msgContent = { video: content.buffer, caption: content.caption || '' };
   } else if (content.type === 'audio') {
-    const prepared = await prepareWAMessageMedia(
-      {
-        audio: content.buffer,
-        mimetype: 'audio/ogg; codecs=opus',
-        ptt: true,
-      },
-      { upload: sock.waUploadToServer }
-    );
-    inside = {
-      audioMessage: {
-        ...prepared.audioMessage,
-        waveform: content.waveform,
-        ptt: true,
-      },
+    msgContent = {
+      audio: content.buffer,
+      mimetype: 'audio/ogg; codecs=opus',
+      ptt: true,
     };
   } else {
     throw new Error('Unknown group status content type: ' + content.type);
   }
 
+  // generateWAMessageContent handles all media uploads internally via
+  // prepareWAMessageMedia — returns a live proto.Message instance.
+  const innerContent = await generateWAMessageContent(msgContent, uploadOptions);
+
+  // Inject waveform for audio (proto object allows direct property mutation)
+  if (content.type === 'audio' && content.waveform && innerContent.audioMessage) {
+    innerContent.audioMessage.waveform = Buffer.from(content.waveform, 'base64');
+  }
+
+  // Stamp the message secret directly onto the proto object
+  innerContent.messageContextInfo = { messageSecret: secret };
+
+  // Wrap in groupStatusMessageV2 and relay
   const outMsg = generateWAMessageFromContent(
     jid,
     {
       messageContextInfo: { messageSecret: secret },
       groupStatusMessageV2: {
-        message: {
-          ...inside,
-          messageContextInfo: { messageSecret: secret },
-        },
+        message: innerContent,
       },
     },
     {}
@@ -270,6 +262,8 @@ async function sendGroupStatus(sock, jid, content) {
   await sock.relayMessage(jid, outMsg.message, { messageId: outMsg.key.id });
   return outMsg;
 }
+
+// ── Audio conversion helpers ───────────────────────────────────────────────────
 
 function toVN(buffer) {
   return new Promise((resolve, reject) => {
