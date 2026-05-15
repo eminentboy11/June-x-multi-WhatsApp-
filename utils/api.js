@@ -80,7 +80,13 @@ const APIs = {
       const response = await api.get(`https://api.siputzx.my.id/api/tools/translate`, {
         params: { text, to }
       });
-      return response.data;
+      const translated =
+        response.data?.data?.translatedText ||
+        response.data?.translatedText ||
+        response.data?.result ||
+        response.data?.translation;
+      if (!translated) throw new Error('No translation returned');
+      return { translation: translated };
     } catch (error) {
       throw new Error('Translation failed');
     }
@@ -99,8 +105,12 @@ const APIs = {
   // Random Quote
   getQuote: async () => {
     try {
-      const response = await api.get('https://api.quotable.io/random');
-      return response.data;
+      const response = await api.get('https://zenquotes.io/api/random');
+      const item = Array.isArray(response.data) ? response.data[0] : response.data;
+      return {
+        content: item.q,
+        author: item.a
+      };
     } catch (error) {
       throw new Error('Failed to fetch quote');
     }
@@ -177,7 +187,13 @@ const APIs = {
     
     const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.result?.download_url) return res.data.result;
+    if (res?.data?.result?.download_url) {
+      return {
+        download: res.data.result.download_url,
+        title: res.data.result.title,
+        thumbnail: res.data.result.thumbnail
+      };
+    }
     throw new Error('youtube?url returned no download');
   },
   
@@ -207,8 +223,14 @@ const APIs = {
     
     const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(query)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.result?.download_url) return res.data.result;
-    throw new Error(' youtube-play returned no download');
+    if (res?.data?.result?.download_url) {
+      return {
+        download: res.data.result.download_url,
+        title: res.data.result.title,
+        thumbnail: res.data.result.thumbnail
+      };
+    }
+    throw new Error('youtube-play returned no download');
   },
   
   getYupraDownloadByUrl: async (youtubeUrl) => {
@@ -219,7 +241,7 @@ const APIs = {
         'Accept': 'application/json, text/plain, */*'
       }
     };
-    
+
     const tryRequest = async (getter, attempts = 3) => {
       let lastError;
       for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -234,17 +256,17 @@ const APIs = {
       }
       throw lastError;
     };
-    
-    const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`;
+
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.success && res?.data?.data?.download_url) {
+    if (res?.data?.result?.download_url) {
       return {
-        download: res.data.data.download_url,
-        title: res.data.data.title,
-        thumbnail: res.data.data.thumbnail
+        download: res.data.result.download_url,
+        title: res.data.result.title,
+        thumbnail: res.data.result.thumbnail
       };
     }
-    throw new Error('Yupra returned no download');
+    throw new Error('GiftedTech yta returned no download');
   },
   
   getOkatsuDownloadByUrl: async (youtubeUrl) => {
@@ -398,7 +420,7 @@ const APIs = {
         'Accept': 'application/json, text/plain, */*'
       }
     };
-    
+
     const tryRequest = async (getter, attempts = 3) => {
       let lastError;
       for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -413,19 +435,18 @@ const APIs = {
       }
       throw lastError;
     };
-    
-    const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`;
+
+    const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp4`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.success && res?.data?.data?.download_url) {
+    if (res?.data?.success && res?.data?.downloadURL) {
       return {
-        download: res.data.data.download_url,
-        title: res.data.data.title,
-        thumbnail: res.data.data.thumbnail
+        download: res.data.downloadURL,
+        title: res.data.title
       };
     }
-    throw new Error('Yupra returned no download');
+    throw new Error('EliteProTech ytdown video returned no download');
   },
-  
+
   getOkatsuVideoByUrl: async (youtubeUrl) => {
     const AXIOS_DEFAULTS = {
       timeout: 60000,
@@ -434,7 +455,7 @@ const APIs = {
         'Accept': 'application/json, text/plain, */*'
       }
     };
-    
+
     const tryRequest = async (getter, attempts = 3) => {
       let lastError;
       for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -449,13 +470,17 @@ const APIs = {
       }
       throw lastError;
     };
-    
-    const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`;
+
+    const apiUrl = `https://apiskeith.top/download/video?url=${encodeURIComponent(youtubeUrl)}`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.result?.mp4) {
-      return { download: res.data.result.mp4, title: res.data.result.title };
+    if (res?.data?.status && res?.data?.result) {
+      return {
+        download: res.data.result,
+        title: res.data.title || null,
+        thumbnail: res.data.thumbnail || null
+      };
     }
-    throw new Error('Okatsu ytmp4 returned no mp4');
+    throw new Error('ApisKeith video returned no download');
   },
   
   // TikTok Download API
