@@ -62,11 +62,6 @@ module.exports = {
                 } catch (e) {}
             }
 
-            // --- Simple downloading message with title in italics ---
-            await sock.sendMessage(chatId, {
-                text: `_Downloading_\n_${title}_`
-            }, { quoted: msg });
-
             // --- Audio download ---
             const apiFns = [
                 () => APIs.getApisKeithAudioByUrl(videoUrl),
