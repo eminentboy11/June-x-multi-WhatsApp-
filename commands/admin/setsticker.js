@@ -12,6 +12,9 @@ const ACTION_DESC = {
   mute:    'Mutes the quoted member (bot ignores them)',
 };
 
+// Keys that must be skipped when looking for the real message type
+const SKIP_KEYS = ['messageContextInfo', 'protocolMessage', 'senderKeyDistributionMessage'];
+
 const WRAPPERS = [
   'ephemeralMessage',
   'viewOnceMessage',
@@ -22,7 +25,8 @@ const WRAPPERS = [
 
 function resolveContent(message) {
   if (!message) return null;
-  const top = Object.keys(message)[0];
+  const keys = Object.keys(message).filter(k => !SKIP_KEYS.includes(k));
+  const top = keys[0];
   if (!top) return null;
   if (WRAPPERS.includes(top)) return message[top]?.message || null;
   return message;
@@ -31,9 +35,18 @@ function resolveContent(message) {
 function extractContextInfo(msg) {
   const content = resolveContent(msg.message);
   if (!content) return null;
-  const top = Object.keys(content)[0];
+  // Find the real message type, skipping protocol/meta keys
+  const keys = Object.keys(content).filter(k => !SKIP_KEYS.includes(k));
+  const top = keys[0];
   if (!top) return null;
   return content[top]?.contextInfo || null;
+}
+
+function toBase64Hash(raw) {
+  if (!raw) return null;
+  if (Buffer.isBuffer(raw)) return raw.toString('base64');
+  if (typeof raw === 'object') return Buffer.from(Object.values(raw)).toString('base64');
+  return null;
 }
 
 module.exports = {
@@ -55,7 +68,7 @@ module.exports = {
           `🎭 *Set Sticker Trigger*\n━━━━━━━━━━━━━━━\n\n` +
           `Reply to a sticker with:\n` +
           `*.setsticker <action>*\n\n` +
-          `When an admin sends that sticker as a reply to a member's message, the action is applied to the *quoted member*.\n\n` +
+          `When an admin replies to a member's message with that sticker, the action is applied to the *quoted member*.\n\n` +
           `*Actions:*\n${actionLines}\n\n` +
           `*Other commands:*\n` +
           `  .setsticker list\n` +
@@ -70,7 +83,10 @@ module.exports = {
         const entries = Object.entries(stickerActions);
         if (!entries.length) return extra.reply('📋 No sticker triggers set for this group.');
         const lines = entries.map(([action]) => `  • *${action}* → ${ACTION_DESC[action]} ✅`).join('\n');
-        return extra.reply(`📋 *Sticker Triggers*\n━━━━━━━━━━━━━━━\n\n${lines}\n\n_Reply to a member's message with the set sticker to trigger the action._`);
+        return extra.reply(
+          `📋 *Sticker Triggers*\n━━━━━━━━━━━━━━━\n\n${lines}\n\n` +
+          `_Reply to a member's message with the set sticker to trigger the action._`
+        );
       }
 
       if (sub === 'clear') {
@@ -97,14 +113,15 @@ module.exports = {
         return extra.reply('❌ Please *reply to a sticker* to set it as the trigger!');
       }
 
-      const raw = quotedSticker.fileSha256;
-      if (!raw) return extra.reply('❌ Could not read sticker fingerprint. Try a different sticker.');
+      // Use fileSha256 as primary, fileEncSha256 as fallback
+      const hash = toBase64Hash(quotedSticker.fileSha256) || toBase64Hash(quotedSticker.fileEncSha256);
+      if (!hash) return extra.reply('❌ Could not read sticker fingerprint. Try a different sticker.');
 
-      const stickerHash = Buffer.isBuffer(raw)
-        ? raw.toString('base64')
-        : Buffer.from(Object.values(raw)).toString('base64');
-
-      stickerActions[sub] = stickerHash;
+      // Store both hashes so the trigger can match on either
+      stickerActions[sub] = {
+        fileSha256:    toBase64Hash(quotedSticker.fileSha256)    || null,
+        fileEncSha256: toBase64Hash(quotedSticker.fileEncSha256) || null,
+      };
       database.updateGroupSettings(extra.from, { stickerActions });
 
       return extra.reply(
