@@ -1135,7 +1135,7 @@ const handleMessage = async (sock, msg) => {
       return sock.sendMessage(from, { text: config.messages.privateOnly }, { quoted: msg });
     }
     
-    if (command.adminOnly && !(await isAdmin(sock, sender, from, groupMetadata)) && !senderIsOwner) {
+    if (command.adminOnly && !(await isAdmin(sock, sender, from, groupMetadata)) && !senderIsOwner && !senderIsSudo) {
       return sock.sendMessage(from, { text: config.messages.adminOnly }, { quoted: msg });
     }
     
