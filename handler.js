@@ -4,6 +4,7 @@
 
 const config = require('./config');
 const database = require('./database');
+const { applyFont } = require('./utils/fontConverter');
 const { loadCommands } = require('./utils/commandLoader');
 const { addMessage, getActiveUsers, getInactiveUsers } = require('./utils/groupstats');
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
@@ -589,7 +590,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
         }
@@ -607,7 +608,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
         }
@@ -625,7 +626,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
         }
@@ -767,7 +768,7 @@ const handleMessage = async (sock, msg) => {
                   isAdmin: await isAdmin(sock, sender, from, groupMetadata),
                   isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
                   isMod: isMod(sender),
-                  reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+                  reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
                   react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
                 });
                 return; // Don't process as command after auto-converting
@@ -797,7 +798,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
           return; // Don't process as command
@@ -829,7 +830,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
           if (handled) return; // Don't process as command if move was handled
@@ -850,7 +851,7 @@ const handleMessage = async (sock, msg) => {
           return fancyCmd.execute(sock, msg, [body.trim()], {
             from,
             sender,
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
           });
         }
@@ -869,7 +870,7 @@ const handleMessage = async (sock, msg) => {
             sender,
             command: 'mygroups',
             prefix: config.prefix,
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
           });
         }
@@ -1177,7 +1178,6 @@ const handleMessage = async (sock, msg) => {
       senderIsOwner ? chalk.green('[OWNER]') : senderIsSudo ? chalk.blue('[SUDO]') : chalk.white('[USER]')
     );
     
-    const { applyFont } = require('./utils/fontConverter');
     await command.execute(sock, msg, args, {
       from,
       sender,
