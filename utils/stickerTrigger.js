@@ -2,13 +2,7 @@ const database = require('../database');
 const config = require('../config');
 const { findParticipant } = require('./jidHelper');
 
-const getStickerHash = (stickerMsg) => {
-  const raw = stickerMsg?.fileSha256;
-  if (!raw) return null;
-  if (Buffer.isBuffer(raw)) return raw.toString('base64');
-  if (typeof raw === 'object') return Buffer.from(Object.values(raw)).toString('base64');
-  return null;
-};
+const SKIP_KEYS = ['messageContextInfo', 'protocolMessage', 'senderKeyDistributionMessage'];
 
 const WRAPPERS = [
   'ephemeralMessage',
@@ -18,12 +12,35 @@ const WRAPPERS = [
   'documentWithCaptionMessage',
 ];
 
+function toBase64Hash(raw) {
+  if (!raw) return null;
+  if (Buffer.isBuffer(raw)) return raw.toString('base64');
+  if (typeof raw === 'object') return Buffer.from(Object.values(raw)).toString('base64');
+  return null;
+}
+
 function resolveContent(message) {
   if (!message) return null;
-  const top = Object.keys(message)[0];
+  const keys = Object.keys(message).filter(k => !SKIP_KEYS.includes(k));
+  const top = keys[0];
   if (!top) return null;
   if (WRAPPERS.includes(top)) return message[top]?.message || null;
   return message;
+}
+
+// Returns true if the incoming sticker matches a stored trigger entry.
+// stored can be a plain base64 string (legacy) or { fileSha256, fileEncSha256 }.
+function hashMatches(stored, stickerMsg) {
+  const f1 = toBase64Hash(stickerMsg?.fileSha256);
+  const f2 = toBase64Hash(stickerMsg?.fileEncSha256);
+  if (typeof stored === 'string') {
+    return stored === f1 || stored === f2;
+  }
+  if (stored && typeof stored === 'object') {
+    if (stored.fileSha256    && f1 && stored.fileSha256    === f1) return true;
+    if (stored.fileEncSha256 && f2 && stored.fileEncSha256 === f2) return true;
+  }
+  return false;
 }
 
 const handleStickerTrigger = async (sock, msg, groupMetadata) => {
@@ -44,10 +61,7 @@ const handleStickerTrigger = async (sock, msg, groupMetadata) => {
     const stickerActions = groupSettings.stickerActions;
     if (!stickerActions || !Object.keys(stickerActions).length) return;
 
-    const incomingHash = getStickerHash(stickerMsg);
-    if (!incomingHash) return;
-
-    const matchedAction = Object.entries(stickerActions).find(([, hash]) => hash === incomingHash);
+    const matchedAction = Object.entries(stickerActions).find(([, stored]) => hashMatches(stored, stickerMsg));
     if (!matchedAction) return;
 
     const action = matchedAction[0];
