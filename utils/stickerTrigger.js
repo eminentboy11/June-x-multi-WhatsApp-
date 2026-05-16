@@ -1,5 +1,6 @@
 const database = require('../database');
 const config = require('../config');
+const { findParticipant } = require('./jidHelper');
 
 const getStickerHash = (stickerMsg) => {
   const raw = stickerMsg?.fileSha256;
@@ -21,9 +22,7 @@ function resolveContent(message) {
   if (!message) return null;
   const top = Object.keys(message)[0];
   if (!top) return null;
-  if (WRAPPERS.includes(top)) {
-    return message[top]?.message || null;
-  }
+  if (WRAPPERS.includes(top)) return message[top]?.message || null;
   return message;
 }
 
@@ -52,9 +51,28 @@ const handleStickerTrigger = async (sock, msg, groupMetadata) => {
     if (!matchedAction) return;
 
     const action = matchedAction[0];
-    const participants = groupMetadata?.participants || [];
 
-    // tagall doesn't need a target
+    // Fetch fresh metadata for accurate admin checks and JID resolution
+    let freshMeta;
+    try {
+      freshMeta = await sock.groupMetadata(from);
+    } catch (_) {
+      freshMeta = groupMetadata;
+    }
+    const participants = freshMeta?.participants || [];
+
+    // Only admins can trigger sticker actions
+    const senderEntry = findParticipant(participants, sender);
+    const senderIsAdmin = senderEntry?.admin === 'admin' || senderEntry?.admin === 'superadmin';
+    if (!senderIsAdmin) return;
+
+    // Check bot has admin rights (needed for most actions)
+    const botId = sock.user?.id;
+    const botLid = sock.user?.lid;
+    const botEntry = findParticipant(participants, [botId, botLid].filter(Boolean));
+    const botIsAdmin = botEntry?.admin === 'admin' || botEntry?.admin === 'superadmin';
+
+    // tagall doesn't need a target or bot admin
     if (action === 'tagall') {
       const allMembers = participants.map(p => p.id);
       const senderNum = sender.split('@')[0].split(':')[0];
@@ -66,72 +84,66 @@ const handleStickerTrigger = async (sock, msg, groupMetadata) => {
       return;
     }
 
-    // Target is the person whose message was replied to
+    // Resolve target from contextInfo (the person being replied to)
     const ctx = stickerMsg.contextInfo;
-    const target = ctx?.participant;
+    const rawTarget = ctx?.participant;
 
-    if (!target) {
+    if (!rawTarget) {
       await sock.sendMessage(from, {
         text: `⚠️ Reply to a user's message with this sticker to apply the *${action}* action.`,
       }, { quoted: msg });
       return;
     }
 
-    const botJid = sock.user?.id
-      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
-      : null;
-    if (botJid && (target === botJid || target === sock.user?.id)) return;
+    // Resolve target to proper JID via LID-aware lookup
+    const targetEntry = findParticipant(participants, rawTarget);
+    if (!targetEntry) {
+      await sock.sendMessage(from, {
+        text: `⚠️ Could not find that member in the group.`,
+      }, { quoted: msg });
+      return;
+    }
 
+    const target = targetEntry.id;
     const targetNum = target.split('@')[0].split(':')[0];
-    const targetEntry = participants.find(p => p.id === target || p.lid === target);
-    const targetIsAdmin = targetEntry?.admin === 'admin' || targetEntry?.admin === 'superadmin';
+    const targetIsAdmin = targetEntry.admin === 'admin' || targetEntry.admin === 'superadmin';
+
+    // Prevent acting on the bot itself
+    if (botId && (target === botId || target.split(':')[0] === botId.split(':')[0])) return;
+
+    if (!botIsAdmin && !['warn', 'mute'].includes(action)) {
+      await sock.sendMessage(from, { text: `⚠️ Bot needs admin rights to perform *${action}*.` }, { quoted: msg });
+      return;
+    }
 
     switch (action) {
       case 'kick': {
         if (targetIsAdmin) {
-          await sock.sendMessage(from, {
-            text: `⚠️ @${targetNum} is an admin, cannot kick.`,
-            mentions: [target]
-          });
+          await sock.sendMessage(from, { text: `⚠️ @${targetNum} is an admin, cannot kick.`, mentions: [target] });
           return;
         }
         await sock.groupParticipantsUpdate(from, [target], 'remove');
-        await sock.sendMessage(from, {
-          text: `👢 @${targetNum} was kicked via sticker trigger.`,
-          mentions: [target]
-        });
+        await sock.sendMessage(from, { text: `👢 @${targetNum} was kicked via sticker trigger.`, mentions: [target] });
         break;
       }
 
       case 'demote': {
         if (!targetIsAdmin) {
-          await sock.sendMessage(from, {
-            text: `⚠️ @${targetNum} is not an admin.`,
-            mentions: [target]
-          });
+          await sock.sendMessage(from, { text: `⚠️ @${targetNum} is not an admin.`, mentions: [target] });
           return;
         }
         await sock.groupParticipantsUpdate(from, [target], 'demote');
-        await sock.sendMessage(from, {
-          text: `⬇️ @${targetNum} has been demoted via sticker trigger.`,
-          mentions: [target]
-        });
+        await sock.sendMessage(from, { text: `⬇️ @${targetNum} has been demoted via sticker trigger.`, mentions: [target] });
         break;
       }
 
       case 'promote': {
         if (targetIsAdmin) {
-          await sock.sendMessage(from, {
-            text: `⚠️ @${targetNum} is already an admin.`,
-            mentions: [target]
-          });
+          await sock.sendMessage(from, { text: `⚠️ @${targetNum} is already an admin.`, mentions: [target] });
           return;
         }
         await sock.groupParticipantsUpdate(from, [target], 'promote');
-        await sock.sendMessage(from, {
-          text: `⬆️ @${targetNum} has been promoted via sticker trigger.`,
-          mentions: [target]
-        });
+        await sock.sendMessage(from, { text: `⬆️ @${targetNum} has been promoted via sticker trigger.`, mentions: [target] });
         break;
       }
 
@@ -140,11 +152,13 @@ const handleStickerTrigger = async (sock, msg, groupMetadata) => {
         const warnData = database.addWarning(from, target, 'Sticker trigger warning');
         if (warnData.count >= maxWarns) {
           await sock.sendMessage(from, {
-            text: `⚠️ @${targetNum} has been warned (${warnData.count}/${maxWarns}) via sticker trigger and will be removed!`,
+            text: `⚠️ @${targetNum} warned (${warnData.count}/${maxWarns}) via sticker and will be removed!`,
             mentions: [target]
           });
-          await sock.groupParticipantsUpdate(from, [target], 'remove');
-          database.clearWarnings(from, target);
+          if (botIsAdmin && !targetIsAdmin) {
+            await sock.groupParticipantsUpdate(from, [target], 'remove');
+            database.clearWarnings(from, target);
+          }
         } else {
           await sock.sendMessage(from, {
             text: `⚠️ @${targetNum} warned (${warnData.count}/${maxWarns}) via sticker trigger.`,
@@ -156,21 +170,13 @@ const handleStickerTrigger = async (sock, msg, groupMetadata) => {
 
       case 'mute': {
         database.muteUser(from, target);
-        await sock.sendMessage(from, {
-          text: `🔇 @${targetNum} has been muted via sticker trigger.`,
-          mentions: [target]
-        });
+        await sock.sendMessage(from, { text: `🔇 @${targetNum} has been muted via sticker trigger.`, mentions: [target] });
         break;
       }
 
       case 'add': {
-        try {
-          await sock.groupParticipantsUpdate(from, [target], 'add');
-        } catch (_) {}
-        await sock.sendMessage(from, {
-          text: `➕ @${targetNum} re-added via sticker trigger.`,
-          mentions: [target]
-        });
+        try { await sock.groupParticipantsUpdate(from, [target], 'add'); } catch (_) {}
+        await sock.sendMessage(from, { text: `➕ @${targetNum} re-added via sticker trigger.`, mentions: [target] });
         break;
       }
     }
