@@ -1,118 +1,162 @@
-/**
- * Sticker Converter using FFmpeg
- */
+const database = require('../database');
+const config = require('../config');
 
-const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
-ffmpeg.setFfmpegPath(ffmpegPath);
-const { exec } = require('child_process');
-const util = require('util');
-const fs = require('fs');
-const path = require('path');
-const execPromise = util.promisify(exec);
-const { getTempDir, deleteTempFile } = require('./tempManager');
+const getStickerHash = (stickerMsg) => {
+  const raw = stickerMsg?.fileSha256;
+  if (!raw) return null;
+  if (Buffer.isBuffer(raw)) return raw.toString('base64');
+  if (typeof raw === 'object') return Buffer.from(Object.values(raw)).toString('base64');
+  return null;
+};
 
-// Max file size: 50MB
-const MAX_FILE_SIZE = 50 * 1024 * 1024;
-
-/**
- * Convert image/video to sticker using ffmpeg
- */
-const convertToSticker = async (mediaBuffer, options = {}) => {
-  // Check file size
-  if (mediaBuffer.length > MAX_FILE_SIZE) {
-    throw new Error(`File too large: ${(mediaBuffer.length / 1024 / 1024).toFixed(2)}MB (max: ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
-  }
-
-  const tempDir = getTempDir();
-  const inputPath = path.join(tempDir, `input_${Date.now()}.${options.isVideo ? 'mp4' : 'jpg'}`);
-  const outputPath = path.join(tempDir, `output_${Date.now()}.webp`);
-  const tempFiles = [inputPath, outputPath];
-  
+const handleStickerTrigger = async (sock, msg, groupMetadata) => {
   try {
-    // Write input buffer to temp file
-    fs.writeFileSync(inputPath, mediaBuffer);
-    
-    // Convert using ffmpeg
-    await new Promise((resolve, reject) => {
-      const command = ffmpeg(inputPath)
-        .outputOptions([
-          '-vf', 'scale=512:512:force_original_aspect_ratio=decrease',
-          '-quality', '90',
-          '-compression_level', '6',
-          '-loop', '0'
-        ])
-        .output(outputPath)
-        .on('end', resolve)
-        .on('error', (err) => {
-          console.error('FFmpeg error:', err.message);
-          reject(err);
-        })
-        .run();
-    });
-    
-    // Read output file
-    const stickerBuffer = fs.readFileSync(outputPath);
-    
-    return stickerBuffer;
-  } catch (error) {
-    throw new Error(`Sticker conversion failed: ${error.message}`);
-  } finally {
-    // Always cleanup temp files
-    tempFiles.forEach(file => deleteTempFile(file));
+    const from = msg.key.remoteJid;
+    const sender = msg.key.participant || msg.key.remoteJid;
+
+    if (!from || !sender || msg.key.fromMe) return;
+
+    const stickerMsg = msg.message?.stickerMessage;
+    if (!stickerMsg) return;
+
+    const groupSettings = database.getGroupSettings(from);
+    const stickerActions = groupSettings.stickerActions;
+    if (!stickerActions || !Object.keys(stickerActions).length) return;
+
+    const incomingHash = getStickerHash(stickerMsg);
+    if (!incomingHash) return;
+
+    const matchedAction = Object.entries(stickerActions).find(([, hash]) => hash === incomingHash);
+    if (!matchedAction) return;
+
+    const action = matchedAction[0];
+
+    // Target is the person whose message was replied to
+    const ctx = stickerMsg?.contextInfo;
+    const target = ctx?.participant;
+
+    const participants = groupMetadata?.participants || [];
+
+    // tagall doesn't need a target
+    if (action === 'tagall') {
+      const allMembers = participants.map(p => p.id);
+      const senderNum = sender.split('@')[0];
+      const mentions = allMembers.map(id => `@${id.split('@')[0]}`).join(' ');
+      await sock.sendMessage(from, {
+        text: `📢 @${senderNum} triggered tagall!\n\n${mentions}`,
+        mentions: allMembers
+      });
+      return;
+    }
+
+    if (!target) {
+      await sock.sendMessage(from, {
+        text: `⚠️ Reply to a user's message with this sticker to apply the *${action}* action.`,
+        mentions: []
+      }, { quoted: msg });
+      return;
+    }
+
+    const botJid = sock.user?.id
+      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
+      : null;
+    if (botJid && (target === botJid || target === sock.user?.id)) return;
+
+    const targetNum = target.split('@')[0];
+    const targetEntry = participants.find(p => p.id === target || p.lid === target);
+    const targetIsAdmin = targetEntry?.admin === 'admin' || targetEntry?.admin === 'superadmin';
+
+    switch (action) {
+      case 'kick': {
+        if (targetIsAdmin) {
+          await sock.sendMessage(from, {
+            text: `⚠️ @${targetNum} is an admin, cannot kick.`,
+            mentions: [target]
+          });
+          return;
+        }
+        await sock.groupParticipantsUpdate(from, [target], 'remove');
+        await sock.sendMessage(from, {
+          text: `👢 @${targetNum} was kicked via sticker trigger.`,
+          mentions: [target]
+        });
+        break;
+      }
+
+      case 'demote': {
+        if (!targetIsAdmin) {
+          await sock.sendMessage(from, {
+            text: `⚠️ @${targetNum} is not an admin.`,
+            mentions: [target]
+          });
+          return;
+        }
+        await sock.groupParticipantsUpdate(from, [target], 'demote');
+        await sock.sendMessage(from, {
+          text: `⬇️ @${targetNum} has been demoted via sticker trigger.`,
+          mentions: [target]
+        });
+        break;
+      }
+
+      case 'promote': {
+        if (targetIsAdmin) {
+          await sock.sendMessage(from, {
+            text: `⚠️ @${targetNum} is already an admin.`,
+            mentions: [target]
+          });
+          return;
+        }
+        await sock.groupParticipantsUpdate(from, [target], 'promote');
+        await sock.sendMessage(from, {
+          text: `⬆️ @${targetNum} has been promoted via sticker trigger.`,
+          mentions: [target]
+        });
+        break;
+      }
+
+      case 'warn': {
+        const maxWarns = config.maxWarnings || 3;
+        const warnData = database.addWarning(from, target, 'Sticker trigger warning');
+        if (warnData.count >= maxWarns) {
+          await sock.sendMessage(from, {
+            text: `⚠️ @${targetNum} has been warned (${warnData.count}/${maxWarns}) via sticker trigger and will be removed!`,
+            mentions: [target]
+          });
+          await sock.groupParticipantsUpdate(from, [target], 'remove');
+          database.clearWarnings(from, target);
+        } else {
+          await sock.sendMessage(from, {
+            text: `⚠️ @${targetNum} warned (${warnData.count}/${maxWarns}) via sticker trigger.`,
+            mentions: [target]
+          });
+        }
+        break;
+      }
+
+      case 'mute': {
+        database.muteUser(from, target);
+        await sock.sendMessage(from, {
+          text: `🔇 @${targetNum} has been muted via sticker trigger.`,
+          mentions: [target]
+        });
+        break;
+      }
+
+      case 'add': {
+        try {
+          await sock.groupParticipantsUpdate(from, [target], 'add');
+        } catch (_) {}
+        await sock.sendMessage(from, {
+          text: `➕ @${targetNum} re-added via sticker trigger.`,
+          mentions: [target]
+        });
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('[StickerTrigger] Error:', err.message);
   }
 };
 
-/**
- * Add metadata to sticker (packname, author) using node-webpmux
- * Note: Stickers will work without metadata, but won't show packname/author
- */
-const addStickerMetadata = async (stickerBuffer, packname, author) => {
-  try {
-    const webpmux = require('node-webpmux');
-    const Image = await webpmux.Image.init(stickerBuffer);
-    
-    // WhatsApp stickers store metadata in EXIF as JSON
-    const metadata = {
-      'sticker-pack-name': packname || 'Made by',
-      'sticker-pack-publisher': author || 'MD Bot'
-    };
-    
-    // Convert metadata to EXIF format
-    const exifData = Buffer.from(JSON.stringify(metadata), 'utf-8');
-    Image.exif = exifData;
-    
-    // Save and return buffer with metadata
-    const newBuffer = await Image.save();
-    return newBuffer;
-  } catch (error) {
-    // If metadata addition fails, return original buffer
-    // Stickers will still work, just without packname/author display
-    console.warn('Could not add sticker metadata (sticker will work without it):', error.message);
-    return stickerBuffer;
-  }
-};
-
-/**
- * Process media to sticker with metadata
- */
-const createSticker = async (mediaBuffer, isVideo = false, packname = 'Made by', author = 'MD Bot') => {
-  try {
-    // Convert to webp sticker
-    let stickerBuffer = await convertToSticker(mediaBuffer, { isVideo });
-    
-    // Add metadata
-    stickerBuffer = await addStickerMetadata(stickerBuffer, packname, author);
-    
-    return stickerBuffer;
-  } catch (error) {
-    throw new Error(`Failed to create sticker: ${error.message}`);
-  }
-};
-
-module.exports = {
-  convertToSticker,
-  addStickerMetadata,
-  createSticker
-};
-
+module.exports = { handleStickerTrigger };
