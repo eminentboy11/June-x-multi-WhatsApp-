@@ -4,8 +4,6 @@
 
 const config = require('./config');
 const database = require('./database');
-const { applyFont } = require('./utils/fontConverter');
-const { handleStickerTrigger } = require('./utils/stickerTrigger');
 const { loadCommands } = require('./utils/commandLoader');
 const { addMessage, getActiveUsers, getInactiveUsers } = require('./utils/groupstats');
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
@@ -448,7 +446,6 @@ const handleMessage = async (sock, msg) => {
     } catch (_) {}
     
     const from = msg.key.remoteJid;
-    const reply = (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg });
     
     // System message filter - ignore broadcast/status/newsletter messages
     if (isSystemJid(from)) {
@@ -561,7 +558,6 @@ const handleMessage = async (sock, msg) => {
         antispam?.handleAntispam     ? antispam.handleAntispam(sock, msg, groupMetadata)   : Promise.resolve(),
         antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)       : Promise.resolve(),
         handleAntibadword(sock, msg, groupMetadata),
-        handleStickerTrigger(sock, msg, groupMetadata),
       ]);
     }
     
@@ -593,7 +589,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
         }
@@ -611,7 +607,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
         }
@@ -629,7 +625,34 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
+          });
+        }
+        return;
+      }
+
+      // Generic fallback: if buttonId starts with the bot prefix, treat it as a command
+      const cfgPrefix = config.prefix || '.';
+      if (buttonId && buttonId.startsWith(cfgPrefix)) {
+        const parts = buttonId.slice(cfgPrefix.length).trim().split(/\s+/);
+        const cmdName = parts[0].toLowerCase();
+        const cmdArgs = parts.slice(1);
+        const dynCmd = commands.get(cmdName);
+        if (dynCmd) {
+          await dynCmd.execute(sock, msg, cmdArgs, {
+            from,
+            sender,
+            isGroup,
+            groupMetadata,
+            isOwner: isOwner(sender),
+            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
+            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
+            isMod: isMod(sender),
+            isSudo: isMod(sender),
+            prefix: cfgPrefix,
+            command: cmdName,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
         }
@@ -771,7 +794,7 @@ const handleMessage = async (sock, msg) => {
                   isAdmin: await isAdmin(sock, sender, from, groupMetadata),
                   isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
                   isMod: isMod(sender),
-                  reply,
+                  reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
                   react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
                 });
                 return; // Don't process as command after auto-converting
@@ -801,7 +824,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
           return; // Don't process as command
@@ -833,7 +856,7 @@ const handleMessage = async (sock, msg) => {
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
           });
           if (handled) return; // Don't process as command if move was handled
@@ -854,7 +877,7 @@ const handleMessage = async (sock, msg) => {
           return fancyCmd.execute(sock, msg, [body.trim()], {
             from,
             sender,
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
           });
         }
@@ -873,7 +896,7 @@ const handleMessage = async (sock, msg) => {
             sender,
             command: 'mygroups',
             prefix: config.prefix,
-            reply,
+            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
             react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
           });
         }
@@ -1135,7 +1158,7 @@ const handleMessage = async (sock, msg) => {
       return sock.sendMessage(from, { text: config.messages.privateOnly }, { quoted: msg });
     }
     
-    if (command.adminOnly && !(await isAdmin(sock, sender, from, groupMetadata)) && !senderIsOwner && !senderIsSudo) {
+    if (command.adminOnly && !(await isAdmin(sock, sender, from, groupMetadata)) && !senderIsOwner) {
       return sock.sendMessage(from, { text: config.messages.adminOnly }, { quoted: msg });
     }
     
@@ -1181,6 +1204,7 @@ const handleMessage = async (sock, msg) => {
       senderIsOwner ? chalk.green('[OWNER]') : senderIsSudo ? chalk.blue('[SUDO]') : chalk.white('[USER]')
     );
     
+    const { applyFont } = require('./utils/fontConverter');
     await command.execute(sock, msg, args, {
       from,
       sender,
@@ -1194,7 +1218,7 @@ const handleMessage = async (sock, msg) => {
       isSudo: senderIsSudo,
       prefix: config.prefix,
       command: commandName,
-      reply,
+      reply: (text) => sock.sendMessage(from, { text: applyFont(text) }, { quoted: msg }),
       react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
       getCommandCount: () => commands.size,
       getActiveUsers: (groupId, limit) => getActiveUsers(groupId, limit),
