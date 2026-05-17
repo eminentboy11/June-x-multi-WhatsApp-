@@ -19,7 +19,7 @@ const detectPlatform = () => {
   if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return "🌀 CypherX Platform";
   if (process.env.P_SERVER_UUID) return "🖥️ Panel";
   if (process.env.LXC) return "📦 Linux Container (LXC)";
-  
+
   switch (os.platform()) {
     case "win32": return "🪟 Windows";
     case "darwin": return "🍎 macOS";
@@ -162,34 +162,10 @@ function getThumbnail() {
 function getButtons() {
   const prefix = config.prefix || '.';
   return [
-    {
-      name: 'cta_url',
-      buttonParamsJson: JSON.stringify({
-        display_text: '💻 Bot Repo',
-        url: config.social?.github || 'https://github.com/Vinpink2/June_X_Ultra'
-      })
-    },
-    {
-      name: 'cta_url',
-      buttonParamsJson: JSON.stringify({
-        display_text: '📺 YouTube',
-        url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
-      })
-    },
-    {
-      name: 'quick_reply',
-      buttonParamsJson: JSON.stringify({
-        display_text: '🏓 Ping',
-        id: `${prefix}ping`
-      })
-    },
-    {
-      name: 'quick_reply',
-      buttonParamsJson: JSON.stringify({
-        display_text: '⏱️ Uptime',
-        id: `${prefix}uptime`
-      })
-    }
+    { id: 'menu_repo',       text: '💻 Bot Repo' },
+    { id: 'menu_yt',         text: '📺 YouTube' },
+    { id: `${prefix}ping`,   text: '🏓 Ping' },
+    { id: `${prefix}uptime`, text: '⏱️ Uptime' }
   ];
 }
 
