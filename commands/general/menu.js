@@ -11,9 +11,10 @@ const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
 // Detect host/platform
 const detectPlatform = () => {
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return "🚂 Railway";
   if (process.env.DYNO) return "☁️ Heroku";
   if (process.env.RENDER) return "⚡ Render";
-  if (process.env.RAILWAY_ENVIRONMENT && process.env.RAILWAY_PROJECT_ID) return '🚉 Railway';
+  if (process.env.REPL_ID || process.env.REPL_SLUG) return "🔵 Replit";
   if (process.env.PREFIX && process.env.PREFIX.includes("termux")) return "📱 Termux";
   if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return "🌀 CypherX Platform";
   if (process.env.P_SERVER_UUID) return "🖥️ Panel";
@@ -29,11 +30,9 @@ const detectPlatform = () => {
 
 function getMenuStyle() {
   try {
-    // Check unified settings store first (survives more restart scenarios)
     const runtimeSettings = require('../../utils/settings');
     const fromStore = runtimeSettings.get('menuStyle');
     if (fromStore && fromStore !== '1') return fromStore;
-    // Fallback to dedicated menuSettings.json
     if (!fs.existsSync(MENU_SETTINGS_FILE)) return fromStore || '1';
     return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || fromStore || '1';
   } catch {
@@ -67,7 +66,6 @@ const progressBar = (used, total, size = 10) => {
   return `[${bar}] ${Math.round((used / total) * 100)}%`;
 };
 
-// Preferred display order for known categories; unknown ones are appended after
 const CATEGORY_ORDER = [
   'general', 'ai', 'admin', 'owner', 'media',
   'sports', 'fun', 'utility', 'anime', 'textmaker',
@@ -113,7 +111,6 @@ function buildMenuText(categories, extra, totalCount, speed) {
   menu += `┃✧ Commands: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
-  // Build ordered list: known categories first (in preferred order), then any extras
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
   const ordered = [
     ...CATEGORY_ORDER.filter(k => allCategoryKeys.includes(k)),
@@ -143,13 +140,11 @@ function buildMenuText(categories, extra, totalCount, speed) {
 }
 
 function getThumbnail() {
-  // If a custom image has been set, always use it (survives restarts, cleared only by reset)
   const customPath = path.join(__dirname, '../../data/custom_menu.jpg');
   if (fs.existsSync(customPath)) {
     try { return fs.readFileSync(customPath); } catch {}
   }
 
-  // Otherwise pick randomly from the default pool
   const defaults = [
     path.join(__dirname, '../../assets/menu1.jpg'),
     path.join(__dirname, '../../utils/bot_image.jpg'),
@@ -165,6 +160,7 @@ function getThumbnail() {
 }
 
 function getButtons() {
+  const prefix = config.prefix || '.';
   return [
     {
       name: 'cta_url',
@@ -178,6 +174,20 @@ function getButtons() {
       buttonParamsJson: JSON.stringify({
         display_text: '📺 YouTube',
         url: config.social?.youtube || 'http://youtube.com/@suprem_e_lord'
+      })
+    },
+    {
+      name: 'quick_reply',
+      buttonParamsJson: JSON.stringify({
+        display_text: '🏓 Ping',
+        id: `${prefix}ping`
+      })
+    },
+    {
+      name: 'quick_reply',
+      buttonParamsJson: JSON.stringify({
+        display_text: '⏱️ Uptime',
+        id: `${prefix}uptime`
       })
     }
   ];
@@ -206,7 +216,6 @@ module.exports = {
 
       const menustyle = getMenuStyle();
 
-      // Real speed: time elapsed since the user's message was sent (true response latency)
       const msgTimestamp = msg.messageTimestamp
         ? msg.messageTimestamp * 1000
         : Date.now();
