@@ -569,92 +569,74 @@ const handleMessage = async (sock, msg) => {
     // Return early for non-group messages with no recognizable content
     if (!content || actualMessageTypes.length === 0) return;
     
-    // 🔹 Button response should also check unwrapped content
-    const btn = content.buttonsResponseMessage || msg.message?.buttonsResponseMessage;
+    // Button response — covers both buttonsResponseMessage and templateButtonReplyMessage
+    const _btnResp = content.buttonsResponseMessage || msg.message?.buttonsResponseMessage;
+    const _tplResp = content.templateButtonReplyMessage || msg.message?.templateButtonReplyMessage;
+    const btn = _btnResp || _tplResp || null;
     if (btn) {
-      const buttonId = btn.selectedButtonId;
-      const displayText = btn.selectedDisplayText;
-      
+      const buttonId = _btnResp ? btn.selectedButtonId : btn.selectedId;
+
+      // Helper to build the standard extra object for command execution
+      const makeExtra = async () => ({
+        from,
+        sender,
+        isGroup,
+        groupMetadata,
+        isOwner: isOwner(sender),
+        isAdmin: await isAdmin(sock, sender, from, groupMetadata),
+        isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
+        isMod: isMod(sender),
+        isSudo: isMod(sender),
+        prefix: config.prefix || '.',
+        command: '',
+        reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+        react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
+      });
+
       // Handle button clicks by routing to commands
       if (buttonId === 'btn_menu') {
-        // Execute menu command
+        const extra = await makeExtra();
         const menuCmd = commands.get('menu');
-        if (menuCmd) {
-          await menuCmd.execute(sock, msg, [], {
-            from,
-            sender,
-            isGroup,
-            groupMetadata,
-            isOwner: isOwner(sender),
-            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
-            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
-            isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
-            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
-          });
-        }
+        if (menuCmd) await menuCmd.execute(sock, msg, [], extra);
         return;
+
+      // ── Named menu buttons (non-prefixed IDs) ─────────────────────────────
+      } else if (buttonId === 'menu_repo') {
+        const repoUrl = config.social?.github || 'https://github.com/Vinpink2/June-Ultra';
+        await sock.sendMessage(from, { text: `💻 *Bot Repository*\n${repoUrl}` }, { quoted: msg });
+        return;
+
+      } else if (buttonId === 'menu_yt') {
+        const ytUrl = config.social?.youtube || 'http://youtube.com/@suprem_e_lord';
+        await sock.sendMessage(from, { text: `📺 *YouTube Channel*\n${ytUrl}` }, { quoted: msg });
+        return;
+
+      // ── Ping / uptime — execute directly ──────────────────────────────────
       } else if (buttonId === 'btn_ping') {
-        // Execute ping command
+        const extra = await makeExtra();
         const pingCmd = commands.get('ping');
-        if (pingCmd) {
-          await pingCmd.execute(sock, msg, [], {
-            from,
-            sender,
-            isGroup,
-            groupMetadata,
-            isOwner: isOwner(sender),
-            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
-            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
-            isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
-            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
-          });
-        }
+        if (pingCmd) await pingCmd.execute(sock, msg, [], extra);
         return;
+
       } else if (buttonId === 'btn_help') {
-        // Execute list command again (help)
+        const extra = await makeExtra();
         const listCmd = commands.get('list');
-        if (listCmd) {
-          await listCmd.execute(sock, msg, [], {
-            from,
-            sender,
-            isGroup,
-            groupMetadata,
-            isOwner: isOwner(sender),
-            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
-            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
-            isMod: isMod(sender),
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
-            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
-          });
-        }
+        if (listCmd) await listCmd.execute(sock, msg, [], extra);
         return;
       }
 
-      // Generic fallback: if buttonId starts with the bot prefix, treat it as a command
+      // ── Generic fallback: buttonId starts with the bot prefix → run as command
       const cfgPrefix = config.prefix || '.';
       if (buttonId && buttonId.startsWith(cfgPrefix)) {
-        const parts = buttonId.slice(cfgPrefix.length).trim().split(/\s+/);
+        const parts   = buttonId.slice(cfgPrefix.length).trim().split(/\s+/);
         const cmdName = parts[0].toLowerCase();
         const cmdArgs = parts.slice(1);
-        const dynCmd = commands.get(cmdName);
+        const dynCmd  = commands.get(cmdName);
         if (dynCmd) {
-          await dynCmd.execute(sock, msg, cmdArgs, {
-            from,
-            sender,
-            isGroup,
-            groupMetadata,
-            isOwner: isOwner(sender),
-            isAdmin: await isAdmin(sock, sender, from, groupMetadata),
-            isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
-            isMod: isMod(sender),
-            isSudo: isMod(sender),
-            prefix: cfgPrefix,
-            command: cmdName,
-            reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
-            react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
-          });
+          const extra = await makeExtra();
+          extra.command = cmdName;
+          extra.prefix  = cfgPrefix;
+          await dynCmd.execute(sock, msg, cmdArgs, extra);
         }
         return;
       }
