@@ -6,6 +6,8 @@ const botStartTime = Date.now() - Math.floor(process.uptime() * 1000);
 const detectPlatform = () => {
     if (process.env.DYNO) return '☁️ Heroku';
     if (process.env.RENDER) return '⚡ Render';
+    
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return '🚉 Railway
     if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit';
     if (process.env.P_SERVER_UUID) return '🖥️ Panel';
     switch (os.platform()) {
