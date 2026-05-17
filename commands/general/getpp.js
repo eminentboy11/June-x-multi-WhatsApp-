@@ -10,6 +10,22 @@ function toJid(input) {
   return `${s}@s.whatsapp.net`;
 }
 
+async function downloadBuffer(url, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 30000,
+        headers: { 'User-Agent': 'WhatsApp/2.24.6.77 A' }
+      });
+      return Buffer.from(response.data);
+    } catch (e) {
+      if (i === retries - 1) throw e;
+      await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    }
+  }
+}
+
 module.exports = {
   name: 'getpp',
   aliases: ['gp', 'getpic', 'getdp'],
@@ -25,14 +41,12 @@ module.exports = {
                 || msg.message?.videoMessage?.contextInfo
                 || {};
 
-      // 1) Mention / tag — checked FIRST so .getpp @user uses the real JID
-      //    (not the literal @1234 text in args, which can be a wrong number for @lid users)
+      // 1) Mention / tag
       if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
         targetUser = ctx.mentionedJid[0];
       }
 
-      // 2) Phone number / JID argument: .getpp 254798570132
-      //    Only if it's a plain number (no '@' literal text from a tag)
+      // 2) Phone number / JID argument
       if (!targetUser && args && args.length && args[0] && !args[0].startsWith('@')) {
         targetUser = toJid(args[0]);
       }
@@ -44,7 +58,7 @@ module.exports = {
           || msg.message?.extendedTextMessage?.contextInfo?.participant;
       }
 
-      // 4) Default — sender themselves (works in DMs and groups)
+      // 4) Default — sender themselves
       if (!targetUser) {
         targetUser = extra.sender
           || msg.key.participant
@@ -71,15 +85,19 @@ module.exports = {
         if (code === 404 || code === 500 || m.includes('not found') || m.includes('item-not-found')) {
           return extra.reply(`❌ No profile picture set for @${tag}.`);
         }
-        return extra.reply('❌ Could not fetch profile picture for this user.');
+        return extra.reply(`❌ Could not fetch profile picture for @${tag}.`);
       }
 
       if (!result || !result.url) {
         return extra.reply(`❌ No profile picture found for @${tag}.`);
       }
 
-      const response = await axios.get(result.url, { responseType: 'arraybuffer', timeout: 30000 });
-      const buffer = Buffer.from(response.data);
+      let buffer;
+      try {
+        buffer = await downloadBuffer(result.url);
+      } catch (dlErr) {
+        return extra.reply(`❌ Failed to download profile picture for @${tag}. Try again later.`);
+      }
 
       await sock.sendMessage(from, {
         image: buffer,
