@@ -13,6 +13,7 @@ const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 const detectPlatform = () => {
   if (process.env.DYNO) return "☁️ Heroku";
   if (process.env.RENDER) return "⚡ Render";
+  if (process.env.RAILWAY_ENVIRONMENT && process.env.RAILWAY_PROJECT_ID) return '🚉 Railway';
   if (process.env.PREFIX && process.env.PREFIX.includes("termux")) return "📱 Termux";
   if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return "🌀 CypherX Platform";
   if (process.env.P_SERVER_UUID) return "🖥️ Panel";
