@@ -81,7 +81,7 @@ module.exports = {
       // Build response message
       let message = [
         ``,
-        `⏰ *Running on* ${platform} *for:*`,
+        `⏰ Running on* ✓${platform}✓* for:`,
         `  *${uptime}*`,
         
         `💾 *Memory:* ${memUsed}MB / ${memTotal}MB`
