@@ -1,18 +1,50 @@
 const axios = require('axios');
 
+const NEKOS_ENDPOINTS = new Set([
+    'hug', 'kiss', 'pat', 'slap', 'cry', 'wave', 'poke', 'cuddle',
+    'smile', 'laugh', 'dance', 'happy', 'wink', 'blush', 'bite',
+    'bored', 'facepalm', 'feed', 'handhold', 'highfive', 'kick',
+    'kill', 'punch', 'shoot', 'shrug', 'sleep', 'stare', 'tickle',
+    'yeet', 'nom', 'bonk', 'glomp', 'angry', 'nod', 'run', 'smug'
+]);
+
+const NEKOS_NAME_MAP = {
+    'thinking': 'think',
+    'kick3': 'kick'
+};
+
 const fetchReactionImage = async ({ sock, msg, extra, command }) => {
     const from = extra.from || msg.key.remoteJid;
     try {
-        const { data } = await axios.get(`https://api.waifu.pics/sfw/${command}`, { timeout: 15000 });
-        if (!data?.url) throw new Error('No image URL returned');
+        let imageUrl = null;
 
-        const response = await axios.get(data.url, { responseType: 'arraybuffer', timeout: 20000 });
+        const nekosEndpoint = NEKOS_NAME_MAP[command] || command;
+
+        if (NEKOS_ENDPOINTS.has(nekosEndpoint)) {
+            try {
+                const { data } = await axios.get(`https://nekos.best/api/v2/${nekosEndpoint}`, { timeout: 15000 });
+                imageUrl = data?.results?.[0]?.url || null;
+            } catch (_) {}
+        }
+
+        if (!imageUrl) {
+            try {
+                const { data } = await axios.get(`https://api.waifu.pics/sfw/${command}`, { timeout: 15000 });
+                imageUrl = data?.url || null;
+            } catch (_) {}
+        }
+
+        if (!imageUrl) throw new Error('No image URL returned from any source');
+
+        const response = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 20000 });
         const buffer = Buffer.from(response.data);
 
+        const label = command.replace(/[0-9]/g, '').replace(/_/g, ' ');
         await sock.sendMessage(from, {
             image: buffer,
-            caption: `_${command.charAt(0).toUpperCase() + command.slice(1)}_`
+            caption: `_${label.charAt(0).toUpperCase() + label.slice(1)}_`
         }, { quoted: msg });
+
     } catch (error) {
         await extra.reply(global.mess?.error || '❌ Failed to fetch reaction image.');
     }
@@ -32,7 +64,7 @@ module.exports = [
     { command: ['hug'], name: 'hug', category: 'reaction', description: 'Send a hug reaction GIF', usage: '.hug',
       execute: async (sock, msg, args, extra) => { await fetchReactionImage({ sock, msg, extra, command: 'hug' }); } },
     { command: ['kick', 'kick3'], name: 'kick', category: 'reaction', description: 'Send a kick reaction GIF', usage: '.kick',
-      execute: async (sock, msg, args, extra) => { await fetchReactionImage({ sock, msg, extra, command: 'kick3' }); } },
+      execute: async (sock, msg, args, extra) => { await fetchReactionImage({ sock, msg, extra, command: 'kick' }); } },
     { command: ['slap'], name: 'slap', category: 'reaction', description: 'Send a slap reaction GIF', usage: '.slap',
       execute: async (sock, msg, args, extra) => { await fetchReactionImage({ sock, msg, extra, command: 'slap' }); } },
     { command: ['happy'], name: 'happy', category: 'reaction', description: 'Send a happy reaction GIF', usage: '.happy',
