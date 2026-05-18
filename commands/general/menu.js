@@ -11,7 +11,7 @@ const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
 // Detect host/platform
 const detectPlatform = () => {
-  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return "🚂 Railway";
+  if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return "🚉 Railway";
   if (process.env.DYNO) return "☁️ Heroku";
   if (process.env.RENDER) return "⚡ Render";
   if (process.env.REPL_ID || process.env.REPL_SLUG) return "🔵 Replit";
