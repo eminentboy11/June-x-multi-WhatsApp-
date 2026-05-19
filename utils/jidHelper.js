@@ -190,26 +190,21 @@ const resolveTargetJidVariants = (jid, groupMetadata) => {
 
 /**
  * Try profilePictureUrl across every variant of a JID until one succeeds.
- * Tries both 'image' (high-res) and 'preview' (low-res) quality per variant.
  * Returns { url, jid } on success, or throws the last error.
  */
 const tryFetchProfilePictureUrl = async (sock, jid, groupMetadata) => {
   const variants = resolveTargetJidVariants(jid, groupMetadata);
   let lastErr;
   for (const v of variants) {
-    for (const quality of ['image', 'preview']) {
-      try {
-        const url = await sock.profilePictureUrl(v, quality);
-        if (url && typeof url === 'string' && url.startsWith('http')) {
-          return { url, jid: v };
-        }
-      } catch (e) {
-        lastErr = e;
-      }
+    try {
+      const url = await sock.profilePictureUrl(v, 'image');
+      if (url) return { url, jid: v };
+    } catch (e) {
+      lastErr = e;
     }
   }
   if (lastErr) throw lastErr;
-  throw new Error('item-not-found');
+  return { url: null, jid };
 };
 
 /**
@@ -239,3 +234,4 @@ module.exports = {
   tryFetchProfilePictureUrl,
   displayUserTag,
 };
+
