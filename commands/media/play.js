@@ -59,17 +59,17 @@ async function searchYouTube(query) {
  */
 async function downloadAudio(videoUrl) {
     return withRetry(async () => {
-        // ── Primary: api.drexapp.space ────────────────────────────────────────
+        // ── Primary: mcow.giftedtechnexus ────────────────────────────────────
         try {
             const response = await axios.get(
-                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
+                `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
 
             const result = response.data?.result;
-            if (response.data?.status && result?.dl_url) {
+            if (response.data?.success && result?.download_url) {
                 return {
-                    downloadUrl: result.dl_url,
+                    downloadUrl: result.download_url,
                     title:       result.title     || '',
                     thumbnail:   result.thumbnail || '',
                 };
@@ -80,17 +80,17 @@ async function downloadAudio(videoUrl) {
             console.warn('[song] primary audio API failed, trying fallback:', primaryErr.message);
         }
 
-        // ── Fallback: mcow.giftedtechnexus ───────────────────────────────────
+        // ── Fallback: api.drexapp.space ───────────────────────────────────────
         try {
             const fallback = await axios.get(
-                `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
+                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
 
             const result = fallback.data?.result;
-            if (fallback.data?.success && result?.download_url) {
+            if (fallback.data?.status && result?.dl_url) {
                 return {
-                    downloadUrl: result.download_url,
+                    downloadUrl: result.dl_url,
                     title:       result.title     || '',
                     thumbnail:   result.thumbnail || '',
                 };
