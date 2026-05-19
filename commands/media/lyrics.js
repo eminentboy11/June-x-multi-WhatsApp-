@@ -1,5 +1,5 @@
 /**
- * Lyrics Finder — Nexray API + Next button
+ * Lyrics Finder — Nexray API + Next button (play-style buttons)
  */
 
 const axios = require('axios');
@@ -84,9 +84,13 @@ module.exports = {
         (data.synced ? `_Synced lyrics available_` : '') + `\n\n` +
         `_Fetched by ${config.botName}_`;
 
+      // ✅ Play-style buttons (id + text)
       const buttons = [];
       if (index < results.length - 1) {
-        buttons.push({ id: `${prefix}lyricsnext_${index+1}_${dateNow}`, text: '⏭️ Next' });
+        buttons.push({
+          id: `${prefix}lyricsnext_${index+1}_${dateNow}`,
+          text: '⏭️ Next'
+        });
       }
 
       await sendButtons(sock, jid, {
