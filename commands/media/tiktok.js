@@ -63,12 +63,12 @@ module.exports = {
 
             try {
                 const apiResponse = await axios.get(
-                    `https://apiskeith.top/download/tiktokdl3?url=${encodeURIComponent(url)}`
+                    `https://api.nexray.eu.cc/downloader/tiktok?url=${encodeURIComponent(url)}`
                 );
                 const data = apiResponse.data;
 
-                if (data && data.status && data.result) {
-                    const videoUrl = data.result;
+                if (data && data.status && data.result.data) {
+                    const videoUrl = data.result.data;
                     const caption = config.botName;
 
                     await sock.sendMessage(chatId, {
