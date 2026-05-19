@@ -63,12 +63,12 @@ module.exports = {
 
             try {
                 const apiResponse = await axios.get(
-                    `https://apiskeith.top/download/fbdown?url=${encodeURIComponent(url)}`
+                    `https://api.nexray.eu.cc/downloader/facebook?url=${encodeURIComponent(url)}`
                 );
                 const data = apiResponse.data;
 
-                if (data && data.status && data.result && (data.result.media.hd || data.result.media.sd)) {
-                    const videoUrl = data.result.media.hd || data.result.media.sd;
+                if (data && data.status && data.result && (data.result.video_sd || data.result.video_hd)) {
+                    const videoUrl = data.result.video_sd || data.result.video_hd;
                     const caption = config.botName;
 
                     await sock.sendMessage(chatId, {
