@@ -218,7 +218,7 @@ module.exports = {
                         document: { url: filePath },
                         mimetype: 'audio/mpeg',
                         fileName: `${cleanTitle}.mp3`,
-                        caption: `🎵 ${title}\n\n> Downloaded via ${config.botName}`,
+                        caption: `> ${config.botName}`,
                     }, { quoted: messageData });
                 }
 
