@@ -1,5 +1,5 @@
 /**
- * Song Command — powered by apiskeith.top + GiftedTech fallback
+ * Song Command — powered by GiftedTech + DrexApp fallback
  */
 
 const yts = require('yt-search');
@@ -56,32 +56,34 @@ async function searchYouTube(query) {
 async function downloadAudio(videoUrl) {
     return withRetry(async () => {
         try {
-            const response = await axios.get(
-                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
+            // Primary: GiftedTech
+            const primary = await axios.get(
+                `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (response.data?.status && response.data?.result?.dl_url) {
+            if (primary.data?.success && primary.data?.result?.download_url) {
                 return {
                     status: true,
-                    result: response.data.result.dl_url,
-                    title: response.data.result.title,
-                    thumbnail: response.data.result.thumbnail,
+                    result: primary.data.result.download_url,
+                    title: primary.data.result.title,
+                    thumbnail: primary.data.result.thumbnail,
                 };
             }
             throw new Error('Primary API failed');
         } catch (err) {
             console.warn('[song] primary audio API failed, using fallback:', err.message);
 
+            // Fallback: DrexApp
             const fallback = await axios.get(
-                `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
+                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (!fallback.data?.success || !fallback.data?.result?.download_url) {
+            if (!fallback.data?.status || !fallback.data?.result?.dl_url) {
                 throw new Error('Fallback API failed to fetch audio');
             }
             return {
                 status: true,
-                result: fallback.data.result.download_url,
+                result: fallback.data.result.dl_url,
                 title: fallback.data.result.title,
                 thumbnail: fallback.data.result.thumbnail,
             };
