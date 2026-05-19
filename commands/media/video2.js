@@ -87,7 +87,7 @@ function getVideoButtons(videoId, dateNow) {
 
 module.exports = {
     name: 'ytmp42',
-    aliases: ['video2', 'mp4', 'youtubevideo'],
+    aliases: ['video2', 'mp42', 'ytv2'],
     category: 'media',
     description: 'Search and download YouTube videos as MP4',
     usage: '.ytmp4 <video name>',
