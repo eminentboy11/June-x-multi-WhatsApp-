@@ -41,7 +41,7 @@ const APIs = {
   // YouTube Download
   ytDownload: async (url, type = 'audio') => {
     try {
-      const response = await api.get(`https://api.siputzx.my.id/api/d/ytmp3`, {
+      const response = await api.get(``, {
         params: { url }
       });
       return response.data;
@@ -365,12 +365,12 @@ const APIs = {
       throw lastError;
     };
     
-    const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp3`;
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}&format=mp3`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.success && res?.data?.downloadURL) {
+    if (res?.data?.success && res?.data?.result.download_url) {
       return {
-        download: res.data.downloadURL,
-        title: res.data.title
+        download: res.data.result.download_url,
+        title: res.data.result.title
       };
     }
     throw new Error('EliteProTech ytdown returned no download');
@@ -400,12 +400,12 @@ const APIs = {
       throw lastError;
     };
     
-    const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp4`;
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}&format=mp4`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.success && res?.data?.downloadURL) {
+    if (res?.data?.success && res?.data?.result.download_url) {
       return {
-        download: res.data.downloadURL,
-        title: res.data.title
+        download: res.data.result.download_url,
+        title: res.data.result.title
       };
     }
     throw new Error('EliteProTech ytdown video returned no download');
@@ -436,15 +436,15 @@ const APIs = {
       throw lastError;
     };
 
-    const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp4`;
+    const apiUrl = `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}&format=mp4`;
     const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
     if (res?.data?.success && res?.data?.downloadURL) {
       return {
-        download: res.data.downloadURL,
-        title: res.data.title
+        download: res.data.result.download_url,
+        title: res.data.result.title
       };
     }
-    throw new Error('EliteProTech ytdown video returned no download');
+    throw new Error('ytdown video returned no download');
   },
 
   getOkatsuVideoByUrl: async (youtubeUrl) => {
