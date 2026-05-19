@@ -53,53 +53,33 @@ async function searchYouTube(query) {
     });
 }
 
-/**
- * Always resolves to: { downloadUrl: string, title: string, thumbnail: string }
- * Both primary and fallback are normalised to this same shape.
- */
 async function downloadAudio(videoUrl) {
     return withRetry(async () => {
-        // ── Primary: mcow.giftedtechnexus ────────────────────────────────────
         try {
             const response = await axios.get(
+                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
+                { timeout: 60000 }
+            );
+            if (response.data?.status && response.data?.result.dl_url) {
+                return response.data;
+            }
+            throw new Error('Primary API failed');
+        } catch (err) {
+            console.warn('[song] primary audio API failed, using fallback:', err.message);
+
+            const fallback = await axios.get(
                 `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-
-            const result = response.data?.result;
-            if (response.data?.success && result?.download_url) {
-                return {
-                    downloadUrl: result.download_url,
-                    title:       result.title     || '',
-                    thumbnail:   result.thumbnail || '',
-                };
+            if (!fallback.data?.success || !fallback.data?.result?.download_url) {
+                throw new Error('Fallback API failed to fetch audio');
             }
-            throw new Error('Primary API returned no download URL');
-
-        } catch (primaryErr) {
-            console.warn('[song] primary audio API failed, trying fallback:', primaryErr.message);
-        }
-
-        // ── Fallback: api.drexapp.space ───────────────────────────────────────
-        try {
-            const fallback = await axios.get(
-                `https://api.drexapp.space/downloader/yta?${encodeURIComponent(videoUrl)}`,
-                { timeout: 60000 }
-            );
-
-            const result = fallback.data?.result;
-            if (fallback.data?.status && result?.dl_url) {
-                return {
-                    downloadUrl: result.dl_url,
-                    title:       result.title     || '',
-                    thumbnail:   result.thumbnail || '',
-                };
-            }
-            throw new Error('Fallback API returned no download URL');
-
-        } catch (fallbackErr) {
-            console.error('[song] fallback audio API failed:', fallbackErr.message);
-            throw new Error(`Both APIs failed. Last error: ${fallbackErr.message}`);
+            return {
+                status: true,
+                result: fallback.data.result.download_url,
+                title: fallback.data.result.title,
+                thumbnail: fallback.data.result.thumbnail,
+            };
         }
     });
 }
@@ -200,7 +180,6 @@ module.exports = {
                     .replace(prefix, '')
                     .split('_')[0];
 
-                // downloadAudio now always returns { downloadUrl, title, thumbnail }
                 const apiData = await downloadAudio(video.url);
 
                 const tempDir = path.join(__dirname, 'temp');
@@ -209,7 +188,7 @@ module.exports = {
 
                 const audioStream = await axios({
                     method: 'get',
-                    url: apiData.downloadUrl,   // ← consistent field, always a URL string
+                    url: apiData.result,
                     responseType: 'stream',
                     timeout: 600000,
                 });
