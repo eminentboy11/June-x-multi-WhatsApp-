@@ -20,6 +20,21 @@ const config = require('../../config');
 
 const RETRY_DELAY = 3000;
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function extractButtonResponseId(msg) {
+    return (
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
+        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+        null
+    );
+}
+
+function getResponseSender(msg) {
+    return msg.key?.participant || msg.key?.remoteJid;
+}
+
 async function withRetry(fn, retries = 3, delayMs = RETRY_DELAY) {
     let lastErr;
     for (let i = 0; i < retries; i++) {
@@ -68,9 +83,11 @@ function getSongButtons(videoId, dateNow) {
     ];
 }
 
+// ── Module ────────────────────────────────────────────────────────────────────
+
 module.exports = {
-    name: 'ytplay',
-    aliases: ['mp3', 'ytaudio', 'ytmp3'],
+    name: 'song',
+    aliases: ['music', 'ytaudio', 'ytmp3'],
     category: 'media',
     description: 'Search and download YouTube songs as audio',
     usage: '.song <song name>',
@@ -139,7 +156,8 @@ module.exports = {
             if (!messageData?.message) return;
 
             const selectedButtonId = extractButtonResponseId(messageData);
-            if (!selectedButtonId?.includes(`_${dateNow}`)) return;
+            if (!selectedButtonId) return;
+            if (!selectedButtonId.includes(`_${dateNow}`)) return;
             if (messageData.key?.remoteJid !== from) return;
 
             const responseSender = getResponseSender(messageData);
@@ -167,6 +185,7 @@ module.exports = {
                     responseType: 'stream',
                     timeout: 600000,
                 });
+
                 const writer = fs.createWriteStream(filePath);
                 audioStream.data.pipe(writer);
                 await new Promise((resolve, reject) => {
@@ -186,6 +205,7 @@ module.exports = {
                         audio: { url: filePath },
                         mimetype: 'audio/mpeg',
                     }, { quoted: messageData });
+
                 } else if (buttonType === 'audiodoc') {
                     await sock.sendMessage(from, {
                         document: { url: filePath },
