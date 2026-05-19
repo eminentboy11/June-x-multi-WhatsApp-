@@ -62,18 +62,6 @@ const APIs = {
     }
   },
   
-  // TikTok Download
-  tiktokDownload: async (url) => {
-    try {
-      const response = await api.get(`https://api.siputzx.my.id/api/d/tiktok`, {
-        params: { url }
-      });
-      return response.data;
-    } catch (error) {
-      throw new Error('Failed to download TikTok video');
-    }
-  },
-  
   // Translate
   translate: async (text, to = 'en') => {
     try {
