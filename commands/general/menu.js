@@ -162,7 +162,7 @@ function getThumbnail() {
 function getButtons() {
   const prefix = config.prefix || '.';
   return [
-    { id: 'menu_repo',       text: '💻 Bot Repo' },
+    { id: `${prefix}repo`,       text: '💻 Bot Repo' },
     { id: 'menu_yt',         text: '📺 YouTube' },
     { id: `${prefix}ping`,   text: '🏓 Ping' },
     { id: `${prefix}uptime`, text: '⏱️ Uptime' }
