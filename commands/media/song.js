@@ -3,7 +3,7 @@ const APIs = require('../../utils/api');
 
 module.exports = {
     name: 'play',
-    aliases: ['music', 'yta'],
+    aliases: ['song', 'yta'],
     category: 'media',
     description: 'Download audio from YouTube',
     usage: '.play <song name or URL>',
