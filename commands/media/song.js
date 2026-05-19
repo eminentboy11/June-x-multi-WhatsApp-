@@ -2,8 +2,8 @@ const yts = require('yt-search');
 const APIs = require('../../utils/api');
 
 module.exports = {
-    name: 'song',
-    aliases: ['play', 'music', 'yta'],
+    name: 'play',
+    aliases: ['music', 'yta'],
     category: 'media',
     description: 'Download audio from YouTube',
     usage: '.play <song name or URL>',
