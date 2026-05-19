@@ -95,8 +95,8 @@ function getSongButtons(videoId, dateNow) {
 // ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
-    name: 'song2',
-    aliases: ['playsong', 'mp3', 'ytmp3'],
+    name: 'play2',
+    aliases: ['song2', 'mp3', 'yta2'],
     category: 'media',
     description: 'Search and download YouTube songs as audio',
     usage: '.song <song name>',
