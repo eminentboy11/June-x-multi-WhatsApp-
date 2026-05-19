@@ -1,14 +1,5 @@
 /**
- * YTMP4 Command — powered by apiskeith.top
- *
- * Flow:
- *   1. Search YouTube via yt-search for the query
- *   2. Present buttons for format selection (Video / Video Document)
- *   3. Download via /download/video?url=<youtubeUrl>  (up to 3 retries)
- *   4. Send video in selected format
- *
- * Usage:
- *   .ytmp4 <video name>  — search + download top YouTube result
+ * YTMP4 Command — powered by apiskeith.top + cod3uchiha fallback
  */
 
 const yts = require('yt-search');
@@ -64,14 +55,34 @@ async function searchYouTube(query) {
 
 async function downloadVideo(videoUrl) {
     return withRetry(async () => {
-        const response = await axios.get(
-            `https://apiskeith.top/download/video?url=${encodeURIComponent(videoUrl)}`,
-            { timeout: 60000 }
-        );
-        if (!response.data?.status || !response.data?.result) {
-            throw new Error('API failed to fetch video');
+        try {
+            // Primary API
+            const response = await axios.get(
+                `https://apiskeith.top/download/video?url=${encodeURIComponent(videoUrl)}`,
+                { timeout: 60000 }
+            );
+            if (response.data?.status && response.data?.result) {
+                return response.data;
+            }
+            throw new Error('Primary API failed');
+        } catch (err) {
+            console.warn('[ytmp4] primary video API failed, using fallback:', err.message);
+
+            // Fallback API
+            const fallback = await axios.get(
+                `https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(videoUrl)}`,
+                { timeout: 60000 }
+            );
+            if (!fallback.data?.data?.url) {
+                throw new Error('Fallback API failed to fetch video');
+            }
+            return {
+                status: true,
+                result: fallback.data.data.url,
+                title: fallback.data.data.title,
+                format: fallback.data.data.format,
+            };
         }
-        return response.data;
     });
 }
 
@@ -86,8 +97,8 @@ function getVideoButtons(videoId, dateNow) {
 // ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
-    name: 'ytmp42',
-    aliases: ['video2', 'mp42', 'ytv2'],
+    name: 'ytmp4',
+    aliases: ['ytvideo', 'mp4', 'youtubevideo'],
     category: 'media',
     description: 'Search and download YouTube videos as MP4',
     usage: '.ytmp4 <video name>',
@@ -104,7 +115,6 @@ module.exports = {
 
         let query = args.join(' ').trim();
 
-        // Fallback: try quoted message text
         if (!query) {
             const quoted = extra?.quoted;
             query = quoted?.conversation || quoted?.extendedTextMessage?.text || '';
@@ -121,7 +131,7 @@ module.exports = {
         const from = extra.from;
         await sock.sendMessage(from, { react: { text: '🎥', key: msg.key } });
 
-        // ── Step 1: Search YouTube ────────────────────────────────────────────
+        // Step 1: Search YouTube
         let video;
         try {
             video = await searchYouTube(query);
@@ -134,7 +144,7 @@ module.exports = {
         const prefix = config.prefix || '.';
         const originalSender = msg.key.participant || msg.key.remoteJid;
 
-        // ── Step 2: Send format selection buttons ─────────────────────────────
+        // Step 2: Send format selection buttons
         await sendButtons(sock, from, {
             title: `🎬 VIDEO DOWNLOADER`,
             text:
@@ -150,7 +160,7 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // ── Step 3: Listen for button response ────────────────────────────────
+        // Step 3: Listen for button response
         const handleResponse = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -166,7 +176,7 @@ module.exports = {
             sock.ev.off('messages.upsert', handleResponse);
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
-            // ── Step 4: Download & send ───────────────────────────────────────
+            // Step 4: Download & send
             try {
                 const buttonType = selectedButtonId
                     .replace(prefix, '')
@@ -174,7 +184,6 @@ module.exports = {
 
                 const apiData = await downloadVideo(video.url);
 
-                // Stream to temp file
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
                 const filePath = path.join(tempDir, `video_${dateNow}.mp4`);
