@@ -83,7 +83,7 @@ async function downloadAudio(videoUrl) {
         // ── Fallback: api.drexapp.space ───────────────────────────────────────
         try {
             const fallback = await axios.get(
-                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
+                `https://api.drexapp.space/downloader/yta?${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
 
