@@ -163,7 +163,7 @@ function getButtons() {
   const prefix = config.prefix || '.';
   return [
     { id: `${prefix}repo`,       text: '💻 Bot Repo' },
-    { id: 'menu_yt',         text: '📺 YouTube' },
+    { id: `${prefix}alive`,         text: '🔘 alive' },
     { id: `${prefix}ping`,   text: '🏓 Ping' },
     { id: `${prefix}uptime`, text: '⏱️ Uptime' }
   ];
@@ -203,7 +203,7 @@ module.exports = {
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
-      const fullMenu = applyFont(menulist + `\n> *${botname}* v2.0 — Powered by Supreme`);
+      const fullMenu = applyFont(menulist + `\n> © Supreme`);
 
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
