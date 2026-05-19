@@ -39,7 +39,7 @@ function saveSettings(data) {
 
 module.exports = {
   name: 'setmenu',
-  aliases: ['menustyle', 'changemenu'],
+  aliases: ['menustyle', 'menuset'],
   category: 'owner',
   description: 'Set the menu display style (1-6)',
   usage: '.setmenu <1-6>',
