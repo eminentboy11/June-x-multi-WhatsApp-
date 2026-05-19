@@ -1,5 +1,5 @@
 /**
- * Lyrics Finder with Next Button
+ * Lyrics Finder — Nexray API + Next button
  */
 
 const axios = require('axios');
@@ -40,59 +40,27 @@ module.exports = {
     const prefix = config.prefix || '.';
     const originalSender = msg.key.participant || msg.key.remoteJid;
 
-    // ── Fetch multiple results from APIs ────────────────────────────────
     let results = [];
 
+    // ── Fetch from Nexray API ───────────────────────────────────────────
     try {
       const res = await axios.get(
-        `https://apiskeith.top/search/lyrics?query=${encodeURIComponent(query)}`,
-        { timeout: 10000 }
+        `https://api.nexray.eu.cc/search/lyrics?q=${encodeURIComponent(query)}`,
+        { timeout: 15000 }
       );
-      if (res.data?.status && Array.isArray(res.data.result)) {
-        results = res.data.result.map(r => ({
-          title: r.song || 'Unknown Title',
+
+      if (res.data?.status && res.data?.result) {
+        const r = res.data.result;
+        results.push({
+          title: r.title || 'Unknown Title',
           artist: r.artist || 'Unknown Artist',
-          lyrics: r.lyrics || 'No lyrics found',
+          lyrics: r.lyrics?.plain_lyrics || 'No lyrics found',
+          synced: r.lyrics?.synced_lyrics || null,
           thumbnail: r.thumbnail || null
-        }));
+        });
       }
     } catch (err) {
-      console.log('Keith lyrics API failed:', err.message);
-    }
-
-    // Fallbacks if no results
-    if (results.length === 0) {
-      try {
-        const res = await axios.get(
-          `https://api.vreden.my.id/api/lyrics?query=${encodeURIComponent(query)}`,
-          { timeout: 10000 }
-        );
-        if (res.data?.result) {
-          results.push({
-            title: res.data.result.title || 'Unknown Title',
-            artist: res.data.result.artist || 'Unknown Artist',
-            lyrics: res.data.result.lyrics || 'No lyrics found',
-            thumbnail: res.data.result.thumbnail || null
-          });
-        }
-      } catch { console.log('Vreden lyrics API failed'); }
-    }
-
-    if (results.length === 0) {
-      try {
-        const res = await axios.get(
-          `https://api.siputzx.my.id/api/s/lyrics?query=${encodeURIComponent(query)}`,
-          { timeout: 10000 }
-        );
-        if (res.data?.status && res.data?.data) {
-          results.push({
-            title: res.data.data.title || 'Unknown Title',
-            artist: res.data.data.artist || 'Unknown Artist',
-            lyrics: res.data.data.lyrics || 'No lyrics found',
-            thumbnail: res.data.data.image || null
-          });
-        }
-      } catch { console.log('Siputzx lyrics API failed'); }
+      console.error('Nexray lyrics API failed:', err.message);
     }
 
     if (results.length === 0) {
@@ -113,6 +81,7 @@ module.exports = {
         `🎵 *${data.title}*\n` +
         `👤 *Artist:* ${data.artist}\n\n` +
         `📝 *Lyrics:*\n${lyrics}\n\n` +
+        (data.synced ? `_Synced lyrics available_` : '') + `\n\n` +
         `_Fetched by ${config.botName}_`;
 
       const buttons = [];
