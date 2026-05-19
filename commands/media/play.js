@@ -60,8 +60,13 @@ async function downloadAudio(videoUrl) {
                 `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (response.data?.status && response.data?.result.dl_url) {
-                return response.data;
+            if (response.data?.status && response.data?.result?.dl_url) {
+                return {
+                    status: true,
+                    result: response.data.result.dl_url,
+                    title: response.data.result.title,
+                    thumbnail: response.data.result.thumbnail,
+                };
             }
             throw new Error('Primary API failed');
         } catch (err) {
@@ -218,7 +223,7 @@ module.exports = {
                         document: { url: filePath },
                         mimetype: 'audio/mpeg',
                         fileName: `${cleanTitle}.mp3`,
-                        caption: `> ${config.botName}`,
+                        caption: `🎵 ${cleanTitle}\n> ${config.botName}`,
                     }, { quoted: messageData });
                 }
 
