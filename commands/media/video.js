@@ -82,11 +82,12 @@ module.exports = {
       const finalTitle = videoData.title || videoTitle;
       const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'video';
 
-      // --- Send clean video with no caption ---
+      // --- Send video with title as caption ---
       await sock.sendMessage(chatId, {
         video: { url: videoData.download },
         mimetype: 'video/mp4',
-        fileName: `${safeTitle}.mp4`
+        fileName: `${safeTitle}.mp4`,
+        caption: finalTitle
       }, { quoted: msg });
 
     } catch (error) {
