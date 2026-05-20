@@ -63,11 +63,11 @@ module.exports = {
             }
 
             // --- Audio download ---
+            // Tries each API in order, stops at first success
             const apiFns = [
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
                 () => APIs.getEliteProTechDownloadByUrl(videoUrl),
-                () => APIs.getYupraDownloadByUrl(videoUrl),
-                () => APIs.getOkatsuDownloadByUrl(videoUrl),
+                () => APIs.getIzumiDownloadByQuery(searchQuery),
             ];
 
             let audioData = null;
@@ -89,16 +89,18 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            const safeTitle = title.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
+            // Use title from API if yts didn't find one
+            const finalTitle = audioData.title || title;
+            const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
-            // --- Send as DOCUMENT (no caption) ---
+            // --- Send as DOCUMENT ---
             await sock.sendMessage(chatId, {
                 document: { url: audioData.download },
                 mimetype: 'audio/mpeg',
                 fileName: `${safeTitle}.mp3`
             }, { quoted: msg });
 
-            // --- Send as AUDIO (no caption, playable) ---
+            // --- Send as playable AUDIO ---
             await sock.sendMessage(chatId, {
                 audio: { url: audioData.download },
                 mimetype: 'audio/mpeg',
