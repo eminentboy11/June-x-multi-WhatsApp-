@@ -1,6 +1,5 @@
 const yts = require('yt-search');
 const APIs = require('../../utils/api');
-const config = require('../../config');
 
 module.exports = {
   name: 'ytvideo',
@@ -11,9 +10,8 @@ module.exports = {
 
   async execute(sock, msg, args, extra) {
     try {
-      const text = args.join(' ');
       const chatId = msg.key.remoteJid;
-      const searchQuery = text.trim();
+      const searchQuery = args.join(' ').trim();
 
       if (!searchQuery) {
         return await sock.sendMessage(chatId, {
@@ -28,10 +26,6 @@ module.exports = {
       const isUrl = searchQuery.startsWith('http://') || searchQuery.startsWith('https://');
       let videoUrl = searchQuery;
       let videoTitle = searchQuery;
-      let videoThumbnail = '';
-      let duration = '';
-      let views = '';
-      let author = '';
 
       if (!isUrl) {
         const { videos } = await yts(searchQuery);
@@ -43,22 +37,12 @@ module.exports = {
         const found = videos[0];
         videoUrl = found.url;
         videoTitle = found.title;
-        videoThumbnail = found.thumbnail || '';
-        duration = found.timestamp || '';
-        views = found.views ? found.views.toLocaleString() : '';
-        author = found.author?.name || '';
       } else {
         try {
           const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
           if (ytId) {
             const result = await yts({ videoId: ytId });
-            if (result && result.title) {
-              videoTitle = result.title;
-              videoThumbnail = result.thumbnail || '';
-              duration = result.timestamp || '';
-              views = result.views ? result.views.toLocaleString() : '';
-              author = result.author?.name || '';
-            }
+            if (result && result.title) videoTitle = result.title;
           }
         } catch (e) {}
       }
@@ -71,17 +55,9 @@ module.exports = {
         }, { quoted: msg });
       }
 
-      // --- Send simple downloading message with title in italics ---
-      await sock.sendMessage(chatId, {
-        text: `_Downloading_\n_${videoTitle}_`
-      }, { quoted: msg });
-
       // --- Download APIs ---
       const apiFns = [
-        () => APIs.getApisKeithVideoByUrl(videoUrl),
         () => APIs.getEliteProTechVideoByUrl(videoUrl),
-        () => APIs.getYupraVideoByUrl(videoUrl),
-        () => APIs.getOkatsuVideoByUrl(videoUrl),
       ];
 
       let videoData = null;
@@ -103,21 +79,14 @@ module.exports = {
         }, { quoted: msg });
       }
 
-      const safeTitle = videoTitle.replace(/[^\w\s\-()]/g, '').trim() || 'video';
+      const finalTitle = videoData.title || videoTitle;
+      const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'video';
 
-      // Build caption with metadata
-      let caption = `🎬 *${videoTitle}*`;
-      if (author) caption += `\n👤 *Channel:* ${author}`;
-      if (duration) caption += `\n⏱ *Duration:* ${duration}`;
-      if (views) caption += `\n👁 *Views:* ${views}`;
-      caption += `\n\n> *_Downloaded by ${config.botName}_*`;
-
-      // Send video with caption
+      // --- Send clean video with no caption ---
       await sock.sendMessage(chatId, {
         video: { url: videoData.download },
         mimetype: 'video/mp4',
-        fileName: `${safeTitle}.mp4`,
-        caption: caption
+        fileName: `${safeTitle}.mp4`
       }, { quoted: msg });
 
     } catch (error) {
