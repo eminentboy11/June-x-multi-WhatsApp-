@@ -64,7 +64,6 @@ module.exports = {
 
             // --- Audio download ---
             const apiFns = [
-                () => APIs.getApisKeithAudioByUrl(videoUrl),
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
                 () => APIs.getEliteProTechDownloadByUrl(videoUrl),
                 () => APIs.getYupraDownloadByUrl(videoUrl),
@@ -103,7 +102,7 @@ module.exports = {
             await sock.sendMessage(chatId, {
                 audio: { url: audioData.download },
                 mimetype: 'audio/mpeg',
-                ptt: false   // set true for voice note style
+                ptt: false
             }, { quoted: msg });
 
         } catch (error) {
