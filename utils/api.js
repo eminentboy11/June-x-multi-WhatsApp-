@@ -213,15 +213,15 @@ const APIs = {
 
   getEliteProTechVideoByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}&format=mp4`, DOWNLOAD_HEADERS)
+      axios.get(`https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(youtubeUrl)}&format=mp4`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.success && res?.data?.result?.download_url) {
+    if (res?.data?.status && res?.data?.data?.url) {
       return {
-        download: res.data.result.download_url,
-        title: res.data.result.title
+        download: res.data.data.url,
+        title: res.data.data.title
       };
     }
-    throw new Error('EliteProTech video: no download URL returned');
+    throw new Error('video: no download URL returned');
   },
 
   // ─── Social Media Download ────────────────────────────────────
