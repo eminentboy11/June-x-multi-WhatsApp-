@@ -10,37 +10,55 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         const query = args.join(' ');
         if (!query) {
-            return extra.reply('🔍 *YouTube Search Command*\n\nUsage:\n.ytsearch <search_query>\n\nExample:\n.ytsearch Godzilla\n.ytsearch latest songs');
+            return extra.reply(
+                '☆━━━━━━━━━━━━━━━☆\n' +
+                '   ★ YOUTUBE SEARCH ★\n' +
+                '☆━━━━━━━━━━━━━━━☆\n\n' +
+                '◈ Usage  : .ytsearch <query>\n\n' +
+                '◉ Examples:\n' +
+                '  ▸ .ytsearch Godzilla\n' +
+                '  ▸ .ytsearch latest songs'
+            );
         }
 
-        await extra.react('▶️');
+        await extra.react('✨');
 
         try {
             const searchResults = await yts(query);
-            const videos = searchResults.videos.slice(0, 15); // limit to 15 results
+            const videos = searchResults.videos.slice(0, 15);
 
             if (videos.length === 0) {
-                return extra.reply(`❌ No results found for "${query}"\n\nTry different keywords.`);
+                return extra.reply(
+                    '◈ No results found for:\n' +
+                    `  "${query}"\n\n` +
+                    '▸ Try different keywords.'
+                );
             }
 
-            let resultMessage = `▶️ *YouTube: "${query}"*\n━━━━━━━━━━━━━━━\n\n`;
+            let resultMessage = `☆━━━━━━━━━━━━━━━☆\n`;
+            resultMessage +=    ` ★ YOUTUBE SEARCH ★\n`;
+            resultMessage +=    `☆━━━━━━━━━━━━━━━☆\n`;
+            resultMessage +=    `◈ Query » ${query}\n\n`;
 
             videos.forEach((video, index) => {
                 const duration = video.timestamp || 'N/A';
                 const views = video.views ? video.views.toLocaleString() : 'N/A';
                 const uploadDate = video.ago || 'N/A';
+                const num = String(index + 1).padStart(2, '0');
 
-                resultMessage += `${index + 1}. *${video.title}*\n`;
-                resultMessage += `   ⏱ Duration: ${duration}\n`;
-                resultMessage += `   👁 Views: ${views}\n`;
-                resultMessage += `   📅 Uploaded: ${uploadDate}\n`;
-                resultMessage += `   🔗 URL: ${video.url}\n\n`;
+                resultMessage += `◆ ${num}. ${video.url}\n`;
+                resultMessage += `  ▸ ${video.title}\n`;
+                resultMessage += `  ◇ Duration : ${duration}\n`;
+                resultMessage += `  ◇ Views    : ${views}\n`;
+                resultMessage += `  ◇ Uploaded : ${uploadDate}\n`;
+                resultMessage += `  ·  ·  ·  ·  ·  ·  ·\n`;
             });
 
-            resultMessage += `☆ Tip: Use \`#play <url>\` to download audio\n`;
-            resultMessage += `☆ Use \`#video <url>\` to download video`;
+            resultMessage += `\n☆━━━━━━━━━━━━━━━☆\n`;
+            resultMessage += `◉ #play <url>  » audio\n`;
+            resultMessage += `◉ #video <url> » video\n`;
+            resultMessage += `☆━━━━━━━━━━━━━━━☆`;
 
-            // Optionally send thumbnail of first video if available
             const firstVideo = videos[0];
             const thumbnail = firstVideo.thumbnail || firstVideo.image;
             if (thumbnail) {
@@ -53,7 +71,12 @@ module.exports = {
             }
         } catch (error) {
             console.error('YouTube search error:', error);
-            extra.reply(`❌ Error searching YouTube: ${error.message}`);
+            extra.reply(
+                `☆━━━━━━━━━━━━━━━☆\n` +
+                `  ★ ERROR ★\n` +
+                `☆━━━━━━━━━━━━━━━☆\n` +
+                `◈ ${error.message}`
+            );
         }
     }
 };
