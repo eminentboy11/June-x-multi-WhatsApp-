@@ -21,7 +21,7 @@ module.exports = {
             );
         }
 
-        await extra.react('✨');
+        await extra.react('☆');
 
         try {
             const searchResults = await yts(query);
@@ -46,8 +46,8 @@ module.exports = {
                 const uploadDate = video.ago || 'N/A';
                 const num = String(index + 1).padStart(2, '0');
 
-                resultMessage += `◆ ${num}. ${video.url}\n`;
-                resultMessage += `  ▸ ${video.title}\n`;
+                resultMessage += `◆ ${num}. ${video.title}\n`;
+                resultMessage += `  ◈ ${video.url}\n`;
                 resultMessage += `  ◇ Duration : ${duration}\n`;
                 resultMessage += `  ◇ Views    : ${views}\n`;
                 resultMessage += `  ◇ Uploaded : ${uploadDate}\n`;
@@ -73,7 +73,7 @@ module.exports = {
             console.error('YouTube search error:', error);
             extra.reply(
                 `☆━━━━━━━━━━━━━━━☆\n` +
-                `  ★ ERROR ★\n` +
+                `       ★ ERROR ★\n` +
                 `☆━━━━━━━━━━━━━━━☆\n` +
                 `◈ ${error.message}`
             );
