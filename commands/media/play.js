@@ -75,17 +75,17 @@ async function downloadAudio(videoUrl) {
 
             // Fallback: DrexApp
             const fallback = await axios.get(
-                `https://api.drexapp.space/downloader/yta?q=${encodeURIComponent(videoUrl)}`,
+                `https://apis.xwolf.space/download/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (!fallback.data?.status || !fallback.data?.result?.dl_url) {
+            if (!fallback.data?.status || !fallback.data?.downloadUrl) {
                 throw new Error('Fallback API failed to fetch audio');
             }
             return {
                 status: true,
-                result: fallback.data.result.dl_url,
-                title: fallback.data.result.title,
-                thumbnail: fallback.data.result.thumbnail,
+                result: fallback.data.downloadUrl,
+                title: fallback.data.title,
+                thumbnail: fallback.data.thumbnail,
             };
         }
     });
