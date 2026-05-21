@@ -1,29 +1,38 @@
 /**
- * Spotify Command — powered by apiskeith.top
- *
- * Flow:
- *   1. Search via  /search/spotify?q=<query>  (up to 3 retries)
- *   2. Grab the first result's Spotify URL
- *   3. Download via  /download/spotify?url=<spotifyUrl>  (up to 3 retries)
- *   4. Send audio; if download fails, send the search card + links
- *
- * Usage:
- *   .spotify <song name>          — search + auto-download top result
- *   .spotify <spotify track url>  — download directly by URL
+ * Spotify Command — powered by api.nexray.eu.cc
+ * Search: GET /search/spotify?q=<query>
+ * Download: GET /downloader/spotifyplay?q=<spotify_url>
  */
 
-const { keithApi } = require('../../utils/keithApi');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
-const RETRY_DELAY = 3000; // ms between retries
+const RETRY_DELAY = 3000;
+const MAX_RESULTS = 5;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function extractButtonResponseId(msg) {
+    return (
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
+        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+        null
+    );
+}
+
+function getResponseSender(msg) {
+    return msg.key?.participant || msg.key?.remoteJid;
+}
 
 async function withRetry(fn, retries = 3, delayMs = RETRY_DELAY) {
     let lastErr;
     for (let i = 0; i < retries; i++) {
         try {
-            const result = await fn();
-            return result;
+            return await fn();
         } catch (e) {
             lastErr = e;
             const isBusy = e.message?.toLowerCase().includes('busy') ||
@@ -31,183 +40,282 @@ async function withRetry(fn, retries = 3, delayMs = RETRY_DELAY) {
             if (i < retries - 1 && isBusy) {
                 await new Promise(r => setTimeout(r, delayMs));
             } else if (!isBusy) {
-                throw e; // non-transient error, don't retry
+                throw e;
             }
         }
     }
     throw lastErr;
 }
 
+/**
+ * Search Spotify — returns top MAX_RESULTS tracks
+ * Response shape: { status, result: [ { title, artist, duration, thumbnail, popularity, album, release_date, url } ] }
+ */
 async function searchSpotify(query) {
-    return withRetry(() => keithApi('/search/spotify', { q: query }));
+    return withRetry(async () => {
+        const res = await axios.get(
+            `https://api.nexray.eu.cc/search/spotify?q=${encodeURIComponent(query)}`,
+            { timeout: 30000 }
+        );
+        if (!res.data?.status || !Array.isArray(res.data?.result) || !res.data.result.length) {
+            throw new Error('No results found');
+        }
+        return res.data.result.slice(0, MAX_RESULTS);
+    });
 }
 
+/**
+ * Download Spotify track by its URL
+ * Response shape: { status, result: { title, artist, duration, thumbnail, album, release_at, url, download_url } }
+ * Always resolves to: { downloadUrl, title, artist, album, duration, thumbnail }
+ */
 async function downloadSpotify(spotifyUrl) {
-    return withRetry(() => keithApi('/download/spotify', { url: spotifyUrl }));
+    return withRetry(async () => {
+        const res = await axios.get(
+            `https://api.nexray.eu.cc/downloader/spotifyplay?q=${encodeURIComponent(spotifyUrl)}`,
+            { timeout: 90000 }
+        );
+        const result = res.data?.result;
+        if (!res.data?.status || !result?.download_url) {
+            throw new Error('Download API returned no URL');
+        }
+        return {
+            downloadUrl: result.download_url,
+            title:       result.title     || '',
+            artist:      result.artist    || '',
+            album:       result.album     || '',
+            duration:    result.duration  || '',
+            thumbnail:   result.thumbnail || '',
+        };
+    });
 }
 
-function extractResults(data) {
-    const raw = data?.result ?? data?.results ?? data?.data ?? data;
-    if (Array.isArray(raw)) return raw;
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) return [raw];
-    return [];
+/**
+ * Build track-selection buttons (one per search result)
+ * Button ID encodes: <prefix>sptrack_<index>_<dateNow>
+ */
+function getTrackButtons(tracks, dateNow) {
+    const prefix = config.prefix || '.';
+    return tracks.map((track, i) => ({
+        id:   `${prefix}sptrack_${i}_${dateNow}`,
+        text: `${i + 1}. ${track.title.substring(0, 22)}${track.title.length > 22 ? '…' : ''}`,
+    }));
 }
 
-function pickSpotifyUrl(track) {
-    return track?.url || track?.link || track?.spotify_url ||
-           track?.spotifyUrl || track?.href || null;
+/**
+ * Build format buttons after a track is chosen
+ * Button ID encodes: <prefix>spfmt_<format>_<dateNow>
+ */
+function getFormatButtons(dateNow) {
+    const prefix = config.prefix || '.';
+    return [
+        { id: `${prefix}spfmt_audio_${dateNow}`,    text: '🎶 Audio' },
+        { id: `${prefix}spfmt_audiodoc_${dateNow}`, text: '📄 Audio Document' },
+    ];
 }
 
-function pickAudioUrl(data) {
-    const r = data?.result ?? data?.data ?? data;
-    if (typeof r === 'string' && r.startsWith('http')) return r;
-    return r?.audio || r?.audioUrl || r?.download_url || r?.downloadUrl ||
-           r?.media_url || r?.link || r?.url || null;
-}
-
-function pickThumbnail(data) {
-    const r = data?.result ?? data?.data ?? data;
-    return r?.thumbnail || r?.image || r?.cover || r?.albumArt || null;
-}
-
-function formatDuration(secs) {
-    if (!secs || isNaN(secs)) return null;
-    const m = Math.floor(secs / 60), s = secs % 60;
-    return `${m}:${String(s).padStart(2, '0')}`;
-}
+// ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
     name: 'spotify',
-    aliases: ['sp', 'spotifydl', 'spdown'],
+    aliases: ['sp', 'spdl', 'spplay'],
     category: 'media',
-    description: 'Search and download Spotify tracks',
-    usage: '.spotify <song name or spotify URL>',
+    description: 'Search and download Spotify songs',
+    usage: '.spotify <song name>',
 
     async execute(sock, msg, args, extra) {
         if (!args.length) {
             return extra.reply(
                 `🎵 *Spotify Downloader*\n\n` +
                 `*Usage:*\n` +
-                `• \`.spotify faded alan walker\` — search + download\n` +
-                `• \`.spotify https://open.spotify.com/track/...\` — download directly`
+                `• \`.spotify faded\` — search + download\n` +
+                `• Reply to a message with \`.spotify\` — use replied text as query`
             );
         }
 
-        const query = args.join(' ').trim();
-        const isDirectUrl = query.startsWith('https://open.spotify.com/');
+        let query = args.join(' ').trim();
+
+        if (!query) {
+            const quoted = extra?.quoted;
+            query = quoted?.conversation || quoted?.extendedTextMessage?.text || '';
+        }
+
+        if (!query) {
+            return extra.reply('🎵 Provide a song name.\nExample: `.spotify Faded`');
+        }
+
+        if (query.length > 100) {
+            return extra.reply('📝 Song name too long! Max 100 chars.');
+        }
+
         const from = extra.from;
+        await sock.sendMessage(from, { react: { text: '🔍', key: msg.key } });
 
-        await sock.sendMessage(from, { react: { text: '🎵', key: msg.key } });
-
-        let spotifyUrl = null;
-        let trackInfo  = null;
-
-        // ── Step 1: Resolve Spotify URL ───────────────────────────────────────
-        if (isDirectUrl) {
-            spotifyUrl = query;
-        } else {
-            try {
-                await extra.reply(`🔍 Searching Spotify for *${query}*...`);
-                const searchData = await searchSpotify(query);
-                const results    = extractResults(searchData);
-
-                if (!results.length) {
-                    return extra.reply(`❌ No results found for *${query}*.`);
-                }
-
-                trackInfo  = results[0];
-                spotifyUrl = pickSpotifyUrl(trackInfo);
-
-                // Build a results card (top 5) to show while downloading
-                let card = `🎵 *Spotify — ${query}*\n━━━━━━━━━━━━━━━\n\n`;
-                results.slice(0, 5).forEach((r, i) => {
-                    const title    = r.title || r.name || '?';
-                    const artist   = r.artist || r.artists || '';
-                    const duration = r.duration || (r.duration_ms ? formatDuration(Math.round(r.duration_ms / 1000)) : null);
-                    const link     = pickSpotifyUrl(r) || '';
-                    card += `*${i + 1}.* 🎶 ${title}\n`;
-                    if (artist)   card += `   🎤 ${artist}\n`;
-                    if (duration) card += `   ⏱ ${duration}\n`;
-                    if (link)     card += `   🔗 ${link}\n`;
-                    card += '\n';
-                });
-
-                await sock.sendMessage(from, { text: card.trim() }, { quoted: msg });
-
-                if (!spotifyUrl) {
-                    return; // No downloadable URL found — search card is enough
-                }
-
-            } catch (e) {
-                console.error('[spotify] search error:', e.message);
-                return extra.reply(`❌ Search failed: ${e.message}`);
-            }
-        }
-
-        // ── Step 2: Download the track ────────────────────────────────────────
-        if (!spotifyUrl) {
-            return extra.reply('❌ Could not get a Spotify URL to download.');
-        }
-
+        // ── Step 1: Search ────────────────────────────────────────────────────
+        let tracks;
         try {
-            await extra.reply(`⬇️ Downloading track...`);
-            const dlData  = await downloadSpotify(spotifyUrl);
-            const audioUrl = pickAudioUrl(dlData);
-
-            if (!audioUrl) {
-                throw new Error(dlData?.error || dlData?.message || 'No audio URL in response');
-            }
-
-            // Fetch audio buffer
-            const audioResp = await axios.get(audioUrl, {
-                responseType: 'arraybuffer',
-                timeout: 60000,
-                headers: { 'User-Agent': 'Mozilla/5.0' },
-            });
-            const audioBuffer = Buffer.from(audioResp.data);
-
-            // Gather metadata for the audio caption
-            const r = dlData?.result ?? dlData?.data ?? dlData;
-            const title    = r?.title || trackInfo?.title || trackInfo?.name || query;
-            const artist   = r?.artist || r?.artists || trackInfo?.artist || trackInfo?.artists || '';
-            const duration = r?.duration || trackInfo?.duration || '';
-            const thumbUrl = pickThumbnail(dlData) || pickThumbnail({ result: trackInfo }) || '';
-
-            const caption =
-                `🎵 *${title}*\n` +
-                (artist   ? `🎤 ${artist}\n`   : '') +
-                (duration ? `⏱ ${duration}\n` : '') +
-                `\n> Downloaded via ${config.botName}`;
-
-            // Send thumbnail if available
-            if (thumbUrl) {
-                try {
-                    const thumbResp = await axios.get(thumbUrl, {
-                        responseType: 'arraybuffer', timeout: 15000,
-                    });
-                    await sock.sendMessage(from, {
-                        image: Buffer.from(thumbResp.data),
-                        caption: `🖼️ *${title}*`,
-                    }, { quoted: msg });
-                } catch (_) {}
-            }
-
-            // Send audio
-            await sock.sendMessage(from, {
-                audio: audioBuffer,
-                mimetype: 'audio/mpeg',
-                fileName: `${title}.mp3`,
-            }, { quoted: msg });
-
-            await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-
+            tracks = await searchSpotify(query);
         } catch (e) {
-            console.error('[spotify] download error:', e.message);
-            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-            await extra.reply(
-                `❌ Download failed: ${e.message}\n\n` +
-                `_Try again later or use the Spotify link directly._`
-            );
+            console.error('[spotify] search error:', e.message);
+            return extra.reply(`❌ Search failed: ${e.message}`);
         }
+
+        const dateNow     = Date.now();
+        const prefix      = config.prefix || '.';
+        const originalSender = msg.key.participant || msg.key.remoteJid;
+
+        // Build numbered track list for the message body
+        const trackList = tracks.map((t, i) =>
+            `*${i + 1}.* ${t.title}\n` +
+            `    ⏱ ${t.duration}  •  🔥 ${t.popularity ?? 'N/A'}  •  💿 ${t.album}`
+        ).join('\n\n');
+
+        // ── Step 2: Send track-selection buttons ──────────────────────────────
+        await sendButtons(sock, from, {
+            title:   `🎵 SPOTIFY SEARCH`,
+            text:
+                `*Query:* _${query}_\n\n` +
+                `${trackList}\n\n` +
+                `*Select a track to download:*`,
+            footer:  `Made by ${config.botName}`,
+            buttons: getTrackButtons(tracks, dateNow),
+        }, { quoted: msg });
+
+        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+
+        // ── Step 3: Listen for track selection ────────────────────────────────
+        const handleTrackSelect = async (event) => {
+            const messageData = event.messages[0];
+            if (!messageData?.message) return;
+
+            const selectedId = extractButtonResponseId(messageData);
+            if (!selectedId) return;
+            if (!selectedId.includes(`sptrack_`) || !selectedId.includes(`_${dateNow}`)) return;
+            if (messageData.key?.remoteJid !== from) return;
+
+            const responseSender = getResponseSender(messageData);
+            if (from.endsWith('@g.us') && responseSender !== originalSender) return;
+
+            sock.ev.off('messages.upsert', handleTrackSelect);
+
+            // Parse chosen track index
+            const match = selectedId.replace(prefix, '').match(/^sptrack_(\d+)_/);
+            if (!match) return;
+            const trackIndex = parseInt(match[1]);
+            const track      = tracks[trackIndex];
+            if (!track) return;
+
+            // ── Step 4: Send format-selection buttons ─────────────────────────
+            const fmtDateNow = Date.now();
+
+            await sendButtons(sock, from, {
+                title:   `🎵 ${track.title}`,
+                text:
+                    `⿻ *Title:*    ${track.title}\n` +
+                    `⿻ *Artist:*   ${track.artist}\n` +
+                    `⿻ *Album:*    ${track.album}\n` +
+                    `⿻ *Duration:* ${track.duration}\n` +
+                    `⿻ *Released:* ${track.release_date || 'N/A'}\n` +
+                    `⿻ *Link:*     ${track.url}\n\n` +
+                    `*Select download format:*`,
+                footer:  `Made by ${config.botName}`,
+                buttons: getFormatButtons(fmtDateNow),
+            }, { quoted: messageData });
+
+            await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
+
+            // ── Step 5: Listen for format selection ───────────────────────────
+            const handleFormatSelect = async (fmtEvent) => {
+                const fmtMsg = fmtEvent.messages[0];
+                if (!fmtMsg?.message) return;
+
+                const fmtId = extractButtonResponseId(fmtMsg);
+                if (!fmtId) return;
+                if (!fmtId.includes(`spfmt_`) || !fmtId.includes(`_${fmtDateNow}`)) return;
+                if (fmtMsg.key?.remoteJid !== from) return;
+
+                const fmtSender = getResponseSender(fmtMsg);
+                if (from.endsWith('@g.us') && fmtSender !== originalSender) return;
+
+                sock.ev.off('messages.upsert', handleFormatSelect);
+                await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
+
+                // ── Step 6: Download & send ───────────────────────────────────
+                try {
+                    const formatType = fmtId.replace(prefix, '').split('_')[1]; // audio | audiodoc
+
+                    const apiData = await downloadSpotify(track.url);
+
+                    // Send track thumbnail with info while downloading
+                    if (apiData.thumbnail || track.thumbnail) {
+                        await sock.sendMessage(from, {
+                            image:   { url: apiData.thumbnail || track.thumbnail },
+                            caption:
+                                `🎵 *${apiData.title || track.title}*\n` +
+                                `👤 *Artist:*   ${apiData.artist || track.artist}\n` +
+                                `💿 *Album:*    ${apiData.album  || track.album}\n` +
+                                `⏱ *Duration:* ${apiData.duration || track.duration}`,
+                        }, { quoted: fmtMsg });
+                    }
+
+                    // Save audio to temp file
+                    const tempDir  = path.join(__dirname, 'temp');
+                    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+                    const filePath = path.join(tempDir, `sp_${fmtDateNow}.mp3`);
+
+                    const audioStream = await axios({
+                        method:       'get',
+                        url:          apiData.downloadUrl,
+                        responseType: 'stream',
+                        timeout:      600000,
+                    });
+
+                    const writer = fs.createWriteStream(filePath);
+                    audioStream.data.pipe(writer);
+                    await new Promise((resolve, reject) => {
+                        writer.on('finish', resolve);
+                        writer.on('error', reject);
+                    });
+
+                    if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+                        throw new Error('Download failed — file is empty');
+                    }
+
+                    const rawTitle   = apiData.title || track.title || '';
+                    const cleanTitle = rawTitle.replace(/[^\w\s.-]/gi, '').substring(0, 100);
+
+                    if (formatType === 'audio') {
+                        await sock.sendMessage(from, {
+                            audio:    { url: filePath },
+                            mimetype: 'audio/mpeg',
+                        }, { quoted: fmtMsg });
+
+                    } else if (formatType === 'audiodoc') {
+                        await sock.sendMessage(from, {
+                            document: { url: filePath },
+                            mimetype: 'audio/mpeg',
+                            fileName: `${cleanTitle}.mp3`,
+                            caption:  `> ${config.botName}`,
+                        }, { quoted: fmtMsg });
+                    }
+
+                    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+
+                } catch (error) {
+                    console.error('[spotify] download error:', error.message);
+                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                    await sock.sendMessage(from, {
+                        text: `🚫 Error: ${error.message}\n\n_Try again later._`,
+                    }, { quoted: fmtMsg });
+                }
+            };
+
+            sock.ev.on('messages.upsert', handleFormatSelect);
+            setTimeout(() => sock.ev.off('messages.upsert', handleFormatSelect), 120000);
+        };
+
+        sock.ev.on('messages.upsert', handleTrackSelect);
+        setTimeout(() => sock.ev.off('messages.upsert', handleTrackSelect), 120000);
     },
 };
