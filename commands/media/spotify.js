@@ -244,19 +244,8 @@ module.exports = {
                 try {
                     const formatType = fmtId.replace(prefix, '').split('_')[1]; // audio | audiodoc
 
-                    const apiData = await downloadSpotify(track.url);
-
-                    // Send track thumbnail with info while downloading
-                    if (apiData.thumbnail || track.thumbnail) {
-                        await sock.sendMessage(from, {
-                            image:   { url: apiData.thumbnail || track.thumbnail },
-                            caption:
-                                `🎵 *${apiData.title || track.title}*\n` +
-                                `👤 *Artist:*   ${apiData.artist || track.artist}\n` +
-                                `💿 *Album:*    ${apiData.album  || track.album}\n` +
-                                `⏱ *Duration:* ${apiData.duration || track.duration}`,
-                        }, { quoted: fmtMsg });
-                    }
+                    const exactQuery = `${track.artist} - ${track.title}`;
+                    const apiData = await downloadSpotify(exactQuery);
 
                     // Save audio to temp file
                     const tempDir  = path.join(__dirname, 'temp');
