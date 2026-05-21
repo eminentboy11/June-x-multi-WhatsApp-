@@ -22,10 +22,6 @@ const acr = new acrcloud({
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function getQuotedMessage(msg) {
-    return msg.message?.extendedTextMessage?.contextInfo?.quotedMessage || null;
-}
-
 function getResponseSender(msg) {
     return msg.key?.participant || msg.key?.remoteJid;
 }
@@ -110,7 +106,15 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         const from = extra.from;
 
-        const msgContent = getQuotedMessage(msg);
+        // React first so the user always sees an immediate response
+        await sock.sendMessage(from, { react: { text: '🎵', key: msg.key } });
+
+        // Resolve quoted message — try extra.quoted first (framework-provided),
+        // then fall back to raw contextInfo
+        const msgContent =
+            extra?.quoted ||
+            msg.message?.extendedTextMessage?.contextInfo?.quotedMessage ||
+            null;
 
         if (!msgContent) {
             return extra.reply(
@@ -128,7 +132,6 @@ module.exports = {
             );
         }
 
-        await sock.sendMessage(from, { react: { text: '🎵', key: msg.key } });
         await extra.reply('🔍 Analyzing the media, please wait...');
 
         try {
@@ -155,9 +158,9 @@ module.exports = {
             const release     = song.release_date || 'N/A';
 
             let txt = `🎶 *SONG IDENTIFIED* 🎶\n\n`;
-            txt += `📝 *Title:*    ${title}\n`;
+            txt += `📝 *Title:*     ${title}\n`;
             txt += `🎤 *Artist(s):* ${artistNames}\n`;
-            txt += `💿 *Album:*    ${album}\n`;
+            txt += `💿 *Album:*     ${album}\n`;
             txt += `🎸 *Genre(s):* ${genres}\n`;
             txt += `📅 *Released:* ${release}\n\n`;
             txt += `*Select a format to download:*`;
