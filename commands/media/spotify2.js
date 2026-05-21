@@ -117,8 +117,8 @@ function getFormatButtons(dateNow) {
 // ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
-    name: 'spotify',
-    aliases: ['sp', 'spdl', 'spplay'],
+    name: 'spotify2',
+    aliases: ['sp2', 'spdl2', 'spplay2'],
     category: 'media',
     description: 'Search and download Spotify songs',
     usage: '.spotify <song name>',
