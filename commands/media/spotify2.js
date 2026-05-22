@@ -28,9 +28,26 @@ function getResponseSender(msg) {
     return msg.key?.participant || msg.key?.remoteJid;
 }
 
-/** Returns true if the input looks like a Spotify track/album/playlist URL */
 function isSpotifyUrl(text) {
     return /https?:\/\/(open\.)?spotify\.com\/(track|album|playlist)\/[A-Za-z0-9]+/i.test(text);
+}
+
+/**
+ * Build the best possible download query for a track.
+ * Prefers the direct Spotify URL — falls back to "Artist - Title" only if URL is missing.
+ * This is the root cause fix: a bare text query lets the API pick any song;
+ * a Spotify URL pins it to the exact track.
+ */
+function resolveDownloadQuery(track) {
+    if (track?.url && isSpotifyUrl(track.url)) {
+        return track.url;                                    // ✅ exact track — safest
+    }
+    // URL missing or malformed — construct the most specific text query possible
+    const artist = track?.artist?.trim() || '';
+    const title  = track?.title?.trim()  || '';
+    const query  = artist ? `${artist} - ${title}` : title;
+    console.warn('[spotify] track.url missing or invalid, falling back to text query:', query);
+    return query;
 }
 
 async function withRetry(fn, retries = 3, delayMs = RETRY_DELAY) {
@@ -52,9 +69,6 @@ async function withRetry(fn, retries = 3, delayMs = RETRY_DELAY) {
     throw lastErr;
 }
 
-/**
- * Search Spotify — returns top MAX_RESULTS tracks
- */
 async function searchSpotify(query) {
     return withRetry(async () => {
         const res = await axios.get(
@@ -68,11 +82,9 @@ async function searchSpotify(query) {
     });
 }
 
-/**
- * Download Spotify track — accepts either a Spotify URL or a search string
- */
 async function downloadSpotify(spotifyUrlOrQuery) {
     return withRetry(async () => {
+        console.log('[spotify] downloading with query:', spotifyUrlOrQuery);   // debug log
         const res = await axios.get(
             `https://api.nexray.eu.cc/downloader/spotifyplay?q=${encodeURIComponent(spotifyUrlOrQuery)}`,
             { timeout: 90000 }
@@ -81,6 +93,7 @@ async function downloadSpotify(spotifyUrlOrQuery) {
         if (!res.data?.status || !result?.download_url) {
             throw new Error('Download API returned no URL');
         }
+        console.log('[spotify] API will deliver:', result.title, '-', result.artist);   // verify match
         return {
             downloadUrl: result.download_url,
             title:       result.title     || '',
@@ -92,9 +105,6 @@ async function downloadSpotify(spotifyUrlOrQuery) {
     });
 }
 
-/**
- * Build track-selection buttons (one per search result)
- */
 function getTrackButtons(tracks, dateNow) {
     const prefix = config.prefix || '.';
     return tracks.map((track, i) => ({
@@ -103,9 +113,6 @@ function getTrackButtons(tracks, dateNow) {
     }));
 }
 
-/**
- * Build format buttons after a track is chosen
- */
 function getFormatButtons(dateNow) {
     const prefix = config.prefix || '.';
     return [
@@ -114,10 +121,7 @@ function getFormatButtons(dateNow) {
     ];
 }
 
-/**
- * Download, save to temp, and send audio based on formatType ('audio' | 'audiodoc')
- */
-async function sendAudio({ sock, from, msg, messageData, downloadQuery, trackMeta, formatType, prefix }) {
+async function sendAudio({ sock, from, msg, messageData, downloadQuery, trackMeta, formatType }) {
     await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
 
     const apiData = await downloadSpotify(downloadQuery);
@@ -222,7 +226,6 @@ module.exports = {
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-            // Listen for format selection — persistent, no expiry, multi-tap
             const handleDirectFormat = async (event) => {
                 const fmtMsg = event.messages[0];
                 if (!fmtMsg?.message) return;
@@ -235,17 +238,15 @@ module.exports = {
                 const fmtSender = getResponseSender(fmtMsg);
                 if (from.endsWith('@g.us') && fmtSender !== originalSender) return;
 
-                // ✅ No sock.ev.off — multi-tap allowed
                 const formatType = fmtId.replace(prefix, '').split('_')[1];
 
                 try {
                     await sendAudio({
                         sock, from, msg,
                         messageData:   fmtMsg,
-                        downloadQuery: query,       // pass the raw Spotify URL directly
+                        downloadQuery: query,        // raw Spotify URL — always exact
                         trackMeta:     null,
                         formatType,
-                        prefix,
                     });
                 } catch (error) {
                     console.error('[spotify] link download error:', error.message);
@@ -257,7 +258,6 @@ module.exports = {
             };
 
             sock.ev.on('messages.upsert', handleDirectFormat);
-            // ✅ No setTimeout — no expiry
             return;
         }
 
@@ -279,7 +279,6 @@ module.exports = {
             `    ⏱ ${t.duration}  •  🔥 ${t.popularity ?? 'N/A'}  •  💿 ${t.album}`
         ).join('\n\n');
 
-        // ── Step 2: Send track-selection buttons ──────────────────────────────
         await sendButtons(sock, from, {
             title:   `🎵 SPOTIFY SEARCH`,
             text:
@@ -292,7 +291,7 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // ── Step 3: Listen for track selection — persistent, multi-tap ────────
+        // ── Step 3: Track selection — persistent, multi-tap ───────────────────
         const handleTrackSelect = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -305,15 +304,12 @@ module.exports = {
             const responseSender = getResponseSender(messageData);
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-            // ✅ No sock.ev.off — allows picking a different track repeatedly
-
             const match = selectedId.replace(prefix, '').match(/^sptrack_(\d+)_/);
             if (!match) return;
-            const trackIndex = parseInt(match[1]);
-            const track      = tracks[trackIndex];
+            const track = tracks[parseInt(match[1])];
             if (!track) return;
 
-            // ── Step 4: Send format-selection buttons ─────────────────────────
+            // ── Step 4: Format buttons ────────────────────────────────────────
             const fmtDateNow = Date.now();
 
             await sendButtons(sock, from, {
@@ -324,7 +320,7 @@ module.exports = {
                     `⿻ *Album:*    ${track.album}\n` +
                     `⿻ *Duration:* ${track.duration}\n` +
                     `⿻ *Released:* ${track.release_date || 'N/A'}\n` +
-                    `⿻ *Link:*     ${track.url}\n\n` +
+                    `⿻ *Link:*     ${track.url || 'N/A'}\n\n` +
                     `*Select download format:*`,
                 footer:  `Made by ${config.botName}`,
                 buttons: getFormatButtons(fmtDateNow),
@@ -332,7 +328,7 @@ module.exports = {
 
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
-            // ── Step 5: Listen for format selection — persistent, multi-tap ───
+            // ── Step 5: Format selection — persistent, multi-tap ──────────────
             const handleFormatSelect = async (fmtEvent) => {
                 const fmtMsg = fmtEvent.messages[0];
                 if (!fmtMsg?.message) return;
@@ -345,17 +341,18 @@ module.exports = {
                 const fmtSender = getResponseSender(fmtMsg);
                 if (from.endsWith('@g.us') && fmtSender !== originalSender) return;
 
-                // ✅ No sock.ev.off — multi-tap allowed
                 const formatType = fmtId.replace(prefix, '').split('_')[1];
+
+                // ✅ Core fix: always resolve to Spotify URL, never a bare text query
+                const downloadQuery = resolveDownloadQuery(track);
 
                 try {
                     await sendAudio({
                         sock, from, msg,
                         messageData:   fmtMsg,
-                        downloadQuery: track.url,   // use the track's Spotify URL
+                        downloadQuery,           // pinned to exact track URL
                         trackMeta:     track,
                         formatType,
-                        prefix,
                     });
                 } catch (error) {
                     console.error('[spotify] download error:', error.message);
