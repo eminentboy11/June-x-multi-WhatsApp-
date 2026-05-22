@@ -160,7 +160,7 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // Step 3: Listen for button response
+        // Step 3: Listen for button responses — persistent, no expiry, multi-tap
         const handleResponse = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -173,7 +173,7 @@ module.exports = {
             const responseSender = getResponseSender(messageData);
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-            sock.ev.off('messages.upsert', handleResponse);
+            // ✅ No sock.ev.off — listener stays alive for repeated taps
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
             // Step 4: Download & send
@@ -238,6 +238,6 @@ module.exports = {
         };
 
         sock.ev.on('messages.upsert', handleResponse);
-        setTimeout(() => sock.ev.off('messages.upsert', handleResponse), 120000);
+        // ✅ No setTimeout — listener persists until bot restarts
     },
 };
