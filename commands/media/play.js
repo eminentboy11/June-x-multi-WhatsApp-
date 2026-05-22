@@ -94,8 +94,9 @@ async function downloadAudio(videoUrl) {
 function getSongButtons(videoId, dateNow) {
     const prefix = config.prefix || '.';
     return [
-        { id: `${prefix}audio_${videoId}_${dateNow}`,    text: '🎶 Audio' },
-        { id: `${prefix}audiodoc_${videoId}_${dateNow}`, text: '📄 Audio Document' },
+        { id: `${prefix}audio_${videoId}_${dateNow}`,      text: '🎶 Audio' },
+        { id: `${prefix}audiodoc_${videoId}_${dateNow}`,   text: '📄 Audio Document' },
+        { id: `${prefix}voicenote_${videoId}_${dateNow}`,  text: '🎙️ Voice Note' },  // ← NEW
     ];
 }
 
@@ -165,7 +166,7 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // Step 3: Listen for button response
+        // Step 3: Listen for button responses — persistent, no expiry, multi-tap
         const handleResponse = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -178,7 +179,8 @@ module.exports = {
             const responseSender = getResponseSender(messageData);
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-            sock.ev.off('messages.upsert', handleResponse);
+            // ✅ No sock.ev.off here — listener stays alive for repeated taps
+
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
             // Step 4: Download & send
@@ -227,6 +229,13 @@ module.exports = {
                         fileName: `${cleanTitle}.mp3`,
                         caption: `🎵 ${cleanTitle}\n> ${config.botName}`,
                     }, { quoted: messageData });
+
+                } else if (buttonType === 'voicenote') {          // ← NEW
+                    await sock.sendMessage(from, {
+                        audio: { url: filePath },
+                        mimetype: 'audio/ogg; codecs=opus',
+                        ptt: true,
+                    }, { quoted: messageData });
                 }
 
                 if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
@@ -242,6 +251,6 @@ module.exports = {
         };
 
         sock.ev.on('messages.upsert', handleResponse);
-        setTimeout(() => sock.ev.off('messages.upsert', handleResponse), 120000);
+        // ✅ No setTimeout expiry — listener persists until bot restarts
     },
 };
