@@ -6,7 +6,6 @@ const yts = require('yt-search');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');                         // ← NEW
 const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
@@ -57,6 +56,7 @@ async function searchYouTube(query) {
 async function downloadAudio(videoUrl) {
     return withRetry(async () => {
         try {
+            // Primary: GiftedTech
             const primary = await axios.get(
                 `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
@@ -72,6 +72,8 @@ async function downloadAudio(videoUrl) {
             throw new Error('Primary API failed');
         } catch (err) {
             console.warn('[song] primary audio API failed, using fallback:', err.message);
+
+            // Fallback: DrexApp
             const fallback = await axios.get(
                 `https://apis.xwolf.space/download/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
@@ -89,90 +91,12 @@ async function downloadAudio(videoUrl) {
     });
 }
 
-/**
- * Convert any audio file to OGG Opus (required for WhatsApp PTT waveform).
- * Returns path to the converted .ogg file.
- */
-function convertToOpus(inputPath, outputPath) {
-    return new Promise((resolve, reject) => {
-        const ff = spawn('ffmpeg', [
-            '-y',
-            '-i', inputPath,
-            '-c:a', 'libopus',
-            '-b:a', '128k',
-            '-vn',
-            outputPath,
-        ]);
-        ff.on('close', code =>
-            code === 0 ? resolve(outputPath) : reject(new Error(`ffmpeg exited with code ${code}`))
-        );
-        ff.on('error', err => reject(new Error(`ffmpeg not found: ${err.message}`)));
-    });
-}
-
-/**
- * Extract 64-point waveform from audio using ffmpeg PCM output.
- * Returns a Buffer of 64 bytes (values 0–100) — WhatsApp uses this to draw bars.
- */
-function extractWaveform(inputPath, points = 64) {
-    return new Promise((resolve) => {
-        const chunks = [];
-        const ff = spawn('ffmpeg', [
-            '-i', inputPath,
-            '-ac', '1',         // mono
-            '-ar', '8000',      // 8 kHz — enough for amplitude sampling
-            '-f', 's16le',      // raw signed 16-bit PCM
-            'pipe:1',
-        ]);
-
-        ff.stdout.on('data', chunk => chunks.push(chunk));
-
-        ff.on('close', () => {
-            try {
-                const buf = Buffer.concat(chunks);
-                const totalSamples = buf.length / 2;            // 2 bytes per int16 sample
-                const step = Math.max(1, Math.floor(totalSamples / points));
-                const waveform = Buffer.alloc(points);
-
-                for (let i = 0; i < points; i++) {
-                    let sum = 0;
-                    for (let j = 0; j < step; j++) {
-                        const idx = (i * step + j) * 2;
-                        if (idx + 1 < buf.length) {
-                            sum += Math.abs(buf.readInt16LE(idx));
-                        }
-                    }
-                    const avg = sum / step;
-                    // Normalise to 0–100 range
-                    waveform[i] = Math.min(100, Math.floor((avg / 32768) * 100));
-                }
-                resolve(waveform);
-            } catch {
-                resolve(fallbackWaveform(points));
-            }
-        });
-
-        ff.on('error', () => resolve(fallbackWaveform(points)));
-    });
-}
-
-/** Smooth random waveform as a safe fallback if ffmpeg PCM pipe fails */
-function fallbackWaveform(points = 64) {
-    const buf = Buffer.alloc(points);
-    let val = 40;
-    for (let i = 0; i < points; i++) {
-        val = Math.min(95, Math.max(10, val + (Math.random() * 20 - 10)));
-        buf[i] = Math.floor(val);
-    }
-    return buf;
-}
-
 function getSongButtons(videoId, dateNow) {
     const prefix = config.prefix || '.';
     return [
         { id: `${prefix}audio_${videoId}_${dateNow}`,      text: '🎶 Audio' },
         { id: `${prefix}audiodoc_${videoId}_${dateNow}`,   text: '📄 Audio Document' },
-        { id: `${prefix}voicenote_${videoId}_${dateNow}`,  text: '🎙️ Voice Note' },
+        { id: `${prefix}voicenote_${videoId}_${dateNow}`,  text: '🎙️ Voice Note' },  // ← NEW
     ];
 }
 
@@ -255,19 +179,22 @@ module.exports = {
             const responseSender = getResponseSender(messageData);
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
+            // ✅ No sock.ev.off here — listener stays alive for repeated taps
+
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
             // Step 4: Download & send
             try {
-                const buttonType = selectedButtonId.replace(prefix, '').split('_')[0];
+                const buttonType = selectedButtonId
+                    .replace(prefix, '')
+                    .split('_')[0];
+
                 const apiData = await downloadAudio(video.url);
 
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+                const filePath = path.join(tempDir, `audio_${dateNow}.mp3`);
 
-                const mp3Path = path.join(tempDir, `audio_${dateNow}.mp3`);
-
-                // Download MP3
                 const audioStream = await axios({
                     method: 'get',
                     url: apiData.result,
@@ -275,53 +202,55 @@ module.exports = {
                     timeout: 600000,
                 });
 
-                const writer = fs.createWriteStream(mp3Path);
+                const writer = fs.createWriteStream(filePath);
                 audioStream.data.pipe(writer);
                 await new Promise((resolve, reject) => {
                     writer.on('finish', resolve);
                     writer.on('error', reject);
                 });
 
-                if (!fs.existsSync(mp3Path) || fs.statSync(mp3Path).size === 0) {
+                if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
                     throw new Error('Download failed — file is empty');
                 }
 
                 const title = apiData.title || video.title || '';
                 const cleanTitle = title.replace(/[^\w\s.-]/gi, '').substring(0, 100);
 
-                // ── Send based on button type ─────────────────────────────────
-
                 if (buttonType === 'audio') {
                     await sock.sendMessage(from, {
-                        audio: { url: mp3Path },
+                        audio: { url: filePath },
                         mimetype: 'audio/mpeg',
                     }, { quoted: messageData });
 
                 } else if (buttonType === 'audiodoc') {
                     await sock.sendMessage(from, {
-                        document: { url: mp3Path },
+                        document: { url: filePath },
                         mimetype: 'audio/mpeg',
                         fileName: `${cleanTitle}.mp3`,
                         caption: `🎵 ${cleanTitle}\n> ${config.botName}`,
                     }, { quoted: messageData });
 
-                } else if (buttonType === 'voicenote') {
-                    // Convert MP3 → OGG Opus (required for waveform display)
-                    const oggPath = path.join(tempDir, `vn_${dateNow}.ogg`);
-                    await convertToOpus(mp3Path, oggPath);
-
-                    // Extract real waveform from the converted audio
-                    const waveform = await extractWaveform(oggPath);
-
+                } else if (buttonType === 'voicenote') {          // ← NEW
                     await sock.sendMessage(from, {
-                        audio: fs.readFileSync(oggPath),    // buffer — not URL — for waveform to attach
+                        audio: { url: filePath },
                         mimetype: 'audio/ogg; codecs=opus',
-                        ptt: true,                          // renders as voice note
-                        waveform,                           // 64-byte amplitude map → draws the bars
+                        ptt: true,
                     }, { quoted: messageData });
-
-                    if (fs.existsSync(oggPath)) fs.unlinkSync(oggPath);
                 }
 
-                if (fs.existsSync(mp3Path)) fs.unlinkSync(mp3Path);
-                await sock.sendMessage(from
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+
+            } catch (error) {
+                console.error('[song] download error:', error.message);
+                await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                await sock.sendMessage(from, {
+                    text: `🚫 Error: ${error.message}\n\n_Try again later._`,
+                }, { quoted: messageData });
+            }
+        };
+
+        sock.ev.on('messages.upsert', handleResponse);
+        // ✅ No setTimeout expiry — listener persists until bot restarts
+    },
+};
