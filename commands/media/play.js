@@ -227,7 +227,7 @@ module.exports = {
                         document: { url: filePath },
                         mimetype: 'audio/mpeg',
                         fileName: `${cleanTitle}.mp3`,
-                        caption: `🎵 ${cleanTitle}\n> ${config.botName}`,
+                        caption: `> ${config.botName}`,
                     }, { quoted: messageData });
 
                 } else if (buttonType === 'voicenote') {          // ← NEW
