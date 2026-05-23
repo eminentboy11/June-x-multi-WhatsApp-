@@ -162,41 +162,11 @@ function getThumbnail() {
 function getButtons() {
   const prefix = config.prefix || '.';
   return [
-    { id: `${prefix}repo`,   text: '💻 Bot Repo' },
-    { id: `${prefix}alive`,  text: '🔘 Alive' },
+    { id: `${prefix}repo`,       text: '💻 Bot Repo' },
+    { id: `${prefix}alive`,         text: '🔘 alive' },
     { id: `${prefix}ping`,   text: '🏓 Ping' },
-    { id: `${prefix}uptime`, text: '⏱️ Uptime' },
+    { id: `${prefix}uptime`, text: '⏱️ Uptime' }
   ];
-}
-
-// ─── Private mode guard for button taps ───────────────────────────────────────
-// Returns true if the button tap should be silently blocked.
-function isBlockedButtonTap(msg) {
-  const isButtonResponse =
-    !!msg.message?.buttonsResponseMessage ||
-    !!msg.message?.interactiveResponseMessage ||
-    !!msg.message?.templateButtonReplyMessage;
-
-  if (!isButtonResponse) return false;
-
-  try {
-    const { getMode } = require('../../utils/botMode');
-    const mode = getMode();
-
-    if (mode !== 'private' && mode !== 'self') return false;
-
-    const senderJid = msg.key.participant || msg.key.remoteJid;
-
-    const ownerNumbers = (
-      Array.isArray(config.ownerNumber)
-        ? config.ownerNumber
-        : [config.ownerNumber]
-    ).map(n => n.replace(/[^0-9]/g, '') + '@s.whatsapp.net');
-
-    return !ownerNumbers.includes(senderJid);
-  } catch {
-    return false;
-  }
 }
 
 module.exports = {
@@ -208,9 +178,6 @@ module.exports = {
 
   async execute(sock, msg, args, extra) {
     try {
-      // Block button taps in private/self mode for non-owners
-      if (isBlockedButtonTap(msg)) return;
-
       const commands = loadCommands();
       const categories = {};
 
@@ -238,7 +205,6 @@ module.exports = {
       const chatId = extra.from;
       const fullMenu = applyFont(menulist + `\n> © Supreme`);
 
-      // ── Style 1 : document trick with ad reply thumbnail ──────────────────
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
           document: { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
@@ -260,18 +226,16 @@ module.exports = {
           },
         }, { quoted: msg });
 
-      // ── Style 2 : gifted-btns buttons ─────────────────────────────────────
       } else if (menustyle === '2') {
+        const footer = `Powered by Supreme`;
         const menuTextClean = applyFont(menulist);
         await sendButtons(sock, chatId, {
-          title:   botname,
-          body:    menuTextClean,          // gifted-btns uses "body", not "text"
-          footer:  `Powered by Supreme`,
+          title: '',
+          text: menuTextClean,
+          footer: footer,
           buttons: getButtons(),
-          image:   tylorkids || null,
         }, { quoted: msg });
 
-      // ── Style 3 : text + ad reply ─────────────────────────────────────────
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
           text: fullMenu,
@@ -289,7 +253,6 @@ module.exports = {
           },
         }, { quoted: msg });
 
-      // ── Style 4 : image with caption ──────────────────────────────────────
       } else if (menustyle === '4') {
         await sock.sendMessage(chatId, {
           image: tylorkids || { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
@@ -297,44 +260,26 @@ module.exports = {
           mentions: [extra.sender],
         }, { quoted: msg });
 
-      // ── Style 5 : nativeFlowMessage interactive buttons ───────────────────
       } else if (menustyle === '5') {
         try {
-          // Each button needs name + buttonParamsJson (quick_reply format)
-          const nativeButtons = getButtons().map(btn => ({
-            name: 'quick_reply',
-            buttonParamsJson: JSON.stringify({
-              display_text: btn.text,
-              id: btn.id,
-            }),
-          }));
-
-          const massage = generateWAMessageFromContent(chatId, {
+          let massage = generateWAMessageFromContent(chatId, {
             viewOnceMessage: {
               message: {
                 interactiveMessage: {
-                  header: tylorkids
-                    ? {
-                        imageMessage: { jpegThumbnail: tylorkids },
-                        hasMediaAttachment: false,
-                      }
-                    : {},
-                  body:   { text: fullMenu },
-                  footer: { text: `© Supreme` },
+                  body: { text: null },
+                  footer: { text: fullMenu },
                   nativeFlowMessage: {
-                    buttons: nativeButtons,
+                    buttons: [{ text: null }],
                   },
                 },
               },
             },
           }, { quoted: msg, userJid: sock.user?.id });
-
           await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id });
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
-      // ── Style 6 : requestPaymentMessage trick ─────────────────────────────
       } else if (menustyle === '6') {
         try {
           await sock.relayMessage(chatId, {
@@ -359,7 +304,6 @@ module.exports = {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
-      // ── Fallback : plain text ─────────────────────────────────────────────
       } else {
         await sock.sendMessage(chatId, {
           text: fullMenu,
