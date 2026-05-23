@@ -94,9 +94,9 @@ async function downloadAudio(videoUrl) {
 function getSongButtons(videoId, dateNow) {
     const prefix = config.prefix || '.';
     return [
-        { id: `${prefix}audio_${videoId}_${dateNow}`,      text: '🎶 Audio' },
-        { id: `${prefix}audiodoc_${videoId}_${dateNow}`,   text: '📄 Audio Document' },
-        { id: `${prefix}voicenote_${videoId}_${dateNow}`,  text: '🎙️ Voice Note' },  // ← NEW
+        { id: `${prefix}audio_${videoId}_${dateNow}`,     text: '🎶 Audio' },
+        { id: `${prefix}audiodoc_${videoId}_${dateNow}`,  text: '📄 Audio Document' },
+        { id: `${prefix}voicenote_${videoId}_${dateNow}`, text: '🎙️ Voice Note' },
     ];
 }
 
@@ -179,11 +179,10 @@ module.exports = {
             const responseSender = getResponseSender(messageData);
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-            // ✅ No sock.ev.off here — listener stays alive for repeated taps
-
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
             // Step 4: Download & send
+            let filePath;
             try {
                 const buttonType = selectedButtonId
                     .replace(prefix, '')
@@ -193,7 +192,7 @@ module.exports = {
 
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-                const filePath = path.join(tempDir, `audio_${dateNow}.mp3`);
+                filePath = path.join(tempDir, `audio_${dateNow}.mp3`);
 
                 const audioStream = await axios({
                     method: 'get',
@@ -215,30 +214,29 @@ module.exports = {
 
                 const title = apiData.title || video.title || '';
                 const cleanTitle = title.replace(/[^\w\s.-]/gi, '').substring(0, 100);
+                const audioBuffer = fs.readFileSync(filePath);
 
                 if (buttonType === 'audio') {
                     await sock.sendMessage(from, {
-                        audio: { url: filePath },
+                        audio: audioBuffer,
                         mimetype: 'audio/mpeg',
                     }, { quoted: messageData });
 
                 } else if (buttonType === 'audiodoc') {
                     await sock.sendMessage(from, {
-                        document: { url: filePath },
+                        document: audioBuffer,
                         mimetype: 'audio/mpeg',
                         fileName: `${cleanTitle}.mp3`,
-                        caption: `> ${config.botName}`,
                     }, { quoted: messageData });
 
-                } else if (buttonType === 'voicenote') {          // ← NEW
+                } else if (buttonType === 'voicenote') {
                     await sock.sendMessage(from, {
-                        audio: { url: filePath },
+                        audio: audioBuffer,
                         mimetype: 'audio/ogg; codecs=opus',
                         ptt: true,
                     }, { quoted: messageData });
                 }
 
-                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
                 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
             } catch (error) {
@@ -247,10 +245,14 @@ module.exports = {
                 await sock.sendMessage(from, {
                     text: `🚫 Error: ${error.message}\n\n_Try again later._`,
                 }, { quoted: messageData });
+            } finally {
+                // Always clean up temp file
+                if (filePath && fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
             }
         };
 
         sock.ev.on('messages.upsert', handleResponse);
-        // ✅ No setTimeout expiry — listener persists until bot restarts
     },
 };
