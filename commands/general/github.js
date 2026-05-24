@@ -30,10 +30,7 @@ function getResponseSender(msg) {
 function buildMainButtons(repoUrl, dateNow) {
     const prefix = config.prefix || '.';
     return [
-        // Interceptable — bot catches tap and shows branch selection
-        { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
-
-        // URL buttons — open browser directly
+        // 1 — URL
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -41,6 +38,7 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: repoUrl,
             })
         },
+        // 2 — URL
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -48,6 +46,7 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: `${repoUrl}/stargazers`,
             })
         },
+        // 3 — URL
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -55,8 +54,7 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: `${repoUrl}/fork`,
             })
         },
-
-        // Copy buttons
+        // 4 — Copy
         {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
@@ -64,6 +62,7 @@ function buildMainButtons(repoUrl, dateNow) {
                 copy_code: `https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git`,
             })
         },
+        // 5 — Copy
         {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
@@ -71,6 +70,8 @@ function buildMainButtons(repoUrl, dateNow) {
                 copy_code: repoUrl,
             })
         },
+        // 6 — Interceptable (bot catches tap → branch selection → download ZIP)
+        { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
     ];
 }
 
@@ -217,18 +218,18 @@ module.exports = {
                             `Tap *Download & Send ZIP* and the bot will fetch and send the file here.`,
                         footer:  `Made by ${config.botName}`,
                         buttons: [
-                            // Interceptable — bot downloads & sends ZIP
-                            {
-                                id:   `${prefix}ghopzip_${zipDateNow}`,
-                                text: '📥 Download & Send ZIP',
-                            },
-                            // Copy link stays as cta_copy
+                            // 1 — Copy link
                             {
                                 name: 'cta_copy',
                                 buttonParamsJson: JSON.stringify({
                                     display_text: '📋 Copy ZIP Link',
                                     copy_code: zipUrl,
                                 })
+                            },
+                            // 2 — Interceptable: bot downloads & sends ZIP
+                            {
+                                id:   `${prefix}ghopzip_${zipDateNow}`,
+                                text: '📥 Download & Send ZIP',
                             },
                         ],
                     }, { quoted: branchMsg });
@@ -251,7 +252,7 @@ module.exports = {
 
                         let filePath;
                         try {
-                            // ✅ os.tmpdir() — always exists, no path issues
+                            // ✅ os.tmpdir() — always exists on any host
                             filePath = path.join(
                                 os.tmpdir(),
                                 `${GITHUB_REPO}-${selectedBranch}-${zipDateNow}.zip`
