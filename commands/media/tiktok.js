@@ -5,14 +5,13 @@
 const axios = require('axios');
 const config = require('../../config');
 
-// Store processed message IDs to prevent duplicates
 const processedMessages = new Set();
 
 module.exports = {
     name: 'tiktok',
     aliases: ['tt', 'ttdl', 'tiktokdl'],
     category: 'media',
-    description: 'Download TikTok videos',
+    description: 'Download TikTok videos without watermark',
     usage: '.tiktok <TikTok URL>',
 
     async execute(sock, msg, args, extra) {
@@ -24,76 +23,77 @@ module.exports = {
             processedMessages.add(msg.key.id);
             setTimeout(() => processedMessages.delete(msg.key.id), 5 * 60 * 1000);
 
-            const text = msg.message?.conversation ||
-                         msg.message?.extendedTextMessage?.text ||
-                         args.join(' ');
-
-            if (!text) {
-                return await sock.sendMessage(chatId, {
-                    text: 'Please provide a TikTok link for the video.'
-                }, { quoted: msg });
-            }
-
-            const url = text.split(' ').slice(1).join(' ').trim();
+            const url = args.join(' ').trim();
 
             if (!url) {
                 return await sock.sendMessage(chatId, {
-                    text: 'Please provide a TikTok link for the video.'
+                    text: '❌ Please provide a TikTok URL.\n\nUsage: .tiktok <TikTok URL>'
                 }, { quoted: msg });
             }
 
-            const tiktokPatterns = [
-                /https?:\/\/(?:www\.)?tiktok\.com\//,
-                /https?:\/\/(?:vm\.)?tiktok\.com\//,
-                /https?:\/\/(?:vt\.)?tiktok\.com\//,
-                /https?:\/\/(?:www\.)?tiktok\.com\/@/,
-                /https?:\/\/(?:www\.)?tiktok\.com\/t\//
-            ];
+            const tiktokPattern = /https?:\/\/(?:(?:www|vm|vt|m)\.)?tiktok\.com\/\S+/i;
 
-            const isValidUrl = tiktokPatterns.some(pattern => pattern.test(url));
-            if (!isValidUrl) {
+            if (!tiktokPattern.test(url)) {
                 return await sock.sendMessage(chatId, {
-                    text: 'That is not a valid TikTok link. Please provide a valid TikTok video link.'
+                    text: '❌ Invalid TikTok URL. Please send a valid TikTok video link.'
                 }, { quoted: msg });
             }
 
             await sock.sendMessage(chatId, {
-                react: { text: '↘️', key: msg.key }
+                react: { text: '⏳', key: msg.key }
             });
 
-            try {
-                const apiResponse = await axios.get(
-                    `https://api.nexray.eu.cc/downloader/tiktok?url=${encodeURIComponent(url)}`
-                );
-                const data = apiResponse.data;
-
-                if (data && data.status && data.result.data) {
-                    const videoUrl = data.result.data;
-                    const caption = config.botName;
-
-                    await sock.sendMessage(chatId, {
-                        video: { url: videoUrl },
-                        mimetype: 'video/mp4',
-                        caption: caption
-                    }, { quoted: msg });
-
-                } else {
-                    return await sock.sendMessage(chatId, {
-                        text: 'Failed to fetch video. Please check the link or try again later.'
-                    }, { quoted: msg });
+            // ✅ tikwm.com — stable public TikTok downloader API
+            const apiResponse = await axios.get('https://www.tikwm.com/api/', {
+                params: { url, hd: 1 },
+                timeout: 15000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0'
                 }
+            });
 
-            } catch (error) {
-                console.error('Error in TikTok API:', error.message || error);
-                await sock.sendMessage(chatId, {
-                    text: 'Failed to download the TikTok video. Please try again later.'
+            const { code, msg: apiMsg, data } = apiResponse.data;
+
+            // code 0 = success
+            if (code !== 0 || !data) {
+                console.error('TikWM API error:', apiMsg);
+                return await sock.sendMessage(chatId, {
+                    text: `❌ Failed to fetch video: ${apiMsg || 'Unknown error'}. Try again later.`
                 }, { quoted: msg });
             }
 
-        } catch (error) {
-            console.error('Error in TikTok command:', error.message || error);
+            // `play` = no watermark, `wmplay` = with watermark, `hdplay` = HD no watermark
+            const videoUrl = data.hdplay || data.play || data.wmplay;
+
+            if (!videoUrl) {
+                return await sock.sendMessage(chatId, {
+                    text: '❌ Could not extract video URL. The video may be private or deleted.'
+                }, { quoted: msg });
+            }
+
+            const caption = [
+                `🎵 *${data.title || 'TikTok Video'}*`,
+                `👤 @${data.author?.unique_id || 'unknown'}`,
+                `❤️ ${data.digg_count ?? 0}  💬 ${data.comment_count ?? 0}  🔁 ${data.share_count ?? 0}`,
+                '',
+                `> ${config.botName}`
+            ].join('\n');
+
             await sock.sendMessage(chatId, {
-                text: 'An unexpected error occurred. Please try again.'
+                video: { url: videoUrl },
+                mimetype: 'video/mp4',
+                caption
+            }, { quoted: msg });
+
+            // ✅ Done react
+            await sock.sendMessage(chatId, {
+                react: { text: '✅', key: msg.key }
+            });
+
+        } catch (error) {
+            console.error('TikTok command error:', error.message || error);
+            await sock.sendMessage(chatId, {
+                text: '❌ An unexpected error occurred while downloading. Please try again.'
             }, { quoted: msg });
         }
     }
