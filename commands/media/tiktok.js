@@ -27,9 +27,20 @@ function getTikTokButtons(videoId, dateNow) {
     const prefix = config.prefix || '.';
     return [
         { id: `${prefix}ttvideo_${videoId}_${dateNow}`,    text: '🎬 Video (No Watermark)' },
-        { id: `${prefix}ttvideodoc_${videoId}_${dateNow}`, text: '📄 Video as Document' },
-        { id: `${prefix}ttaudio_${videoId}_${dateNow}`,    text: '🎙️ Voice Note (.opus)' },
+        { id: `${prefix}ttvideodoc_${videoId}_${dateNow}`, text: '📄 Video as Document'     },
+        { id: `${prefix}ttaudio_${videoId}_${dateNow}`,    text: '🎙️ Voice Note (.opus)'    },
     ];
+}
+
+function generateWaveform(duration) {
+    // 64 amplitude points (0–100) with sine curve + noise — looks like real audio
+    return Buffer.from(
+        Array.from({ length: 64 }, (_, i) => {
+            const base  = Math.sin(i / 5) * 30 + 50;
+            const noise = (Math.random() * 30) - 15;
+            return Math.min(100, Math.max(5, Math.round(base + noise)));
+        })
+    );
 }
 
 const tiktokPattern = /https?:\/\/(?:(?:www|vm|vt|m)\.)?tiktok\.com\/\S+/i;
@@ -85,9 +96,9 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            const dateNow       = Date.now();
-            const prefix        = config.prefix || '.';
-            const videoId       = data.id || dateNow.toString();
+            const dateNow        = Date.now();
+            const prefix         = config.prefix || '.';
+            const videoId        = data.id || dateNow.toString();
             const originalSender = msg.key?.participant || msg.key?.remoteJid;
 
             // ── Send format selection buttons ─────────────────────────────────
@@ -162,10 +173,32 @@ module.exports = {
                     // ── 🎙️ Voice Note (.opus) ─────────────────────────────────
                     } else if (buttonType === 'ttaudio') {
                         if (!audioUrl) throw new Error('No audio URL available for this video.');
+
+                        // Fetch TikTok cover for the circular thumbnail
+                        let thumbBuffer;
+                        try {
+                            const thumbRes = await axios.get(
+                                data.cover || data.origin_cover, {
+                                    responseType: 'arraybuffer',
+                                    timeout: 10000,
+                                    headers: { 'User-Agent': 'Mozilla/5.0' }
+                                }
+                            );
+                            thumbBuffer = Buffer.from(thumbRes.data);
+                        } catch {
+                            thumbBuffer = null; // silently skip if thumb fails
+                        }
+
+                        // 64-point sine-based waveform for animated bars
+                        const waveform = generateWaveform(data.duration);
+
                         await sock.sendMessage(from, {
                             audio: { url: audioUrl },
                             mimetype: 'audio/ogg; codecs=opus',
                             ptt: true,
+                            seconds: data.duration || 30,
+                            waveform,
+                            ...(thumbBuffer && { jpegThumbnail: thumbBuffer }),
                         }, { quoted: messageData });
                     }
 
