@@ -32,7 +32,7 @@ function getTikTokButtons(videoId, dateNow) {
     ];
 }
 
-function generateWaveform(duration) {
+function generateWaveform() {
     // 64 amplitude points (0–100) with sine curve + noise — looks like real audio
     return Buffer.from(
         Array.from({ length: 64 }, (_, i) => {
@@ -41,6 +41,14 @@ function generateWaveform(duration) {
             return Math.min(100, Math.max(5, Math.round(base + noise)));
         })
     );
+}
+
+function cleanFileName(title, fallback = 'tiktok') {
+    return (title || fallback)
+        .replace(/[^\w\s.-]/gi, '')  // remove emojis & special chars
+        .trim()
+        .substring(0, 100)           // max 100 chars
+        || fallback;                 // if result is empty, use fallback
 }
 
 const tiktokPattern = /https?:\/\/(?:(?:www|vm|vt|m)\.)?tiktok\.com\/\S+/i;
@@ -148,6 +156,9 @@ module.exports = {
 
                     if (!videoUrl) throw new Error('No download URL found in API response.');
 
+                    // Cleaned title used in caption + filename
+                    const cleanTitle = cleanFileName(data.title, data.author?.unique_id || 'tiktok');
+
                     const caption =
                         `🎵 *${data.title || 'TikTok Video'}*\n` +
                         `👤 @${data.author?.unique_id || 'unknown'}\n` +
@@ -166,7 +177,7 @@ module.exports = {
                         await sock.sendMessage(from, {
                             document: { url: videoUrl },
                             mimetype: 'video/mp4',
-                            fileName: `${data.author?.unique_id || 'tiktok'}_${videoId}.mp4`,
+                            fileName: `${cleanTitle}.mp4`,
                             caption,
                         }, { quoted: messageData });
 
@@ -190,7 +201,7 @@ module.exports = {
                         }
 
                         // 64-point sine-based waveform for animated bars
-                        const waveform = generateWaveform(data.duration);
+                        const waveform = generateWaveform();
 
                         await sock.sendMessage(from, {
                             audio: { url: audioUrl },
