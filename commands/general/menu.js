@@ -267,11 +267,7 @@ module.exports = {
 
                     // In groups — only original sender may tap
                     const responseSender = getResponseSender(messageData);
-                    if (chatId.endsWith('@g.us') && responseSender !== originalSender) {
-                        return await sock.sendMessage(chatId, {
-                            text: '❌ Only the person who requested the menu can use these buttons.',
-                        }, { quoted: messageData });
-                    }
+                    if (chatId.endsWith('@g.us') && responseSender !== originalSender) return;
 
                     // Strip _dateNow + prefix → raw command name
                     // e.g. ".ping_1714000000000" → "ping"
