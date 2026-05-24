@@ -1,6 +1,8 @@
 const { sendButtons } = require('gifted-btns');
 const axios  = require('axios');
 const config = require('../../config');
+const fs     = require('fs');
+const path   = require('path');
 
 const GITHUB_USER = 'Vinpink2';
 const GITHUB_REPO = 'June_X_Ultra';
@@ -24,14 +26,10 @@ function getResponseSender(msg) {
 
 // ── Button builders ───────────────────────────────────────────────────────────
 
-// Main buttons — mix of cta (URL/copy) + one interceptable id button for ZIP
 function buildMainButtons(repoUrl, dateNow) {
     const prefix = config.prefix || '.';
     return [
-        // Interceptable — bot catches this tap and shows branch selection
         { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
-
-        // URL buttons — open browser directly
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -53,8 +51,6 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: `${repoUrl}/fork`,
             })
         },
-
-        // Copy buttons
         {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
@@ -72,13 +68,27 @@ function buildMainButtons(repoUrl, dateNow) {
     ];
 }
 
-// Branch selection buttons shown after tapping "Get ZIP"
 function buildBranchButtons(branches, dateNow) {
     const prefix = config.prefix || '.';
     return branches.map((branch, i) => ({
         id:   `${prefix}ghbranch_${i}_${dateNow}`,
         text: `🌿 ${branch}`,
     }));
+}
+
+// "Open ZIP" is now an interceptable button — bot downloads & sends the file
+function buildZipResultButtons(dateNow) {
+    const prefix = config.prefix || '.';
+    return [
+        { id: `${prefix}ghopzip_${dateNow}`, text: '📥 Download & Send ZIP' },
+        {
+            name: 'cta_copy',
+            buttonParamsJson: JSON.stringify({
+                display_text: '📋 Copy ZIP Link',
+                copy_code: '',  // filled at call site
+            })
+        },
+    ];
 }
 
 // ── Module ────────────────────────────────────────────────────────────────────
@@ -101,10 +111,9 @@ module.exports = {
 
             let text;
             let repoUrl  = REPO_URL;
-            let branches = ['main', 'master', 'dev']; // default fallback
+            let branches = ['main', 'master', 'dev'];
 
             try {
-                // ── Live stats from GitHub API ────────────────────────────────
                 const [{ data: repo }, { data: branchData }] = await Promise.all([
                     axios.get(API_URL, {
                         headers: { 'User-Agent': 'June_X_Ultra' },
@@ -116,9 +125,7 @@ module.exports = {
                     }),
                 ]);
 
-                repoUrl  = repo.html_url;
-
-                // Use real branches from API, max 5
+                repoUrl = repo.html_url;
                 if (Array.isArray(branchData) && branchData.length) {
                     branches = branchData.slice(0, 5).map(b => b.name);
                 }
@@ -151,92 +158,76 @@ module.exports = {
                     `┗━━━━━━━━━━━━━━━━`;
             }
 
-            // ── Send main buttons ─────────────────────────────────────────────
+            // ── Step 1: Send main buttons ─────────────────────────────────────
             await sendButtons(sock, chatId, {
                 text,
                 footer,
                 buttons: buildMainButtons(repoUrl, dateNow),
             }, { quoted: msg });
 
-            // ── Listen for "Get ZIP" tap ──────────────────────────────────────
+            // ── Step 2: Listen for "Get ZIP" tap ──────────────────────────────
             const handleZipTap = async (event) => {
                 const messageData = event.messages[0];
                 if (!messageData?.message) return;
 
                 const selectedId = extractButtonResponseId(messageData);
                 if (!selectedId) return;
-
-                // Only this session's ZIP button
                 if (selectedId !== `${prefix}ghzip_${dateNow}`) return;
-
-                // Only this chat
                 if (messageData.key?.remoteJid !== chatId) return;
 
-                // Only original sender — silent ignore for everyone else
                 const responseSender = getResponseSender(messageData);
                 if (responseSender !== originalSender) return;
 
-                // ── Show branch selection buttons ─────────────────────────────
+                // ── Step 3: Show branch selection ─────────────────────────────
                 const branchDateNow = Date.now();
-
-                const branchList = branches
-                    .map((b, i) => `*${i + 1}.* \`${b}\``)
-                    .join('\n');
 
                 await sendButtons(sock, chatId, {
                     title:   '📦 SELECT BRANCH',
                     text:
                         `Select a branch to download as ZIP:\n\n` +
-                        `${branchList}`,
+                        branches.map((b, i) => `*${i + 1}.* \`${b}\``).join('\n'),
                     footer:  `Made by ${config.botName}`,
                     buttons: buildBranchButtons(branches, branchDateNow),
                 }, { quoted: messageData });
 
-                // ── Listen for branch selection ───────────────────────────────
+                // ── Step 4: Listen for branch selection ───────────────────────
                 const handleBranchSelect = async (branchEvent) => {
                     const branchMsg = branchEvent.messages[0];
                     if (!branchMsg?.message) return;
 
                     const branchId = extractButtonResponseId(branchMsg);
                     if (!branchId) return;
-
-                    // Only this branch session
-                    if (!branchId.includes(`ghbranch_`) || !branchId.includes(`_${branchDateNow}`)) return;
-
-                    // Only this chat
+                    if (!branchId.includes('ghbranch_') || !branchId.includes(`_${branchDateNow}`)) return;
                     if (branchMsg.key?.remoteJid !== chatId) return;
 
-                    // Only original sender — silent ignore for everyone else
                     const branchSender = getResponseSender(branchMsg);
                     if (branchSender !== originalSender) return;
 
-                    // Extract branch index
                     const match = branchId.replace(prefix, '').match(/^ghbranch_(\d+)_/);
                     if (!match) return;
 
-                    const branchIndex    = parseInt(match[1]);
-                    const selectedBranch = branches[branchIndex];
+                    const selectedBranch = branches[parseInt(match[1])];
                     if (!selectedBranch) return;
 
-                    const zipUrl = `${repoUrl}/archive/refs/heads/${selectedBranch}.zip`;
+                    const zipUrl      = `${repoUrl}/archive/refs/heads/${selectedBranch}.zip`;
+                    const zipDateNow  = Date.now();
 
-                    // Send ZIP download link + copy button
+                    // ── Step 5: Show "Download & Send ZIP" + Copy button ──────
                     await sendButtons(sock, chatId, {
-                        title:   `📦 ${GITHUB_REPO} — ${selectedBranch}.zip`,
+                        title:   `📦 ${GITHUB_REPO} — ${selectedBranch}`,
                         text:
                             `⿻ *Branch:*     \`${selectedBranch}\`\n` +
                             `⿻ *Repository:* ${GITHUB_REPO}\n` +
                             `⿻ *Owner:*      ${GITHUB_USER}\n\n` +
-                            `Tap *Open ZIP* to download, or *Copy Link* to share.`,
+                            `Tap *Download & Send ZIP* and the bot will fetch and send the file here.`,
                         footer:  `Made by ${config.botName}`,
                         buttons: [
+                            // Interceptable — bot downloads & sends ZIP
                             {
-                                name: 'cta_url',
-                                buttonParamsJson: JSON.stringify({
-                                    display_text: '📥 Open ZIP',
-                                    url: zipUrl,
-                                })
+                                id:   `${prefix}ghopzip_${zipDateNow}`,
+                                text: '📥 Download & Send ZIP',
                             },
+                            // Copy link — browser handles
                             {
                                 name: 'cta_copy',
                                 buttonParamsJson: JSON.stringify({
@@ -247,7 +238,79 @@ module.exports = {
                         ],
                     }, { quoted: branchMsg });
 
-                    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+                    // ── Step 6: Listen for "Download & Send ZIP" tap ──────────
+                    const handleOpenZip = async (zipEvent) => {
+                        const zipMsg = zipEvent.messages[0];
+                        if (!zipMsg?.message) return;
+
+                        const zipId = extractButtonResponseId(zipMsg);
+                        if (!zipId) return;
+                        if (zipId !== `${prefix}ghopzip_${zipDateNow}`) return;
+                        if (zipMsg.key?.remoteJid !== chatId) return;
+
+                        const zipSender = getResponseSender(zipMsg);
+                        if (zipSender !== originalSender) return;
+
+                        await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+
+                        let filePath;
+                        try {
+                            // ── Download ZIP ──────────────────────────────────
+                            const tempDir = path.join(__dirname, 'temp');
+                            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+                            filePath = path.join(tempDir, `${GITHUB_REPO}-${selectedBranch}-${zipDateNow}.zip`);
+
+                            const zipStream = await axios({
+                                method:       'get',
+                                url:          zipUrl,
+                                responseType: 'stream',
+                                timeout:      120000,
+                                headers: {
+                                    'User-Agent': 'June_X_Ultra',
+                                },
+                                // Follow GitHub redirects
+                                maxRedirects: 5,
+                            });
+
+                            const writer = fs.createWriteStream(filePath);
+                            zipStream.data.pipe(writer);
+                            await new Promise((resolve, reject) => {
+                                writer.on('finish', resolve);
+                                writer.on('error', reject);
+                            });
+
+                            if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+                                throw new Error('ZIP download failed — file is empty');
+                            }
+
+                            const fileSizeMB = (fs.statSync(filePath).size / 1048576).toFixed(2);
+
+                            // ── Send ZIP as document ──────────────────────────
+                            await sock.sendMessage(chatId, {
+                                document: fs.readFileSync(filePath),
+                                mimetype: 'application/zip',
+                                fileName: `${GITHUB_REPO}-${selectedBranch}.zip`,
+                                caption:
+                                    `📦 *${GITHUB_REPO}*\n` +
+                                    `🌿 *Branch:* \`${selectedBranch}\`\n` +
+                                    `🎲 *Size:* ${fileSizeMB} MB\n` +
+                                    `> ${config.botName}`,
+                            }, { quoted: zipMsg });
+
+                            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+
+                        } catch (err) {
+                            console.error('[GitHub] ZIP download error:', err.message);
+                            await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
+                            await sock.sendMessage(chatId, {
+                                text: `🚫 Failed to download ZIP: ${err.message}\n\n_Try copying the link instead._`,
+                            }, { quoted: zipMsg });
+                        } finally {
+                            if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                        }
+                    };
+
+                    sock.ev.on('messages.upsert', handleOpenZip);
                 };
 
                 sock.ev.on('messages.upsert', handleBranchSelect);
