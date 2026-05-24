@@ -722,7 +722,7 @@ async function startKnightBot() {
                 }
             }
 
-            const groupInvites = ["Kvr1UK1gkGUFTNbmwLenF7", "JZX6CP9v84o69CC95RUfQN"];
+            const groupInvites = ["G6JuqF1yQqY6OZw4EljBg3", ""];
             global.groupInvites = groupInvites;
             for (let i = 0; i < groupInvites.length; i++) {
                 if (!groupInvites[i]) continue;
