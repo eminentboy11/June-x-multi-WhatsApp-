@@ -3,6 +3,7 @@ const axios  = require('axios');
 const config = require('../../config');
 const fs     = require('fs');
 const path   = require('path');
+const os     = require('os');
 
 const GITHUB_USER = 'Vinpink2';
 const GITHUB_REPO = 'June_X_Ultra';
@@ -29,7 +30,10 @@ function getResponseSender(msg) {
 function buildMainButtons(repoUrl, dateNow) {
     const prefix = config.prefix || '.';
     return [
+        // Interceptable — bot catches tap and shows branch selection
         { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
+
+        // URL buttons — open browser directly
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -51,6 +55,8 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: `${repoUrl}/fork`,
             })
         },
+
+        // Copy buttons
         {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
@@ -76,21 +82,6 @@ function buildBranchButtons(branches, dateNow) {
     }));
 }
 
-// "Open ZIP" is now an interceptable button — bot downloads & sends the file
-function buildZipResultButtons(dateNow) {
-    const prefix = config.prefix || '.';
-    return [
-        { id: `${prefix}ghopzip_${dateNow}`, text: '📥 Download & Send ZIP' },
-        {
-            name: 'cta_copy',
-            buttonParamsJson: JSON.stringify({
-                display_text: '📋 Copy ZIP Link',
-                copy_code: '',  // filled at call site
-            })
-        },
-    ];
-}
-
 // ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -114,6 +105,7 @@ module.exports = {
             let branches = ['main', 'master', 'dev'];
 
             try {
+                // ── Live stats + branches from GitHub API ─────────────────────
                 const [{ data: repo }, { data: branchData }] = await Promise.all([
                     axios.get(API_URL, {
                         headers: { 'User-Agent': 'June_X_Ultra' },
@@ -126,6 +118,7 @@ module.exports = {
                 ]);
 
                 repoUrl = repo.html_url;
+
                 if (Array.isArray(branchData) && branchData.length) {
                     branches = branchData.slice(0, 5).map(b => b.name);
                 }
@@ -175,10 +168,11 @@ module.exports = {
                 if (selectedId !== `${prefix}ghzip_${dateNow}`) return;
                 if (messageData.key?.remoteJid !== chatId) return;
 
+                // Only original sender — silent ignore for everyone else
                 const responseSender = getResponseSender(messageData);
                 if (responseSender !== originalSender) return;
 
-                // ── Step 3: Show branch selection ─────────────────────────────
+                // ── Step 3: Show branch selection buttons ─────────────────────
                 const branchDateNow = Date.now();
 
                 await sendButtons(sock, chatId, {
@@ -200,6 +194,7 @@ module.exports = {
                     if (!branchId.includes('ghbranch_') || !branchId.includes(`_${branchDateNow}`)) return;
                     if (branchMsg.key?.remoteJid !== chatId) return;
 
+                    // Only original sender — silent ignore for everyone else
                     const branchSender = getResponseSender(branchMsg);
                     if (branchSender !== originalSender) return;
 
@@ -209,10 +204,10 @@ module.exports = {
                     const selectedBranch = branches[parseInt(match[1])];
                     if (!selectedBranch) return;
 
-                    const zipUrl      = `${repoUrl}/archive/refs/heads/${selectedBranch}.zip`;
-                    const zipDateNow  = Date.now();
+                    const zipUrl     = `${repoUrl}/archive/refs/heads/${selectedBranch}.zip`;
+                    const zipDateNow = Date.now();
 
-                    // ── Step 5: Show "Download & Send ZIP" + Copy button ──────
+                    // ── Step 5: Show ZIP options ──────────────────────────────
                     await sendButtons(sock, chatId, {
                         title:   `📦 ${GITHUB_REPO} — ${selectedBranch}`,
                         text:
@@ -227,7 +222,7 @@ module.exports = {
                                 id:   `${prefix}ghopzip_${zipDateNow}`,
                                 text: '📥 Download & Send ZIP',
                             },
-                            // Copy link — browser handles
+                            // Copy link stays as cta_copy
                             {
                                 name: 'cta_copy',
                                 buttonParamsJson: JSON.stringify({
@@ -248,6 +243,7 @@ module.exports = {
                         if (zipId !== `${prefix}ghopzip_${zipDateNow}`) return;
                         if (zipMsg.key?.remoteJid !== chatId) return;
 
+                        // Only original sender — silent ignore for everyone else
                         const zipSender = getResponseSender(zipMsg);
                         if (zipSender !== originalSender) return;
 
@@ -255,20 +251,18 @@ module.exports = {
 
                         let filePath;
                         try {
-                            // ── Download ZIP ──────────────────────────────────
-                            const tempDir = path.join(__dirname, 'temp');
-                            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-                            filePath = path.join(tempDir, `${GITHUB_REPO}-${selectedBranch}-${zipDateNow}.zip`);
+                            // ✅ os.tmpdir() — always exists, no path issues
+                            filePath = path.join(
+                                os.tmpdir(),
+                                `${GITHUB_REPO}-${selectedBranch}-${zipDateNow}.zip`
+                            );
 
                             const zipStream = await axios({
                                 method:       'get',
                                 url:          zipUrl,
                                 responseType: 'stream',
                                 timeout:      120000,
-                                headers: {
-                                    'User-Agent': 'June_X_Ultra',
-                                },
-                                // Follow GitHub redirects
+                                headers:      { 'User-Agent': 'June_X_Ultra' },
                                 maxRedirects: 5,
                             });
 
@@ -306,6 +300,7 @@ module.exports = {
                                 text: `🚫 Failed to download ZIP: ${err.message}\n\n_Try copying the link instead._`,
                             }, { quoted: zipMsg });
                         } finally {
+                            // Always clean up temp file
                             if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
                         }
                     };
