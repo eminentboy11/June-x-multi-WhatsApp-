@@ -43,10 +43,10 @@ function getMenuStyle() {
 }
 
 function formatUptime() {
-    const s = Math.floor(process.uptime());
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
+    const s   = Math.floor(process.uptime());
+    const d   = Math.floor(s / 86400);
+    const h   = Math.floor((s % 86400) / 3600);
+    const m   = Math.floor((s % 3600) / 60);
     const sec = s % 60;
     const parts = [];
     if (d) parts.push(`${d}d`);
@@ -90,18 +90,18 @@ const CATEGORY_LABELS = {
 // ── Menu text builder ─────────────────────────────────────────────────────────
 
 function buildMenuText(categories, extra, totalCount, speed) {
-    const prefix         = config.prefix;
-    const bot            = config.botName || 'June Ultra';
-    const ownerName      = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
-    const hostName       = detectPlatform();
-    const uptimeFormatted = formatUptime();
+    const prefix           = config.prefix;
+    const bot              = config.botName || 'June Ultra';
+    const ownerName        = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
+    const hostName         = detectPlatform();
+    const uptimeFormatted  = formatUptime();
     const { getModeLabel } = require('../../utils/botMode');
-    const currentMode    = getModeLabel();
-    const totalMemory    = os.totalmem();
-    const botUsedMemory  = process.memoryUsage().rss;
+    const currentMode      = getModeLabel();
+    const totalMemory      = os.totalmem();
+    const botUsedMemory    = process.memoryUsage().rss;
     const systemUsedMemory = totalMemory - os.freemem();
-    const readmore       = String.fromCharCode(8206).repeat(4001);
-    const ping           = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
+    const readmore         = String.fromCharCode(8206).repeat(4001);
+    const ping             = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
     let menu = `┏━━❐✧ ${bot} ✧❐\n`;
     menu += `┃✧ Prefix: [${prefix}]\n`;
@@ -159,7 +159,6 @@ function getThumbnail() {
 
 // ── Button helpers ────────────────────────────────────────────────────────────
 
-// Button IDs include _${dateNow} so each menu session is isolated
 function getButtons(dateNow) {
     const prefix = config.prefix || '.';
     return [
@@ -206,16 +205,16 @@ module.exports = {
                 }
             });
 
-            const menustyle      = getMenuStyle();
-            const msgTimestamp   = msg.messageTimestamp ? msg.messageTimestamp * 1000 : Date.now();
-            const speedMs        = Date.now() - msgTimestamp;
-            const menulist       = buildMenuText(categories, extra, uniqueCount, speedMs);
-            const tylorkids      = getThumbnail();
-            const botname        = config.botName || 'June Ultra';
-            const ownername      = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
-            const plink          = config.social?.github || 'https://github.com';
-            const chatId         = extra.from;
-            const fullMenu       = applyFont(menulist + `\n> © Supreme`);
+            const menustyle    = getMenuStyle();
+            const msgTimestamp = msg.messageTimestamp ? msg.messageTimestamp * 1000 : Date.now();
+            const speedMs      = Date.now() - msgTimestamp;
+            const menulist     = buildMenuText(categories, extra, uniqueCount, speedMs);
+            const tylorkids    = getThumbnail();
+            const botname      = config.botName || 'June Ultra';
+            const ownername    = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
+            const plink        = config.social?.github || 'https://github.com';
+            const chatId       = extra.from;
+            const fullMenu     = applyFont(menulist + `\n> © Supreme`);
 
             // ── Style 1 ───────────────────────────────────────────────────────
             if (menustyle === '1') {
@@ -239,7 +238,7 @@ module.exports = {
                     },
                 }, { quoted: msg });
 
-            // ── Style 2 — buttons with original-sender guard ──────────────────
+            // ── Style 2 — buttons, original-sender guard ──────────────────────
             } else if (menustyle === '2') {
                 const dateNow        = Date.now();
                 const prefix         = config.prefix || '.';
@@ -253,7 +252,6 @@ module.exports = {
                     buttons: getButtons(dateNow),
                 }, { quoted: msg });
 
-                // ── Listen: only original sender may tap ──────────────────────
                 const handleMenuButton = async (event) => {
                     const messageData = event.messages[0];
                     if (!messageData?.message) return;
@@ -261,13 +259,13 @@ module.exports = {
                     const selectedButtonId = extractButtonResponseId(messageData);
                     if (!selectedButtonId) return;
 
-                    // Only this menu session
+                    // Only this session
                     if (!selectedButtonId.includes(`_${dateNow}`)) return;
 
                     // Only this chat
                     if (messageData.key?.remoteJid !== chatId) return;
 
-                    // In groups — only the original sender may tap
+                    // In groups — only original sender may tap
                     const responseSender = getResponseSender(messageData);
                     if (chatId.endsWith('@g.us') && responseSender !== originalSender) {
                         return await sock.sendMessage(chatId, {
@@ -275,26 +273,41 @@ module.exports = {
                         }, { quoted: messageData });
                     }
 
-                    // Strip the _dateNow suffix to get the real command
-                    // e.g. ".ping_1234567890" → ".ping" → "ping"
+                    // Strip _dateNow + prefix → raw command name
+                    // e.g. ".ping_1714000000000" → "ping"
                     const rawCommand = selectedButtonId
-                        .replace(`_${dateNow}`, '')  // remove session suffix
-                        .replace(prefix, '')          // remove prefix
+                        .replace(`_${dateNow}`, '')
+                        .replace(prefix, '')
                         .trim();
 
-                    // Re-emit as a normal command message so the bot's
-                    // existing command router handles it naturally
-                    const fakeMsg = {
-                        ...messageData,
-                        message: {
-                            conversation: `${prefix}${rawCommand}`,
-                        },
-                    };
+                    // Look up command directly from loaded commands map
+                    const cmds   = loadCommands();
+                    const cmd    = cmds.get(rawCommand);
 
-                    sock.ev.emit('messages.upsert', {
-                        messages: [fakeMsg],
-                        type: 'notify',
-                    });
+                    if (!cmd) {
+                        return await sock.sendMessage(chatId, {
+                            text: `❌ Command *${rawCommand}* not found.`,
+                        }, { quoted: messageData });
+                    }
+
+                    try {
+                        // Build extra matching your main handler's shape
+                        const extraData = {
+                            from:     chatId,
+                            sender:   responseSender,
+                            isGroup:  chatId.endsWith('@g.us'),
+                            reply:    (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
+                            quoted:   messageData,
+                        };
+
+                        await cmd.execute(sock, messageData, [], extraData);
+
+                    } catch (err) {
+                        console.error(`[menu] button error (${rawCommand}):`, err.message);
+                        await sock.sendMessage(chatId, {
+                            text: `❌ Error running *${rawCommand}*: ${err.message}`,
+                        }, { quoted: messageData });
+                    }
                 };
 
                 sock.ev.on('messages.upsert', handleMenuButton);
@@ -328,7 +341,7 @@ module.exports = {
             // ── Style 5 ───────────────────────────────────────────────────────
             } else if (menustyle === '5') {
                 try {
-                    let massage = generateWAMessageFromContent(chatId, {
+                    const massage = generateWAMessageFromContent(chatId, {
                         viewOnceMessage: {
                             message: {
                                 interactiveMessage: {
