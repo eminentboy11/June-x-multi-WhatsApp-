@@ -5,6 +5,19 @@
  * Quality values:
  *   Audio → mp3
  *   Video → 360 | 480 | 720 | 1080
+ *
+ * Response shape:
+ * {
+ *   success: true,
+ *   author: "PuruBoy",
+ *   result: {
+ *     title: "...",
+ *     thumbnail: "...",
+ *     quality: "360",
+ *     type: "audio",
+ *     downloadUrl: "https://cdn400.savetube.vip/..."
+ *   }
+ * }
  */
 
 const yts = require('yt-search');
@@ -74,17 +87,23 @@ async function downloadSaveTube(videoUrl, quality) {
             params:  { url: videoUrl, quality },
             timeout: 120000,
         });
-        const r = res.data?.result ?? res.data?.data ?? res.data;
-        const dlUrl = r?.download_url ?? r?.downloadUrl ?? r?.url ?? r?.link;
-        if (!dlUrl) throw new Error('API returned no download URL');
-        console.log('[savetube] delivering:', r?.title);
+
+        // ✅ Exact field names from confirmed response shape
+        if (!res.data?.success) {
+            throw new Error('API returned success: false');
+        }
+        const r = res.data.result;
+        if (!r?.downloadUrl) {
+            throw new Error('API returned no downloadUrl');
+        }
+
+        console.log('[savetube] delivering:', r.title);
         return {
-            downloadUrl: dlUrl,
-            title:       r?.title     || '',
-            thumbnail:   r?.thumbnail || '',
-            duration:    r?.duration  || '',
-            quality:     r?.quality   || quality,
-            size:        r?.size      || r?.filesize || '',
+            downloadUrl: r.downloadUrl,
+            title:       r.title     || '',
+            thumbnail:   r.thumbnail || '',
+            quality:     r.quality   || quality,
+            type:        r.type      || '',
         };
     });
 }
