@@ -31,7 +31,6 @@ function getResponseSender(msg) {
 function buildMainButtons(repoUrl, dateNow) {
     const prefix = config.prefix || '.';
     return [
-        // 1 — URL
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -39,7 +38,6 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: repoUrl,
             })
         },
-        // 2 — URL
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -47,7 +45,6 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: `${repoUrl}/stargazers`,
             })
         },
-        // 3 — URL
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
@@ -55,7 +52,6 @@ function buildMainButtons(repoUrl, dateNow) {
                 url: `${repoUrl}/fork`,
             })
         },
-        // 4 — Copy
         {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
@@ -63,7 +59,6 @@ function buildMainButtons(repoUrl, dateNow) {
                 copy_code: `https://github.com/${GITHUB_USER}/${GITHUB_REPO}.git`,
             })
         },
-        // 5 — Copy
         {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
@@ -71,7 +66,6 @@ function buildMainButtons(repoUrl, dateNow) {
                 copy_code: repoUrl,
             })
         },
-        // 6 — Interceptable: bot downloads & sends ZIP directly
         { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
     ];
 }
@@ -95,11 +89,10 @@ module.exports = {
             const dateNow        = Date.now();
 
             let text;
-            let repoUrl      = REPO_URL;
+            let repoUrl       = REPO_URL;
             let defaultBranch = 'main';
 
             try {
-                // ── Live stats from GitHub API ────────────────────────────────
                 const { data: repo } = await axios.get(API_URL, {
                     headers: { 'User-Agent': 'June_X_Ultra' },
                     timeout: 10000,
@@ -110,18 +103,19 @@ module.exports = {
 
                 text = applyFont(
                     `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
-                    `Repository:   ${repo.name}\n` +
-                    `Owner:        ${repo.owner.login}\n` +
-                    `Description:  ${repo.description || 'N/A'}\n` +
-                    `Language:     ${repo.language || 'N/A'}\n` +
-                    `License:      ${repo.license?.name || 'N/A'}\n\n` +
-                    `Statistics\n` +
-                    `Stars:      ${repo.stargazers_count.toLocaleString()}\n` +
-                    `Forks:      ${repo.forks_count.toLocaleString()}\n` +
-                    `Watchers:   ${repo.watchers_count.toLocaleString()}\n` +
-                    `Size:       ${(repo.size / 1024).toFixed(2)} MB\n` +
-                    `Visibility: ${repo.private ? 'Private' : 'Public'}\n` +
-                    `Branch:     ${defaultBranch}\n\n` +
+                    `➥ Repository  ➜ ${repo.name}\n` +
+                    `➥ Owner       ➜ ${repo.owner.login}\n` +
+                    `➥ Description ➜ ${repo.description || 'N/A'}\n` +
+                    `➥ Language    ➜ ${repo.language || 'N/A'}\n` +
+                    `➥ License     ➜ ${repo.license?.name || 'N/A'}\n` +
+                    `➥ Branch      ➜ ${defaultBranch}\n` +
+                    `➥ Visibility  ➜ ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
+                    `┃ Statistics\n` +
+                    `➥ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
+                    `➥ Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
+                    `➥ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
+                    `➥ Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
+                    `➥ Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
 
@@ -129,12 +123,13 @@ module.exports = {
                 console.error('[GitHub] API error:', apiError.message);
 
                 text = applyFont(
-                    `┏━━『 GitHub Repository 』━\n\n` +
-                    `Bot Name:    ${config.botName}\n` +
-                    `Repository:  ${GITHUB_REPO}\n` +
-                    `Owner:       ${GITHUB_USER}\n` +
-                    `URL:         ${REPO_URL}\n\n` +
-                    `Could not fetch live stats. Visit the repo for latest info.\n\n` +
+                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
+                    `➥ Bot Name    ➜ ${config.botName}\n` +
+                    `➥ Repository  ➜ ${GITHUB_REPO}\n` +
+                    `➥ Owner       ➜ ${GITHUB_USER}\n` +
+                    `➥ URL         ➜ ${REPO_URL}\n\n` +
+                    `⚠️ Could not fetch live stats.\n` +
+                    `   Visit the repo for latest info.\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
             }
@@ -162,12 +157,10 @@ module.exports = {
 
                 await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
-                // ── Step 3: Download ZIP directly — no branch selection ────────
                 const zipUrl = `${repoUrl}/archive/refs/heads/${defaultBranch}.zip`;
                 let filePath;
 
                 try {
-                    // ✅ os.tmpdir() — always exists on any host
                     filePath = path.join(
                         os.tmpdir(),
                         `${GITHUB_REPO}-${defaultBranch}-${dateNow}.zip`
@@ -195,15 +188,16 @@ module.exports = {
 
                     const fileSizeMB = (fs.statSync(filePath).size / 1048576).toFixed(2);
 
-                    // ── Send ZIP as document ──────────────────────────────────
                     await sock.sendMessage(chatId, {
                         document: fs.readFileSync(filePath),
                         mimetype: 'application/zip',
                         fileName: `${GITHUB_REPO}-${defaultBranch}.zip`,
                         caption: applyFont(
-                            `${GITHUB_REPO}\n` +
-                            `Branch: ${defaultBranch}\n` +
-                            `Size:   ${fileSizeMB} MB\n` +
+                            `┏━━『 ZIP DOWNLOADED 』━━\n\n` +
+                            `➥ Repository ➜ ${GITHUB_REPO}\n` +
+                            `➥ Branch     ➜ ${defaultBranch}\n` +
+                            `➥ Size       ➜ ${fileSizeMB} MB\n\n` +
+                            `┗━━━━━━━━━━━━━━━━\n\n` +
                             `> ${config.botName}`
                         ),
                     }, { quoted: messageData });
@@ -215,7 +209,11 @@ module.exports = {
                     await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
                     await sock.sendMessage(chatId, {
                         text: applyFont(
-                            `Failed to download ZIP: ${err.message}\n\nTry copying the link instead.`
+                            `┏━━『 ERROR 』━━\n\n` +
+                            `➥ Failed  ➜ ZIP Download\n` +
+                            `➥ Reason  ➜ ${err.message}\n\n` +
+                            `  Try copying the link instead.\n\n` +
+                            `┗━━━━━━━━━━━━━━━━`
                         ),
                     }, { quoted: messageData });
                 } finally {
