@@ -1,18 +1,18 @@
 const os = require('os');
 const config = require('../../config');
 const { loadCommands } = require('../../utils/commandLoader');
-const { sendButtons } = require('gifted-btns');
-const { applyFont }   = require('../../utils/fontConverter');
+const { sendButtons }  = require('gifted-btns');
+const { applyFont }    = require('../../utils/fontConverter');
 
 const botStartTime = Date.now() - Math.floor(process.uptime() * 1000);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const detectPlatform = () => {
-    if (process.env.DYNO)                              return '☁️ Heroku';
-    if (process.env.RENDER)                            return '⚡ Render';
+    if (process.env.DYNO)                               return '☁️ Heroku';
+    if (process.env.RENDER)                             return '⚡ Render';
     if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit';
-    if (process.env.P_SERVER_UUID)                     return '🖥️ Panel';
+    if (process.env.P_SERVER_UUID)                      return '🖥️ Panel';
     switch (os.platform()) {
         case 'win32':  return '🪟 Windows';
         case 'darwin': return '🍎 macOS';
@@ -36,8 +36,8 @@ const formatUptime = (ms) => {
 };
 
 const formatBytes = (bytes) => {
-    if (bytes < 1024 * 1024)           return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024)    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    if (bytes < 1024 * 1024)        return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 };
 
@@ -115,58 +115,70 @@ module.exports = {
             text,
             footer: `> Powered by ${config.botName}`,
             buttons: [
-                // Interceptable — bot handles restart
+                { id: `${prefix}ping_${dateNow}`,    text: '🏓 Ping'       },
+                { id: `${prefix}uptime_${dateNow}`,  text: '⏱️ Uptime'     },
                 { id: `${prefix}restart_${dateNow}`, text: '🔄 Restart Bot' },
             ],
         }, { quoted: msg });
 
-        // ── Listen for restart tap ────────────────────────────────────────────
-        const handleRestart = async (event) => {
+        // ── Listen for button taps ────────────────────────────────────────────
+        const handleButton = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
 
             const selectedId = extractButtonResponseId(messageData);
             if (!selectedId) return;
-            if (selectedId !== `${prefix}restart_${dateNow}`) return;
+            if (!selectedId.includes(`_${dateNow}`)) return;
             if (messageData.key?.remoteJid !== chatId) return;
 
             // Only original sender — silent ignore for everyone else
             const responseSender = getResponseSender(messageData);
             if (responseSender !== originalSender) return;
 
-            // Owner-only guard for restart
-            const owners = Array.isArray(config.ownerNumber)
-                ? config.ownerNumber
-                : [config.ownerNumber];
+            // Strip _dateNow + prefix → raw command name
+            // e.g. ".restart_1714000000000" → "restart"
+            const rawCommand = selectedId
+                .replace(`_${dateNow}`, '')
+                .replace(prefix, '')
+                .trim();
 
-            const senderNumber = responseSender?.replace(/[^0-9]/g, '');
-            const isOwner      = owners.some(o => String(o).replace(/[^0-9]/g, '') === senderNumber);
+            // Look up command directly from loaded commands map
+            const cmd = loadCommands().get(rawCommand);
 
-            if (!isOwner) {
+            if (!cmd) {
                 return await sock.sendMessage(chatId, {
                     text: applyFont(
                         `┏━━『 ERROR 』━━\n\n` +
-                        `➥ Reason ➜ Only the owner can restart the bot\n\n` +
+                        `➥ Reason ➜ Command *${rawCommand}* not found\n\n` +
                         `┗━━━━━━━━━━━━━━━━`
                     ),
                 }, { quoted: messageData });
             }
 
-            await sock.sendMessage(chatId, {
-                text: applyFont(
-                    `┏━━『 RESTARTING 』━━\n\n` +
-                    `➥ Status ➜ Bot is restarting...\n` +
-                    `➥ Wait   ➜ Back in a few seconds\n\n` +
-                    `┗━━━━━━━━━━━━━━━━`
-                ),
-            }, { quoted: messageData });
+            try {
+                const extraData = {
+                    from:    chatId,
+                    sender:  responseSender,
+                    isGroup: chatId.endsWith('@g.us'),
+                    reply:   (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
+                    quoted:  messageData,
+                };
 
-            await sock.sendMessage(chatId, { react: { text: '🔄', key: msg.key } });
+                await cmd.execute(sock, messageData, [], extraData);
 
-            // Graceful restart — let message send before exiting
-            setTimeout(() => process.exit(0), 2000);
+            } catch (err) {
+                console.error(`[botinfo] button error (${rawCommand}):`, err.message);
+                await sock.sendMessage(chatId, {
+                    text: applyFont(
+                        `┏━━『 ERROR 』━━\n\n` +
+                        `➥ Command ➜ ${rawCommand}\n` +
+                        `➥ Reason  ➜ ${err.message}\n\n` +
+                        `┗━━━━━━━━━━━━━━━━`
+                    ),
+                }, { quoted: messageData });
+            }
         };
 
-        sock.ev.on('messages.upsert', handleRestart);
+        sock.ev.on('messages.upsert', handleButton);
     }
 };
