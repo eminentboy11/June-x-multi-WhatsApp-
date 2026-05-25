@@ -30,7 +30,7 @@ function detectPlatform() {
 
 module.exports = {
     name: 'botstatus',
-    aliases: ['status', 'botinfo', 'stats', 'runtime'],
+    aliases: ['status', 'stats', 'run'],
     category: 'general',
     description: 'View bot status, uptime, and system info',
     usage: '.botstatus',
