@@ -1,7 +1,6 @@
 /**
  * SaveTube Command — powered by api.hostify.indevs.in
- * Fallback:  api.nexray.eu.cc
- * Download:  GET /api/downloader/savetube?url=<youtube_url>&quality=<quality>
+ * Download: GET /api/downloader/savetube?url=<youtube_url>&quality=<quality>
  *
  * Quality values:
  *   Audio → mp3
@@ -16,8 +15,7 @@ const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
 const RETRY_DELAY = 3000;
-const PRIMARY_BASE  = 'https://api.hostify.indevs.in';
-const FALLBACK_BASE = 'https://api.nexray.eu.cc';
+const BASE = 'https://api.hostify.indevs.in';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -66,60 +64,28 @@ async function searchYouTube(query) {
 }
 
 /**
- * Download via SaveTube — primary: hostify, fallback: nexray
+ * Download via SaveTube API
  * quality: 'mp3' | '360' | '480' | '720' | '1080'
- * Normalises both API response shapes into one object.
  */
 async function downloadSaveTube(videoUrl, quality) {
     return withRetry(async () => {
-        // ── Primary: api.hostify.indevs.in ───────────────────────────────────
-        try {
-            console.log(`[savetube] primary → ${videoUrl} @ ${quality}`);
-            const res = await axios.get(
-                `${PRIMARY_BASE}/api/downloader/savetube`,
-                {
-                    params:  { url: videoUrl, quality },
-                    timeout: 120000,
-                }
-            );
-            const r = res.data?.result ?? res.data?.data ?? res.data;
-            const dlUrl = r?.download_url ?? r?.downloadUrl ?? r?.url ?? r?.link;
-            if (!res.data?.status && !res.data?.success) throw new Error('Primary: bad status');
-            if (!dlUrl) throw new Error('Primary: no download URL');
-            console.log('[savetube] primary delivering:', r?.title);
-            return {
-                downloadUrl: dlUrl,
-                title:       r?.title     || '',
-                thumbnail:   r?.thumbnail || '',
-                duration:    r?.duration  || '',
-                quality:     r?.quality   || quality,
-                size:        r?.size      || r?.filesize || '',
-            };
-        } catch (primaryErr) {
-            console.warn('[savetube] primary failed, trying fallback:', primaryErr.message);
-
-            // ── Fallback: api.nexray.eu.cc ────────────────────────────────────
-            const res = await axios.get(
-                `${FALLBACK_BASE}/downloader/savetube`,
-                {
-                    params:  { url: videoUrl, quality },
-                    timeout: 120000,
-                }
-            );
-            const r = res.data?.result;
-            if (!res.data?.status || !r?.download_url) {
-                throw new Error('Fallback API returned no URL');
-            }
-            console.log('[savetube] fallback delivering:', r?.title);
-            return {
-                downloadUrl: r.download_url,
-                title:       r.title     || '',
-                thumbnail:   r.thumbnail || '',
-                duration:    r.duration  || '',
-                quality:     r.quality   || quality,
-                size:        r.size      || '',
-            };
-        }
+        console.log(`[savetube] downloading: ${videoUrl} @ ${quality}`);
+        const res = await axios.get(`${BASE}/api/downloader/savetube`, {
+            params:  { url: videoUrl, quality },
+            timeout: 120000,
+        });
+        const r = res.data?.result ?? res.data?.data ?? res.data;
+        const dlUrl = r?.download_url ?? r?.downloadUrl ?? r?.url ?? r?.link;
+        if (!dlUrl) throw new Error('API returned no download URL');
+        console.log('[savetube] delivering:', r?.title);
+        return {
+            downloadUrl: dlUrl,
+            title:       r?.title     || '',
+            thumbnail:   r?.thumbnail || '',
+            duration:    r?.duration  || '',
+            quality:     r?.quality   || quality,
+            size:        r?.size      || r?.filesize || '',
+        };
     });
 }
 
