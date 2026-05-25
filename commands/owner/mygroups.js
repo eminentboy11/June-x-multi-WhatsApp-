@@ -1,3 +1,10 @@
+/**
+ * My Groups — lists every group the bot is in.
+ * .mygroups         → full list (one message)
+ * .mygroups <n>     → full details of group #n
+ * Owner only
+ */
+
 const config = require('../../config');
 const { sendButtons } = require('gifted-btns');
 
@@ -19,7 +26,9 @@ module.exports = {
                 ? config.ownerNumber
                 : [config.ownerNumber];
 
-            if (!ownerNumbers.includes(sender)) {
+            // Allow if sender is owner OR if the message is from the bot itself
+            if (!ownerNumbers.includes(sender) && !msg.key.fromMe) {
+                await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
                 return extra.reply('❌ This command is restricted to bot owners.');
             }
 
