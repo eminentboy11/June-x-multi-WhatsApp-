@@ -1,11 +1,15 @@
 const os = require('os');
 const config = require('../../config');
+const { sendButtons } = require('gifted-btns');
+const { applyFont }   = require('../../utils/fontConverter');
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatUptime(ms) {
-    const s = Math.floor(ms / 1000);
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
+    const s   = Math.floor(ms / 1000);
+    const d   = Math.floor(s / 86400);
+    const h   = Math.floor((s % 86400) / 3600);
+    const m   = Math.floor((s % 3600) / 60);
     const sec = s % 60;
     const parts = [];
     if (d) parts.push(`${d}d`);
@@ -16,17 +20,32 @@ function formatUptime(ms) {
 }
 
 function detectPlatform() {
-    if (process.env.HEROKU) return 'Heroku';
-    if (process.env.RAILWAY_STATIC_URL) return 'Railway';
-    if (process.env.RENDER) return 'Render';
-    if (process.env.REPLIT_DB_URL || process.env.REPL_ID) return 'Replit';
-    if (process.env.P_SERVER_UUID) return 'Pterodactyl';
+    if (process.env.HEROKU)                              return '☁️ Heroku';
+    if (process.env.RAILWAY_STATIC_URL)                  return '🚉 Railway';
+    if (process.env.RENDER)                              return '⚡ Render';
+    if (process.env.REPLIT_DB_URL || process.env.REPL_ID) return '🔵 Replit';
+    if (process.env.P_SERVER_UUID)                       return '🖥️ Pterodactyl';
     const p = os.platform();
-    if (p === 'linux') return 'Linux VPS';
-    if (p === 'win32') return 'Windows';
-    if (p === 'darwin') return 'macOS';
+    if (p === 'linux')  return '🐧 Linux VPS';
+    if (p === 'win32')  return '🪟 Windows';
+    if (p === 'darwin') return '🍎 macOS';
     return p;
 }
+
+function extractButtonResponseId(msg) {
+    return (
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
+        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+        null
+    );
+}
+
+function getResponseSender(msg) {
+    return msg.key?.participant || msg.key?.remoteJid;
+}
+
+// ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
     name: 'botstatus',
@@ -37,48 +56,148 @@ module.exports = {
 
     async execute(sock, msg, args, extra) {
         try {
-            const uptime = formatUptime(process.uptime() * 1000);
-            const totalMem = (os.totalmem() / 1024 / 1024).toFixed(0);
-            const usedMem = ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(0);
+            const chatId         = extra.from;
+            const prefix         = config.prefix === '' ? 'none' : (config.prefix || '.');
+            const originalSender = msg.key?.participant || msg.key?.remoteJid;
+            const dateNow        = Date.now();
+
+            // ── Gather stats ──────────────────────────────────────────────────
+            const uptime     = formatUptime(process.uptime() * 1000);
+            const totalMem   = (os.totalmem() / 1024 / 1024).toFixed(0);
+            const usedMem    = ((os.totalmem() - os.freemem()) / 1024 / 1024).toFixed(0);
             const memPercent = ((1 - os.freemem() / os.totalmem()) * 100).toFixed(1);
-            const cpus = os.cpus();
-            const cpuModel = cpus[0]?.model?.trim() || 'Unknown';
-            const cpuCount = cpus.length;
-            const platform = detectPlatform();
-            const nodeVer = process.version;
-            const ownerName = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName;
-            const prefix = config.prefix === '' ? 'none' : (config.prefix || '.');
-            const cmdCount = extra.getCommandCount ? extra.getCommandCount() : 'N/A';
+            const cpus       = os.cpus();
+            const cpuModel   = cpus[0]?.model?.trim() || 'Unknown';
+            const cpuCount   = cpus.length;
+            const platform   = detectPlatform();
+            const nodeVer    = process.version;
+            const ownerName  = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName;
+            const cmdCount   = extra.getCommandCount ? extra.getCommandCount() : 'N/A';
+            const speedMs    = Date.now() - (msg.messageTimestamp * 1000);
+            const { getModeLabel } = require('../../utils/botMode');
 
-            const speedStart = Date.now();
-            const speedMs = Date.now() - (msg.messageTimestamp * 1000);
+            const text = applyFont(
+                `┏━━『 BOT STATUS 』━━\n\n` +
 
-            const text = `🤖 *${config.botName} Status*\n━━━━━━━━━━━━━━━\n\n` +
-                `🔸 *Uptime:* ${uptime}\n` +
-                `🔸 *Speed:* ${speedMs}ms\n` +
-                `🔸 *Commands:* ${cmdCount}\n` +
-                `🔹 *Prefix:* [ ${prefix} ]\n` +
-                `🔸 *Owner:* ${ownerName}\n\n` +
-                `🔸 *System Info*\n━━━━━━━━━━━━━━━\n` +
-                `🔸 *Platform:* ${platform}\n` +
-                `🟢 *Node:* ${nodeVer}\n` +
-                `🔸 *RAM:* ${usedMem}/${totalMem} MB (${memPercent}%)\n` +
-                `🔹 *CPU:* ${cpuModel}\n` +
-                `🔹 *Cores:* ${cpuCount}\n` +
-                `🔹 *Timezone:* ${config.timezone || 'UTC'}\n\n` +
-                `✨ *Bot Behavior*\n━━━━━━━━━━━━━━━\n` +
-                `${require('../../utils/botMode').getModeLabel()} Mode\n` +
-                `${config.autoRead ? '✅' : '❌'} Auto Read\n` +
-                `${config.autoTyping ? '✅' : '❌'} Auto Typing\n` +
-                `${config.autoReact ? '✅' : '❌'} Auto React (${config.autoReactMode || 'bot'})\n` +
-                `${config.autoSticker ? '✅' : '❌'} Auto Sticker\n` +
-                `${config.autoDownload ? '✅' : '❌'} Auto Download\n\n` +
-                `> *${config.botName}* — Powered by Supreme`;
+                `➥ Bot Name  ➜ ${config.botName}\n` +
+                `➥ Prefix    ➜ [ ${prefix} ]\n` +
+                `➥ Owner     ➜ ${ownerName}\n` +
+                `➥ Commands  ➜ ${cmdCount}\n` +
+                `➥ Uptime    ➜ ${uptime}\n` +
+                `➥ Speed     ➜ ${speedMs}ms\n\n` +
 
-            await sock.sendMessage(extra.from, { text }, { quoted: msg });
+                `┃ System\n` +
+
+                `➥ Platform  ➜ ${platform}\n` +
+                `➥ Node.js   ➜ ${nodeVer}\n` +
+                `➥ RAM       ➜ ${usedMem}/${totalMem} MB (${memPercent}%)\n` +
+                `➥ CPU       ➜ ${cpuModel}\n` +
+                `➥ Cores     ➜ ${cpuCount}\n` +
+                `➥ Timezone  ➜ ${config.timezone || 'UTC'}\n\n` +
+
+                `┃ Behavior\n` +
+
+                `➥ Mode          ➜ ${getModeLabel()}\n` +
+                `➥ Auto Read     ➜ ${config.autoRead      ? '✅' : '❌'}\n` +
+                `➥ Auto Typing   ➜ ${config.autoTyping    ? '✅' : '❌'}\n` +
+                `➥ Auto React    ➜ ${config.autoReact     ? '✅' : '❌'} (${config.autoReactMode || 'bot'})\n` +
+                `➥ Auto Sticker  ➜ ${config.autoSticker   ? '✅' : '❌'}\n` +
+                `➥ Auto Download ➜ ${config.autoDownload  ? '✅' : '❌'}\n\n` +
+
+                `┗━━━━━━━━━━━━━━━━`
+            );
+
+            await sendButtons(sock, chatId, {
+                title:  '',
+                text,
+                footer: `> Powered by ${config.botName}`,
+                buttons: [
+                    { id: `${prefix}ping_${dateNow}`,    text: '🏓 Ping'     },
+                    { id: `${prefix}uptime_${dateNow}`,  text: '⏱️ Uptime'   },
+                    { id: `${prefix}restart_${dateNow}`, text: '🔄 Restart'  },
+                ],
+            }, { quoted: msg });
+
+            // ── Listen for button taps ────────────────────────────────────────
+            const handleButton = async (event) => {
+                const messageData = event.messages[0];
+                if (!messageData?.message) return;
+
+                const selectedId = extractButtonResponseId(messageData);
+                if (!selectedId) return;
+                if (!selectedId.includes(`_${dateNow}`)) return;
+                if (messageData.key?.remoteJid !== chatId) return;
+
+                // Only original sender — silent ignore for everyone else
+                const responseSender = getResponseSender(messageData);
+                if (responseSender !== originalSender) return;
+
+                const buttonType = selectedId
+                    .replace(prefix, '')
+                    .split('_')[0]; // "ping" | "uptime" | "restart"
+
+                // ── 🏓 Ping ───────────────────────────────────────────────────
+                if (buttonType === 'ping') {
+                    const start = Date.now();
+                    await sock.sendMessage(chatId, {
+                        text: applyFont(
+                            `┏━━『 PING 』━━\n\n` +
+                            `➥ Status  ➜ 🟢 Online\n` +
+                            `➥ Latency ➜ ${Date.now() - start}ms\n\n` +
+                            `┗━━━━━━━━━━━━━━━━`
+                        ),
+                    }, { quoted: messageData });
+
+                // ── ⏱️ Uptime ─────────────────────────────────────────────────
+                } else if (buttonType === 'uptime') {
+                    await sock.sendMessage(chatId, {
+                        text: applyFont(
+                            `┏━━『 UPTIME 』━━\n\n` +
+                            `➥ Uptime ➜ ${formatUptime(process.uptime() * 1000)}\n\n` +
+                            `┗━━━━━━━━━━━━━━━━`
+                        ),
+                    }, { quoted: messageData });
+
+                // ── 🔄 Restart ────────────────────────────────────────────────
+                } else if (buttonType === 'restart') {
+                    // Owner-only guard
+                    const owners = Array.isArray(config.ownerNumber)
+                        ? config.ownerNumber
+                        : [config.ownerNumber];
+
+                    const senderNumber = responseSender?.replace(/[^0-9]/g, '');
+                    const isOwner      = owners.some(
+                        o => String(o).replace(/[^0-9]/g, '') === senderNumber
+                    );
+
+                    if (!isOwner) {
+                        return await sock.sendMessage(chatId, {
+                            text: applyFont(
+                                `┏━━『 ERROR 』━━\n\n` +
+                                `➥ Reason ➜ Only the owner can restart the bot\n\n` +
+                                `┗━━━━━━━━━━━━━━━━`
+                            ),
+                        }, { quoted: messageData });
+                    }
+
+                    await sock.sendMessage(chatId, {
+                        text: applyFont(
+                            `┏━━『 RESTARTING 』━━\n\n` +
+                            `➥ Status ➜ Bot is restarting...\n` +
+                            `➥ Wait   ➜ Back in a few seconds\n\n` +
+                            `┗━━━━━━━━━━━━━━━━`
+                        ),
+                    }, { quoted: messageData });
+
+                    await sock.sendMessage(chatId, { react: { text: '🔄', key: msg.key } });
+                    setTimeout(() => process.exit(0), 2000);
+                }
+            };
+
+            sock.ev.on('messages.upsert', handleButton);
 
         } catch (error) {
-            console.error('botstatus error:', error);
+            console.error('[botstatus] error:', error);
             await extra.reply(`❌ Error: ${error.message}`);
         }
     }
