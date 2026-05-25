@@ -1,13 +1,5 @@
-/**
- * My Groups — lists every group the bot is in.
- * .mygroups         → full list (sent to owner DM)
- * .mygroups <n>     → full details of group #n (sent to owner DM)
- * Owner only
- */
-
-const config      = require('../../config');
+const config = require('../../config');
 const { sendButtons } = require('gifted-btns');
-const { applyFont } = require('../../utils/fontConverter');
 
 module.exports = {
     name: 'mygroups',
@@ -20,19 +12,17 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         const jid = extra.from;
 
-        // Normalize owner numbers (string or array) → JIDs
-        const ownerNumbers = Array.isArray(config.ownerNumber)
-            ? config.ownerNumber
-            : [config.ownerNumber];
-
-        const ownerJids = ownerNumbers
-            .filter(Boolean)
-            .map(num => String(num).replace(/\D/g, '') + '@s.whatsapp.net');
-
-        // Always respond privately to the first owner (fallback to sender if none)
-        const replyJid = ownerJids[0] || jid;
-
         try {
+            // ── Owner guard ───────────────────────────────────────────────
+            const sender = msg.key.participant || msg.key.remoteJid;
+            const ownerNumbers = Array.isArray(config.ownerNumber)
+                ? config.ownerNumber
+                : [config.ownerNumber];
+
+            if (!ownerNumbers.includes(sender)) {
+                return extra.reply('❌ This command is restricted to bot owners.');
+            }
+
             await sock.sendMessage(jid, { react: { text: '🔄', key: msg.key } });
 
             // Fetch and sort all groups
@@ -42,9 +32,7 @@ module.exports = {
 
             if (!groups.length) {
                 await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
-                return sock.sendMessage(replyJid, {
-                    text: applyFont('❌ The bot is not in any groups.')
-                });
+                return extra.reply('❌ The bot is not in any groups.');
             }
 
             const total = groups.length;
@@ -53,65 +41,44 @@ module.exports = {
             const numArg = args[0];
             if (numArg && /^\d+$/.test(numArg)) {
                 const idx = parseInt(numArg) - 1;
-
                 if (idx < 0 || idx >= total) {
-                    await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
-                    return sock.sendMessage(replyJid, {
-                        text: applyFont(`❌ Invalid number. Pick a number between 1 and ${total}.`)
-                    });
+                    return extra.reply(`❌ Pick a number between 1 and ${total}.`);
                 }
 
-                const g           = groups[idx];
-                const members     = g.participants || [];
-                const admins      = members
-                    .filter(p => p.admin)
-                    .map(p => `@${p.id.split('@')[0].split(':')[0]}`);
+                const g = groups[idx];
+                const members    = g.participants || [];
+                const admins     = members.filter(p => p.admin).map(p => `@${p.id.split('@')[0].split(':')[0]}`);
                 const memberCount = members.length;
-                const adminCount  = admins.length;
-                const groupJid    = g.id;
-                const name        = g.subject || '(no name)';
-                const desc        = g.desc ? g.desc.trim() : 'No description';
-                const createdAt   = g.creation
+                const groupJid   = g.id;
+                const name       = g.subject || '(no name)';
+                const desc       = g.desc ? g.desc.trim() : 'No description';
+                const createdAt  = g.creation
                     ? new Date(g.creation * 1000).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi' })
                     : 'Unknown';
-                const announce    = g.announce ? '🔒 Admins only' : '🔓 Everyone';
-                const restrict    = g.restrict  ? '🔒 Admins only' : '🔓 Everyone';
-
-                const botMeta = members.find(p => {
+                const botMeta    = members.find(p => {
                     const phone = (sock.user?.id || '').split('@')[0].split(':')[0];
                     return p.id.split('@')[0].split(':')[0] === phone;
                 });
-                const botRole = botMeta?.admin === 'superadmin'
-                    ? '👑 Super Admin'
-                    : botMeta?.admin
-                        ? '🔰 Admin'
-                        : '👤 Member';
+                const botRole    = botMeta?.admin === 'superadmin' ? '👑 Super Admin' : botMeta?.admin ? '🔰 Admin' : '👤 Member';
 
-                const detail = applyFont(
+                const detail =
 `━━━━━━━━━━━━━━━━━━━
-📋 Group Details — #${numArg}
+📋 *Group Details — #${numArg}*
 ━━━━━━━━━━━━━━━━━━━
 
-🏷️  Name: ${name}
-👥  Members: ${memberCount}
-🛡️  Admins: ${adminCount}
-🤖  Bot Role: ${botRole}
-📅  Created: ${createdAt}
-💬  Send Messages: ${announce}
-✏️  Edit Info: ${restrict}
-🧩  Group JID: ${groupJid}
-
-📝  Description:
+🏷️  *Name:* ${name}
+👥  *Members:* ${memberCount}
+🤖  *Bot role:* ${botRole}
+📅  *Created:* ${createdAt}
+🧩  *GroupJid:* ${groupJid}
+📝  *Description:*
 ${desc}
 
-━━━━━━━━━━━━━━━━━━━
-${admins.length ? '👮 Admins: ' + admins.join(', ') : '👮 No admins found'}
-━━━━━━━━━━━━━━━━━━━`
-                );
+━━━━━━━━━━━━━━━━━━━`;
 
-                await sendButtons(sock, replyJid, {
+                await sendButtons(sock, jid, {
                     text: detail,
-                    footer: applyFont(`> Powered by ${config.botName}`),
+                    footer: `> Powered by ${config.botName}`,
                     buttons: [
                         {
                             name: 'cta_copy',
@@ -127,42 +94,27 @@ ${admins.length ? '👮 Admins: ' + admins.join(', ') : '👮 No admins found'}
                 return;
             }
 
-            // ── List view — all groups in one message ────────────────────────
-            let text = `━━━━━━━━━━━━━━━━━━━\n`;
-            text += `📋 My Groups — ${total} group${total !== 1 ? 's' : ''}\n`;
-            text += `━━━━━━━━━━━━━━━━━━━\n\n`;
+            // ── List view — all groups in one message (no pagination) ────────
+            let text = `📋 *Group List — ${total} group${total !== 1 ? 's' : ''}*\n\n`;
 
             groups.forEach((g, idx) => {
-                const name    = g.subject || '(no name)';
+                const num = idx + 1;
+                const name = g.subject || '(no name)';
                 const members = g.participants?.length ?? '?';
-                const botMeta = (g.participants || []).find(p => {
-                    const phone = (sock.user?.id || '').split('@')[0].split(':')[0];
-                    return p.id.split('@')[0].split(':')[0] === phone;
-                });
-                const role = botMeta?.admin === 'superadmin'
-                    ? '👑'
-                    : botMeta?.admin
-                        ? '🔰'
-                        : '👤';
-
-                text += `${idx + 1}. ${name}\n`;
-                text += `   👥 ${members} member${members !== 1 ? 's' : ''}  ${role}\n\n`;
+                text += `*${num}.* ${name}\n`;
+                text += `   👥 ${members} member${members !== 1 ? 's' : ''}\n\n`;
             });
 
-            text += `━━━━━━━━━━━━━━━━━━━\n`;
-            text += `Total: ${total} group${total !== 1 ? 's' : ''}\n\n`;
-            text += `👑 Super Admin  🔰 Admin  👤 Member\n\n`;
-            text += `💡 Use .mygroups <number> for full details & copy JID.`;
+            text += `_Total: ${total} group${total !== 1 ? 's' : ''}_\n\n`;
+            text += `💡 *Reply to this message with* \`.mygroups <number>\` *for group details + copy JID.*`;
 
-            await sock.sendMessage(replyJid, { text: applyFont(text) }, { quoted: msg });
+            await sock.sendMessage(jid, { text }, { quoted: msg });
             await sock.sendMessage(jid, { react: { text: '✅', key: msg.key } });
 
         } catch (error) {
             console.error('[mygroups] error:', error);
             await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
-            await sock.sendMessage(replyJid, {
-                text: applyFont(`❌ Failed to fetch groups.\n\nError: ${String(error)}`)
-            });
+            await extra.reply(`❌ Failed to fetch groups: ${error.message}`);
         }
     }
 };
