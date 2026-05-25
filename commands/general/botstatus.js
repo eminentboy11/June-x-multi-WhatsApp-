@@ -1,7 +1,8 @@
 const os = require('os');
 const config = require('../../config');
-const { sendButtons } = require('gifted-btns');
-const { applyFont }   = require('../../utils/fontConverter');
+const { sendButtons }  = require('gifted-btns');
+const { applyFont }    = require('../../utils/fontConverter');
+const { loadCommands } = require('../../utils/commandLoader');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,11 +21,11 @@ function formatUptime(ms) {
 }
 
 function detectPlatform() {
-    if (process.env.HEROKU)                              return '☁️ Heroku';
-    if (process.env.RAILWAY_STATIC_URL)                  return '🚉 Railway';
-    if (process.env.RENDER)                              return '⚡ Render';
+    if (process.env.HEROKU)                               return '☁️ Heroku';
+    if (process.env.RAILWAY_STATIC_URL)                   return '🚉 Railway';
+    if (process.env.RENDER)                               return '⚡ Render';
     if (process.env.REPLIT_DB_URL || process.env.REPL_ID) return '🔵 Replit';
-    if (process.env.P_SERVER_UUID)                       return '🖥️ Pterodactyl';
+    if (process.env.P_SERVER_UUID)                        return '🖥️ Pterodactyl';
     const p = os.platform();
     if (p === 'linux')  return '🐧 Linux VPS';
     if (p === 'win32')  return '🪟 Windows';
@@ -112,9 +113,9 @@ module.exports = {
                 text,
                 footer: `> Powered by ${config.botName}`,
                 buttons: [
-                    { id: `${prefix}ping_${dateNow}`,    text: '🏓 Ping'     },
-                    { id: `${prefix}uptime_${dateNow}`,  text: '⏱️ Uptime'   },
-                    { id: `${prefix}restart_${dateNow}`, text: '🔄 Restart'  },
+                    { id: `${prefix}ping_${dateNow}`,    text: '🏓 Ping'    },
+                    { id: `${prefix}uptime_${dateNow}`,  text: '⏱️ Uptime'  },
+                    { id: `${prefix}restart_${dateNow}`, text: '🔄 Restart' },
                 ],
             }, { quoted: msg });
 
@@ -132,65 +133,47 @@ module.exports = {
                 const responseSender = getResponseSender(messageData);
                 if (responseSender !== originalSender) return;
 
-                const buttonType = selectedId
+                // Strip _dateNow + prefix → raw command name
+                // e.g. ".ping_1714000000000" → "ping"
+                const rawCommand = selectedId
+                    .replace(`_${dateNow}`, '')
                     .replace(prefix, '')
-                    .split('_')[0]; // "ping" | "uptime" | "restart"
+                    .trim();
 
-                // ── 🏓 Ping ───────────────────────────────────────────────────
-                if (buttonType === 'ping') {
-                    const start = Date.now();
-                    await sock.sendMessage(chatId, {
+                // Look up command directly from loaded commands map
+                const cmd = loadCommands().get(rawCommand);
+
+                if (!cmd) {
+                    return await sock.sendMessage(chatId, {
                         text: applyFont(
-                            `┏━━『 PING 』━━\n\n` +
-                            `➥ Status  ➜ 🟢 Online\n` +
-                            `➥ Latency ➜ ${Date.now() - start}ms\n\n` +
+                            `┏━━『 ERROR 』━━\n\n` +
+                            `➥ Reason ➜ Command *${rawCommand}* not found\n\n` +
                             `┗━━━━━━━━━━━━━━━━`
                         ),
                     }, { quoted: messageData });
+                }
 
-                // ── ⏱️ Uptime ─────────────────────────────────────────────────
-                } else if (buttonType === 'uptime') {
+                try {
+                    const extraData = {
+                        from:    chatId,
+                        sender:  responseSender,
+                        isGroup: chatId.endsWith('@g.us'),
+                        reply:   (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
+                        quoted:  messageData,
+                    };
+
+                    await cmd.execute(sock, messageData, [], extraData);
+
+                } catch (err) {
+                    console.error(`[botstatus] button error (${rawCommand}):`, err.message);
                     await sock.sendMessage(chatId, {
                         text: applyFont(
-                            `┏━━『 UPTIME 』━━\n\n` +
-                            `➥ Uptime ➜ ${formatUptime(process.uptime() * 1000)}\n\n` +
+                            `┏━━『 ERROR 』━━\n\n` +
+                            `➥ Command ➜ ${rawCommand}\n` +
+                            `➥ Reason  ➜ ${err.message}\n\n` +
                             `┗━━━━━━━━━━━━━━━━`
                         ),
                     }, { quoted: messageData });
-
-                // ── 🔄 Restart ────────────────────────────────────────────────
-                } else if (buttonType === 'restart') {
-                    // Owner-only guard
-                    const owners = Array.isArray(config.ownerNumber)
-                        ? config.ownerNumber
-                        : [config.ownerNumber];
-
-                    const senderNumber = responseSender?.replace(/[^0-9]/g, '');
-                    const isOwner      = owners.some(
-                        o => String(o).replace(/[^0-9]/g, '') === senderNumber
-                    );
-
-                    if (!isOwner) {
-                        return await sock.sendMessage(chatId, {
-                            text: applyFont(
-                                `┏━━『 ERROR 』━━\n\n` +
-                                `➥ Reason ➜ Only the owner can restart the bot\n\n` +
-                                `┗━━━━━━━━━━━━━━━━`
-                            ),
-                        }, { quoted: messageData });
-                    }
-
-                    await sock.sendMessage(chatId, {
-                        text: applyFont(
-                            `┏━━『 RESTARTING 』━━\n\n` +
-                            `➥ Status ➜ Bot is restarting...\n` +
-                            `➥ Wait   ➜ Back in a few seconds\n\n` +
-                            `┗━━━━━━━━━━━━━━━━`
-                        ),
-                    }, { quoted: messageData });
-
-                    await sock.sendMessage(chatId, { react: { text: '🔄', key: msg.key } });
-                    setTimeout(() => process.exit(0), 2000);
                 }
             };
 
