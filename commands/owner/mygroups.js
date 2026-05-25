@@ -9,7 +9,6 @@ const config      = require('../../config');
 const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
 
-
 module.exports = {
     name: 'mygroups',
     aliases: ['groups', 'grouplist', 'listgroups'],
@@ -21,9 +20,17 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         const jid = extra.from;
 
-        // Always respond privately to the owner
-        const ownerJid = (config.ownerNumber || '').replace(/\D/g, '') + '@s.whatsapp.net';
-        const replyJid = ownerJid || jid;
+        // Normalize owner numbers (string or array) → JIDs
+        const ownerNumbers = Array.isArray(config.ownerNumber)
+            ? config.ownerNumber
+            : [config.ownerNumber];
+
+        const ownerJids = ownerNumbers
+            .filter(Boolean)
+            .map(num => String(num).replace(/\D/g, '') + '@s.whatsapp.net');
+
+        // Always respond privately to the first owner (fallback to sender if none)
+        const replyJid = ownerJids[0] || jid;
 
         try {
             await sock.sendMessage(jid, { react: { text: '🔄', key: msg.key } });
@@ -154,7 +161,7 @@ ${admins.length ? '👮 Admins: ' + admins.join(', ') : '👮 No admins found'}
             console.error('[mygroups] error:', error);
             await sock.sendMessage(jid, { react: { text: '❌', key: msg.key } });
             await sock.sendMessage(replyJid, {
-                text: applyFont(`❌ Failed to fetch groups.\n\nError: ${error.message}`)
+                text: applyFont(`❌ Failed to fetch groups.\n\nError: ${String(error)}`)
             });
         }
     }
