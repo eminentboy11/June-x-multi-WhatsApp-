@@ -1,10 +1,11 @@
 /**
- * SaveTube Command — powered by api.nexray.eu.cc
- * Download: GET /downloader/savetube?url=<youtube_url>&quality=<quality>
+ * SaveTube Command — powered by api.hostify.indevs.in
+ * Fallback:  api.nexray.eu.cc
+ * Download:  GET /api/downloader/savetube?url=<youtube_url>&quality=<quality>
  *
  * Quality values:
- *   Audio  → mp3
- *   Video  → mp4 | 360 | 480 | 720 | 1080
+ *   Audio → mp3
+ *   Video → 360 | 480 | 720 | 1080
  */
 
 const yts = require('yt-search');
@@ -15,7 +16,8 @@ const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
 const RETRY_DELAY = 3000;
-const BASE = 'https://api.nexray.eu.cc';
+const PRIMARY_BASE  = 'https://api.hostify.indevs.in';
+const FALLBACK_BASE = 'https://api.nexray.eu.cc';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -64,37 +66,65 @@ async function searchYouTube(query) {
 }
 
 /**
- * Download via SaveTube API
- * quality: 'mp3' | 'mp4' | '360' | '480' | '720' | '1080'
- * Expected response: { status, result: { title, download_url, thumbnail, duration, quality, ... } }
+ * Download via SaveTube — primary: hostify, fallback: nexray
+ * quality: 'mp3' | '360' | '480' | '720' | '1080'
+ * Normalises both API response shapes into one object.
  */
 async function downloadSaveTube(videoUrl, quality) {
     return withRetry(async () => {
-        console.log(`[savetube] downloading: ${videoUrl} @ ${quality}`);
-        const res = await axios.get(
-            `${BASE}/downloader/savetube?url=${encodeURIComponent(videoUrl)}&quality=${quality}`,
-            { timeout: 120000 }
-        );
-        const result = res.data?.result;
-        if (!res.data?.status || !result?.download_url) {
-            throw new Error(`SaveTube API returned no URL for quality: ${quality}`);
+        // ── Primary: api.hostify.indevs.in ───────────────────────────────────
+        try {
+            console.log(`[savetube] primary → ${videoUrl} @ ${quality}`);
+            const res = await axios.get(
+                `${PRIMARY_BASE}/api/downloader/savetube`,
+                {
+                    params:  { url: videoUrl, quality },
+                    timeout: 120000,
+                }
+            );
+            const r = res.data?.result ?? res.data?.data ?? res.data;
+            const dlUrl = r?.download_url ?? r?.downloadUrl ?? r?.url ?? r?.link;
+            if (!res.data?.status && !res.data?.success) throw new Error('Primary: bad status');
+            if (!dlUrl) throw new Error('Primary: no download URL');
+            console.log('[savetube] primary delivering:', r?.title);
+            return {
+                downloadUrl: dlUrl,
+                title:       r?.title     || '',
+                thumbnail:   r?.thumbnail || '',
+                duration:    r?.duration  || '',
+                quality:     r?.quality   || quality,
+                size:        r?.size      || r?.filesize || '',
+            };
+        } catch (primaryErr) {
+            console.warn('[savetube] primary failed, trying fallback:', primaryErr.message);
+
+            // ── Fallback: api.nexray.eu.cc ────────────────────────────────────
+            const res = await axios.get(
+                `${FALLBACK_BASE}/downloader/savetube`,
+                {
+                    params:  { url: videoUrl, quality },
+                    timeout: 120000,
+                }
+            );
+            const r = res.data?.result;
+            if (!res.data?.status || !r?.download_url) {
+                throw new Error('Fallback API returned no URL');
+            }
+            console.log('[savetube] fallback delivering:', r?.title);
+            return {
+                downloadUrl: r.download_url,
+                title:       r.title     || '',
+                thumbnail:   r.thumbnail || '',
+                duration:    r.duration  || '',
+                quality:     r.quality   || quality,
+                size:        r.size      || '',
+            };
         }
-        console.log('[savetube] delivering:', result.title);
-        return {
-            downloadUrl: result.download_url,
-            title:       result.title     || '',
-            thumbnail:   result.thumbnail || '',
-            duration:    result.duration  || '',
-            quality:     result.quality   || quality,
-            size:        result.size      || '',
-        };
     });
 }
 
-/**
- * Type buttons — Audio or Video
- * ID: <prefix>st_type_<type>_<dateNow>
- */
+// ── Button builders ───────────────────────────────────────────────────────────
+
 function getTypeButtons(dateNow) {
     const prefix = config.prefix || '.';
     return [
@@ -103,10 +133,6 @@ function getTypeButtons(dateNow) {
     ];
 }
 
-/**
- * Audio format buttons
- * ID: <prefix>st_afmt_<format>_<dateNow>
- */
 function getAudioFormatButtons(dateNow) {
     const prefix = config.prefix || '.';
     return [
@@ -115,10 +141,6 @@ function getAudioFormatButtons(dateNow) {
     ];
 }
 
-/**
- * Video quality buttons
- * ID: <prefix>st_vq_<quality>_<dateNow>
- */
 function getVideoQualityButtons(dateNow) {
     const prefix = config.prefix || '.';
     return [
@@ -129,10 +151,6 @@ function getVideoQualityButtons(dateNow) {
     ];
 }
 
-/**
- * Video send-as buttons (after quality chosen)
- * ID: <prefix>st_vfmt_<format>_<quality>_<dateNow>
- */
 function getVideoFormatButtons(quality, dateNow) {
     const prefix = config.prefix || '.';
     return [
@@ -147,7 +165,7 @@ module.exports = {
     name: 'savetube',
     aliases: ['stube', 'svtube', 'ytdl'],
     category: 'media',
-    description: 'Download YouTube videos or audio via SaveTube API',
+    description: 'Download YouTube videos or audio via SaveTube',
     usage: '.savetube <video name | youtube link>',
 
     async execute(sock, msg, args, extra) {
@@ -200,9 +218,9 @@ module.exports = {
 
         const dateNow = Date.now();
 
-        // ── Step 1: Send video info + type selection buttons ──────────────────
+        // ── Step 1: Video info + type buttons ─────────────────────────────────
         await sendButtons(sock, from, {
-            title: `📥 SAVETUBE DOWNLOADER`,
+            title:   `📥 SAVETUBE DOWNLOADER`,
             text:
                 (videoMeta
                     ? `⿻ *Title:*    ${videoMeta.title}\n` +
@@ -213,13 +231,13 @@ module.exports = {
                     : `⿻ *Link:* ${videoUrl}\n\n`
                 ) +
                 `*Select download type:*`,
-            footer:   `Made by ${config.botName}`,
-            buttons:  getTypeButtons(dateNow),
+            footer:  `Made by ${config.botName}`,
+            buttons: getTypeButtons(dateNow),
         }, { quoted: msg });
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // ── Step 2: Listen for type selection — persistent, multi-tap ─────────
+        // ── Step 2: Type selection — persistent, multi-tap ────────────────────
         const handleTypeSelect = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -233,7 +251,6 @@ module.exports = {
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
             // ✅ No sock.ev.off — multi-tap
-
             const typeChosen = selectedId.replace(prefix, '').split('_')[2]; // audio | video
 
             // ── AUDIO PATH ────────────────────────────────────────────────────
@@ -344,9 +361,8 @@ module.exports = {
                     const qSender = getResponseSender(qMsg);
                     if (from.endsWith('@g.us') && qSender !== originalSender) return;
 
-                    // ✅ No sock.ev.off — multi-tap (user can re-pick quality)
-                    const quality = qId.replace(prefix, '').split('_')[2]; // 360 | 480 | 720 | 1080
-
+                    // ✅ No sock.ev.off — re-pick quality
+                    const quality     = qId.replace(prefix, '').split('_')[2]; // 360|480|720|1080
                     const vfmtDateNow = Date.now();
 
                     await sendButtons(sock, from, {
@@ -371,10 +387,10 @@ module.exports = {
                         if (from.endsWith('@g.us') && vfSender !== originalSender) return;
 
                         // ✅ No sock.ev.off — multi-tap
-                        // ID shape: <prefix>st_vfmt_<video|videodoc>_<quality>_<dateNow>
+                        // ID: <prefix>st_vfmt_<video|videodoc>_<quality>_<dateNow>
                         const parts      = vfId.replace(prefix, '').split('_');
-                        const formatType = parts[2];  // video | videodoc
-                        const q          = parts[3];  // 360 | 480 | 720 | 1080
+                        const formatType = parts[2]; // video | videodoc
+                        const q          = parts[3]; // 360|480|720|1080
 
                         await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
 
