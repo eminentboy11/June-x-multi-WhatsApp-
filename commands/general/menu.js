@@ -238,7 +238,7 @@ module.exports = {
                     },
                 }, { quoted: msg });
 
-            // ── Style 2 — buttons, original-sender guard ──────────────────────
+            // ── Style 2 — buttons ─────────────────────────────────────────────
             } else if (menustyle === '2') {
                 const dateNow        = Date.now();
                 const prefix         = config.prefix || '.';
@@ -258,27 +258,19 @@ module.exports = {
 
                     const selectedButtonId = extractButtonResponseId(messageData);
                     if (!selectedButtonId) return;
-
-                    // Only this session
                     if (!selectedButtonId.includes(`_${dateNow}`)) return;
-
-                    // Only this chat
                     if (messageData.key?.remoteJid !== chatId) return;
 
-                    // In groups — only original sender may tap
                     const responseSender = getResponseSender(messageData);
                     if (chatId.endsWith('@g.us') && responseSender !== originalSender) return;
 
-                    // Strip _dateNow + prefix → raw command name
-                    // e.g. ".ping_1714000000000" → "ping"
                     const rawCommand = selectedButtonId
                         .replace(`_${dateNow}`, '')
                         .replace(prefix, '')
                         .trim();
 
-                    // Look up command directly from loaded commands map
-                    const cmds   = loadCommands();
-                    const cmd    = cmds.get(rawCommand);
+                    const cmds = loadCommands();
+                    const cmd  = cmds.get(rawCommand);
 
                     if (!cmd) {
                         return await sock.sendMessage(chatId, {
@@ -287,17 +279,14 @@ module.exports = {
                     }
 
                     try {
-                        // Build extra matching your main handler's shape
                         const extraData = {
-                            from:     chatId,
-                            sender:   responseSender,
-                            isGroup:  chatId.endsWith('@g.us'),
-                            reply:    (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
-                            quoted:   messageData,
+                            from:    chatId,
+                            sender:  responseSender,
+                            isGroup: chatId.endsWith('@g.us'),
+                            reply:   (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
+                            quoted:  messageData,
                         };
-
                         await cmd.execute(sock, messageData, [], extraData);
-
                     } catch (err) {
                         console.error(`[menu] button error (${rawCommand}):`, err.message);
                         await sock.sendMessage(chatId, {
@@ -355,25 +344,101 @@ module.exports = {
 
             // ── Style 6 ───────────────────────────────────────────────────────
             } else if (menustyle === '6') {
+                let sent = false;
+
+                // Attempt 1: requestPaymentMessage
                 try {
                     await sock.relayMessage(chatId, {
                         requestPaymentMessage: {
                             currencyCodeIso4217: 'USD',
-                            requestFrom: '0@s.whatsapp.net',
-                            amount1000: '1',
+                            amount1000:           1000,                         // ✅ number not string
+                            requestFrom:          sock.user?.id || chatId,      // ✅ real bot JID
+                            expiryTimestamp:      Math.floor(Date.now() / 1000) + 3600,
                             noteMessage: {
                                 extendedTextMessage: {
                                     text: fullMenu,
                                     contextInfo: {
                                         mentionedJid: [msg.key.participant || msg.key.remoteJid],
-                                        externalAdReply: { showAdAttribution: false },
+                                        externalAdReply: {
+                                            showAdAttribution:    false,
+                                            title:                botname,
+                                            body:                 ownername,
+                                            thumbnail:            tylorkids,
+                                            sourceUrl:            plink,
+                                            mediaType:            1,
+                                            renderLargerThumbnail: true,
+                                        },
                                     },
                                 },
                             },
                         },
                     }, {});
-                } catch {
-                    await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+                    sent = true;
+                } catch (e1) {
+                    console.warn('[menu] style 6 attempt 1 (requestPaymentMessage) failed:', e1.message);
+                }
+
+                // Attempt 2: interactiveMessage via generateWAMessageFromContent
+                if (!sent) {
+                    try {
+                        const massage = generateWAMessageFromContent(chatId, {
+                            viewOnceMessage: {
+                                message: {
+                                    interactiveMessage: {
+                                        body:   { text: fullMenu },
+                                        footer: { text: `> © ${botname}` },
+                                        header: {
+                                            hasMediaAttachment: !!tylorkids,
+                                            ...(tylorkids ? {
+                                                imageMessage: {
+                                                    url:           plink,
+                                                    mimetype:      'image/jpeg',
+                                                    jpegThumbnail: tylorkids,
+                                                },
+                                            } : {}),
+                                        },
+                                        nativeFlowMessage: { buttons: [{ text: botname }] },
+                                    },
+                                },
+                            },
+                        }, { quoted: msg, userJid: sock.user?.id });
+                        await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id });
+                        sent = true;
+                    } catch (e2) {
+                        console.warn('[menu] style 6 attempt 2 (interactiveMessage) failed:', e2.message);
+                    }
+                }
+
+                // Attempt 3: link preview with thumbnail
+                if (!sent) {
+                    try {
+                        await sock.sendMessage(chatId, {
+                            text: fullMenu,
+                            mentions: [extra.sender],
+                            contextInfo: {
+                                externalAdReply: {
+                                    showAdAttribution:    false,
+                                    title:                botname,
+                                    body:                 ownername,
+                                    thumbnail:            tylorkids,
+                                    sourceUrl:            plink,
+                                    mediaType:            1,
+                                    renderLargerThumbnail: true,
+                                },
+                            },
+                        }, { quoted: msg });
+                        sent = true;
+                    } catch (e3) {
+                        console.warn('[menu] style 6 attempt 3 (link preview) failed:', e3.message);
+                    }
+                }
+
+                // Attempt 4: plain text last resort
+                if (!sent) {
+                    await sock.sendMessage(chatId, {
+                        text: fullMenu,
+                        mentions: [extra.sender],
+                    }, { quoted: msg });
                 }
 
             // ── Fallback ──────────────────────────────────────────────────────
