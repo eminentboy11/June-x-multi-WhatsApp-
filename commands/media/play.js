@@ -58,10 +58,10 @@ async function downloadAudio(videoUrl) {
         try {
             // Primary: GiftedTech
             const primary = await axios.get(
-                `https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(videoUrl)}`,
+                `https://api.drexapp.space/downloader/ytplay?q=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (primary.data?.success && primary.data?.result?.download_url) {
+            if (primary.data?.status && primary.data?.result?.download_url) {
                 return {
                     status: true,
                     result: primary.data.result.download_url,
