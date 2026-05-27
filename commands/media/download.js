@@ -23,18 +23,18 @@ function extractButtonResponseId(msg) {
 
 function getPlayButtons(videoId, dateNow) {
   return [
-    { id: `play_audio_${videoId}_${dateNow}`,    text: '🎵 Audio MP3'      },
-    { id: `play_audiodoc_${videoId}_${dateNow}`, text: '📄 Audio Document' },
-    { id: `play_video_${videoId}_${dateNow}`,    text: '🎬 Video MP4'      },
-    { id: `play_videodoc_${videoId}_${dateNow}`, text: '📁 Video Document' },
+    { buttonId: `play_audio_${videoId}_${dateNow}`, buttonText: { displayText: '🎵 Audio MP3' } },
+    { buttonId: `play_audiodoc_${videoId}_${dateNow}`, buttonText: { displayText: '📄 Audio Document' } },
+    { buttonId: `play_video_${videoId}_${dateNow}`, buttonText: { displayText: '🎬 Video MP4' } },
+    { buttonId: `play_videodoc_${videoId}_${dateNow}`, buttonText: { displayText: '📁 Video Document' } },
   ];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
-  name: 'download',
-  aliases: ['ytdownload', 'music'],
+  name: 'play',
+  aliases: ['song', 'yt'],
   category: 'media',
   description: 'Search and download YouTube audio or video',
   usage: '.play <song name>',
@@ -58,19 +58,18 @@ module.exports = {
 
       // ── Step 1: Search YouTube titles/links via yt-search ─────────────────
       const searchResults = await yts(query);
-      const videos = searchResults.videos.slice(0, 3); // top 3 results
+      const videos = searchResults.videos.slice(0, 1); // top 1 result for simplicity
 
       if (!videos.length) {
         return extra.reply('❌ No results found.');
       }
 
-      // ── Step 2: Pick first video for download (or extend to multiple) ─────
-      const res      = videos[0]; // you can extend to let user choose
+      const res      = videos[0];
       const dateNow  = Date.now();
       const videoId  = res.videoId || String(dateNow);
       const ytUrl    = res.url;
 
-      // ── Step 3: Fetch audio info from ytplayv2 ────────────────────────────
+      // ── Step 2: Fetch audio info from ytplayv2 ────────────────────────────
       const { data } = await axios.get(
         `https://api.drexapp.space/downloader/ytplayv2?q=${encodeURIComponent(query)}`,
         { timeout: 30000 }
@@ -82,7 +81,7 @@ module.exports = {
 
       const audioUrl = data.result.downloadURL || null;
 
-      // ── Step 4: Send format selection buttons ─────────────────────────────
+      // ── Step 3: Send format selection buttons ─────────────────────────────
       await sendButtons(sock, chatId, {
         title:   '🎵 PLAY DOWNLOADER',
         body:
@@ -97,7 +96,7 @@ module.exports = {
 
       await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
-      // ── Step 5: Handle button response ────────────────────────────────────
+      // ── Step 4: Handle button response ────────────────────────────────────
       const handleResponse = async (event) => {
         const messageData = event.messages?.[0];
         if (!messageData?.message) return;
