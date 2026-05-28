@@ -2,12 +2,18 @@
  * Song Command — Audio + Video downloader
  * Audio  : GiftedTech primary → DrexApp fallback
  * Video  : apiskeith.top primary → iamtkm fallback
+ *
+ * Button flow (mirrors Spotify command pattern):
+ *   Stage 1 → 🎵 Audio  |  🎬 Video  (2 buttons)
+ *   Stage 2a → Audio MP3 | Audio Doc | Voice Note  (3 buttons, audio path)
+ *   Stage 2b → Video MP4 | Video Doc               (2 buttons, video path)
  */
 
 const yts    = require('yt-search');
 const axios  = require('axios');
 const fs     = require('fs');
 const path   = require('path');
+const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
 const RETRY_DELAY = 3000;
@@ -15,23 +21,18 @@ const TEMP_DIR    = path.join(__dirname, '../../temp');
 
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-// ── Extract selected ID from any button/list response type ───────────────────
-function extractSelectedId(msg) {
-  const raw =
-    msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
-    msg.message?.buttonsResponseMessage?.selectedButtonId              ||
-    msg.message?.templateButtonReplyMessage?.selectedId                ||
+// ── Extract button ID from any Baileys response type ─────────────────────────
+function extractButtonResponseId(msg) {
+  return (
+    msg.message?.buttonsResponseMessage?.selectedButtonId ||
+    msg.message?.templateButtonReplyMessage?.selectedId   ||
     msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
-    null;
+    null
+  );
+}
 
-  if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed.id || raw;
-  } catch {
-    return raw;
-  }
+function getResponseSender(msg) {
+  return msg.key?.participant || msg.key?.remoteJid;
 }
 
 // ── Retry wrapper ─────────────────────────────────────────────────────────────
@@ -159,71 +160,46 @@ function cleanUp(filePath) {
   } catch {}
 }
 
-// ── Send list message (supports unlimited rows, unlike buttons max 3) ─────────
-async function sendFormatList(sock, from, video, videoId, dateNow, quotedMsg) {
-  await sock.sendMessage(from, {
-    text:       
-      `⿻ *Title:*    ${video.title}\n` +
-      `⿻ *Duration:* ${video.timestamp        || 'N/A'}\n` +
-      `⿻ *Views:*    ${video.views?.toLocaleString() ?? 'N/A'}\n` +
-      `⿻ *Channel:*  ${video.author?.name     || 'N/A'}\n` +
-      `⿻ *Link:*     ${video.url}\n\n` +
-      `Select a download format from the list below.`,
-    footer:     `Made by ${config.botName || 'Supreme'}`,
-    title:      '🎵 MEDIA DOWNLOADER',
-    buttonText: '📥 Select Format',
-    sections: [
-      {
-        title: '🎵 Audio Formats',
-        rows: [
-          {
-            title:       '🎵 Audio MP3',
-            description: 'Send as playable audio',
-            rowId:       `song_audio_${videoId}_${dateNow}`,
-          },
-          {
-            title:       '📄 Audio Document',
-            description: 'Send as downloadable MP3 file',
-            rowId:       `song_audiodoc_${videoId}_${dateNow}`,
-          },
-          {
-            title:       '🎙️ Voice Note',
-            description: 'Send as WhatsApp voice note',
-            rowId:       `song_voicenote_${videoId}_${dateNow}`,
-          },
-        ],
-      },
-      {
-        title: '🎬 Video Formats',
-        rows: [
-          {
-            title:       '🎬 Video MP4',
-            description: 'Send as playable video',
-            rowId:       `song_video_${videoId}_${dateNow}`,
-          },
-          {
-            title:       '📁 Video Document',
-            description: 'Send as downloadable MP4 file',
-            rowId:       `song_videodoc_${videoId}_${dateNow}`,
-          },
-        ],
-      },
-    ],
-    listType: 1,
-  }, { quoted: quotedMsg });
+// ── Stage 1 buttons: Audio or Video (max 2) ───────────────────────────────────
+function getTypeButtons(dateNow) {
+  const prefix = config.prefix || '.';
+  return [
+    { id: `${prefix}songtype_audio_${dateNow}`, text: '🎵 Audio'    },
+    { id: `${prefix}songtype_video_${dateNow}`, text: '🎬 Video'    },
+  ];
+}
+
+// ── Stage 2a buttons: Audio formats (max 3) ───────────────────────────────────
+function getAudioFormatButtons(dateNow) {
+  const prefix = config.prefix || '.';
+  return [
+    { id: `${prefix}songfmt_audio_${dateNow}`,     text: '🎵 Audio MP3'      },
+    { id: `${prefix}songfmt_audiodoc_${dateNow}`,  text: '📄 Audio Document' },
+    { id: `${prefix}songfmt_voicenote_${dateNow}`, text: '🎙️ Voice Note'     },
+  ];
+}
+
+// ── Stage 2b buttons: Video formats (max 2) ───────────────────────────────────
+function getVideoFormatButtons(dateNow) {
+  const prefix = config.prefix || '.';
+  return [
+    { id: `${prefix}songfmt_video_${dateNow}`,    text: '🎬 Video MP4'      },
+    { id: `${prefix}songfmt_videodoc_${dateNow}`, text: '📁 Video Document' },
+  ];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
   name: 'song3',
-  aliases: ['play3', 'mp3dl', 'mp4dl', 'ytdl3', 'ytmp3dl', 'ytmp4dl'],
+  aliases: ['play3', 'mp3dl', 'mp4dl', 'yt3dl', 'ytmp3dl', 'ytmp4dl'],
   category: 'media',
   description: 'Search and download YouTube audio or video',
   usage: '.song <title>',
 
   async execute(sock, msg, args, extra) {
     const from           = extra.from;
+    const prefix         = config.prefix || '.';
     const originalSender = msg.key?.participant || msg.key?.remoteJid;
 
     // ── Resolve query ──────────────────────────────────────────────────────
@@ -264,129 +240,171 @@ module.exports = {
       .substring(0, 100)
       .trim();
 
-    // ── Step 2: send format list ───────────────────────────────────────────
-    try {
-      await sendFormatList(sock, from, video, video.videoId, dateNow, msg);
-    } catch (e) {
-      console.error('[song] list send error:', e.message);
-      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-      return extra.reply(`❌ Failed to send format list: ${e.message}`);
-    }
+    // ── Step 2: send Stage 1 buttons (Audio / Video) ───────────────────────
+    await sendButtons(sock, from, {
+      title:   '🎵 MEDIA DOWNLOADER',
+      text:
+        `⿻ *Title:*    ${video.title}\n` +
+        `⿻ *Duration:* ${video.timestamp        || 'N/A'}\n` +
+        `⿻ *Views:*    ${video.views?.toLocaleString() ?? 'N/A'}\n` +
+        `⿻ *Channel:*  ${video.author?.name     || 'N/A'}\n` +
+        `⿻ *Link:*     ${video.url}\n\n` +
+        `*Select media type:*`,
+      footer:  `Made by ${config.botName || 'Supreme'}`,
+      buttons: getTypeButtons(dateNow),
+    }, { quoted: msg });
 
     await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-    // ── Step 3: listen for list row selection ──────────────────────────────
-    const handleResponse = async (event) => {
+    // ── Step 3: listen for Stage 1 (type selection) ────────────────────────
+    const handleTypeSelect = async (event) => {
       const messageData = event.messages?.[0];
       if (!messageData?.message) return;
 
-      const selectedId = extractSelectedId(messageData);
-      if (!selectedId)                                    return;
-      if (!selectedId.includes(`_${dateNow}`))            return;
-      if (messageData.key?.remoteJid !== from)            return;
+      const selectedId = extractButtonResponseId(messageData);
+      if (!selectedId)                                          return;
+      if (!selectedId.includes('songtype_'))                    return;
+      if (!selectedId.includes(`_${dateNow}`))                  return;
+      if (messageData.key?.remoteJid !== from)                  return;
 
-      // Groups: only original sender; DMs: anyone
-      const responseSender = messageData.key?.participant || messageData.key?.remoteJid;
+      const responseSender = getResponseSender(messageData);
       if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-      // song_audio_abc_123     → buttonType = "audio"
-      // song_audiodoc_abc_123  → buttonType = "audiodoc"
-      // song_voicenote_abc_123 → buttonType = "voicenote"
-      // song_video_abc_123     → buttonType = "video"
-      // song_videodoc_abc_123  → buttonType = "videodoc"
-      const buttonType = selectedId.split('_')[1];
+      // e.g. ".songtype_audio_123" → strip prefix → "songtype_audio_123" → split → "audio"
+      const mediaType = selectedId.replace(prefix, '').split('_')[1]; // "audio" | "video"
+      if (mediaType !== 'audio' && mediaType !== 'video') return;
 
-      const VALID = ['audio', 'audiodoc', 'voicenote', 'video', 'videodoc'];
-      if (!VALID.includes(buttonType)) return;
+      // ── Step 4: send Stage 2 format buttons ───────────────────────────
+      const fmtDateNow = Date.now();
+
+      await sendButtons(sock, from, {
+        title:   mediaType === 'audio' ? '🎵 AUDIO FORMATS' : '🎬 VIDEO FORMATS',
+        text:
+          `⿻ *Title:*    ${video.title}\n` +
+          `⿻ *Duration:* ${video.timestamp    || 'N/A'}\n` +
+          `⿻ *Channel:*  ${video.author?.name || 'N/A'}\n\n` +
+          `*Select download format:*`,
+        footer:  `Made by ${config.botName || 'Supreme'}`,
+        buttons: mediaType === 'audio'
+          ? getAudioFormatButtons(fmtDateNow)
+          : getVideoFormatButtons(fmtDateNow),
+      }, { quoted: messageData });
 
       await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
-      let filePath;
+      // ── Step 5: listen for Stage 2 (format selection) ─────────────────
+      const handleFormatSelect = async (fmtEvent) => {
+        const fmtMsg = fmtEvent.messages?.[0];
+        if (!fmtMsg?.message) return;
 
-      try {
-        // ── 🎵 Audio MP3 ──────────────────────────────────────────────────
-        if (buttonType === 'audio') {
-          const data = await downloadAudio(video.url);
-          filePath   = path.join(TEMP_DIR, `audio_${dateNow}.mp3`);
-          await streamToFile(data.url, filePath);
+        const fmtId = extractButtonResponseId(fmtMsg);
+        if (!fmtId)                                    return;
+        if (!fmtId.includes('songfmt_'))               return;
+        if (!fmtId.includes(`_${fmtDateNow}`))         return;
+        if (fmtMsg.key?.remoteJid !== from)            return;
 
+        const fmtSender = getResponseSender(fmtMsg);
+        if (from.endsWith('@g.us') && fmtSender !== originalSender) return;
+
+        // e.g. ".songfmt_audiodoc_123" → strip prefix → split → "audiodoc"
+        const formatType = fmtId.replace(prefix, '').split('_')[1];
+        // "audio" | "audiodoc" | "voicenote" | "video" | "videodoc"
+
+        const VALID = ['audio', 'audiodoc', 'voicenote', 'video', 'videodoc'];
+        if (!VALID.includes(formatType)) return;
+
+        await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
+
+        let filePath;
+
+        try {
+          // ── 🎵 Audio MP3 ───────────────────────────────────────────────
+          if (formatType === 'audio') {
+            const data = await downloadAudio(video.url);
+            filePath   = path.join(TEMP_DIR, `audio_${fmtDateNow}.mp3`);
+            await streamToFile(data.url, filePath);
+
+            await sock.sendMessage(from, {
+              audio:    fs.readFileSync(filePath),
+              mimetype: 'audio/mpeg',
+            }, { quoted: fmtMsg });
+
+          // ── 📄 Audio Document ──────────────────────────────────────────
+          } else if (formatType === 'audiodoc') {
+            const data = await downloadAudio(video.url);
+            filePath   = path.join(TEMP_DIR, `audiodoc_${fmtDateNow}.mp3`);
+            await streamToFile(data.url, filePath);
+
+            await sock.sendMessage(from, {
+              document: fs.readFileSync(filePath),
+              mimetype: 'audio/mpeg',
+              fileName: `${cleanTitle}.mp3`,
+            }, { quoted: fmtMsg });
+
+          // ── 🎙️ Voice Note ──────────────────────────────────────────────
+          } else if (formatType === 'voicenote') {
+            const data = await downloadAudio(video.url);
+            filePath   = path.join(TEMP_DIR, `vn_${fmtDateNow}.mp3`);
+            await streamToFile(data.url, filePath);
+
+            await sock.sendMessage(from, {
+              audio:    fs.readFileSync(filePath),
+              mimetype: 'audio/ogg; codecs=opus',
+              ptt:      true,
+            }, { quoted: fmtMsg });
+
+          // ── 🎬 Video MP4 ───────────────────────────────────────────────
+          } else if (formatType === 'video') {
+            await sock.sendMessage(from, {
+              text: `_⏳ Downloading video... please wait._`,
+            }, { quoted: fmtMsg });
+
+            const data = await downloadVideo(video.url);
+            filePath   = path.join(TEMP_DIR, `video_${fmtDateNow}.mp4`);
+            await streamToFile(data.url, filePath);
+
+            await sock.sendMessage(from, {
+              video:    fs.readFileSync(filePath),
+              mimetype: 'video/mp4',
+              caption:  `🎬 *${video.title || ''}*`,
+            }, { quoted: fmtMsg });
+
+          // ── 📁 Video Document ──────────────────────────────────────────
+          } else if (formatType === 'videodoc') {
+            await sock.sendMessage(from, {
+              text: `_⏳ Downloading video... please wait._`,
+            }, { quoted: fmtMsg });
+
+            const data = await downloadVideo(video.url);
+            filePath   = path.join(TEMP_DIR, `videodoc_${fmtDateNow}.mp4`);
+            await streamToFile(data.url, filePath);
+
+            await sock.sendMessage(from, {
+              document: fs.readFileSync(filePath),
+              mimetype: 'video/mp4',
+              fileName: `${cleanTitle}.mp4`,
+            }, { quoted: fmtMsg });
+          }
+
+          await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+
+        } catch (error) {
+          console.error('[song] download error:', error.message);
+          await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
           await sock.sendMessage(from, {
-            audio:    fs.readFileSync(filePath),
-            mimetype: 'audio/mpeg',
-          }, { quoted: messageData });
+            text: `🚫 *Download failed*\n\n_${error.message}_\n\n_Try again later._`,
+          }, { quoted: fmtMsg });
 
-        // ── 📄 Audio Document ──────────────────────────────────────────────
-        } else if (buttonType === 'audiodoc') {
-          const data = await downloadAudio(video.url);
-          filePath   = path.join(TEMP_DIR, `audiodoc_${dateNow}.mp3`);
-          await streamToFile(data.url, filePath);
-
-          await sock.sendMessage(from, {
-            document: fs.readFileSync(filePath),
-            mimetype: 'audio/mpeg',
-            fileName: `${cleanTitle}.mp3`,
-          }, { quoted: messageData });
-
-        // ── 🎙️ Voice Note ──────────────────────────────────────────────────
-        } else if (buttonType === 'voicenote') {
-          const data = await downloadAudio(video.url);
-          filePath   = path.join(TEMP_DIR, `vn_${dateNow}.mp3`);
-          await streamToFile(data.url, filePath);
-
-          await sock.sendMessage(from, {
-            audio:    fs.readFileSync(filePath),
-            mimetype: 'audio/ogg; codecs=opus',
-            ptt:      true,
-          }, { quoted: messageData });
-
-        // ── 🎬 Video MP4 ───────────────────────────────────────────────────
-        } else if (buttonType === 'video') {
-          await sock.sendMessage(from, {
-            text: `_⏳ Downloading video... please wait._`,
-          }, { quoted: messageData });
-
-          const data = await downloadVideo(video.url);
-          filePath   = path.join(TEMP_DIR, `video_${dateNow}.mp4`);
-          await streamToFile(data.url, filePath);
-
-          await sock.sendMessage(from, {
-            video:    fs.readFileSync(filePath),
-            mimetype: 'video/mp4',
-            caption:  `🎬 *${video.title || ''}*`,
-          }, { quoted: messageData });
-
-        // ── 📁 Video Document ──────────────────────────────────────────────
-        } else if (buttonType === 'videodoc') {
-          await sock.sendMessage(from, {
-            text: `_⏳ Downloading video... please wait._`,
-          }, { quoted: messageData });
-
-          const data = await downloadVideo(video.url);
-          filePath   = path.join(TEMP_DIR, `videodoc_${dateNow}.mp4`);
-          await streamToFile(data.url, filePath);
-
-          await sock.sendMessage(from, {
-            document: fs.readFileSync(filePath),
-            mimetype: 'video/mp4',
-            fileName: `${cleanTitle}.mp4`,
-          }, { quoted: messageData });
+        } finally {
+          cleanUp(filePath);
         }
+      };
 
-        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-
-      } catch (error) {
-        console.error('[song] download error:', error.message);
-        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-        await sock.sendMessage(from, {
-          text: `🚫 *Download failed*\n\n_${error.message}_\n\n_Try again later._`,
-        }, { quoted: messageData });
-
-      } finally {
-        cleanUp(filePath);
-      }
+      // Persistent format listener — allows re-downloading in different formats
+      sock.ev.on('messages.upsert', handleFormatSelect);
     };
 
-    // Persistent listener — supports repeated selections, no expiry
-    sock.ev.on('messages.upsert', handleResponse);
+    // Persistent type listener — allows switching between audio/video
+    sock.ev.on('messages.upsert', handleTypeSelect);
   },
 };
