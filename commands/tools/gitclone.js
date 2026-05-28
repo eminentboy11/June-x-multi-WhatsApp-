@@ -41,7 +41,6 @@ module.exports = {
             branch = branch || 'main';
 
             await sock.sendMessage(extra.from, { react: { text: '🔍', key: msg.key } });
-            await extra.reply(`⏳ Fetching *${user}/${repo}*...`);
 
             // Detect valid branch (main → master fallback)
             try {
