@@ -1,14 +1,13 @@
 /**
  * Song Command — Audio + Video downloader
- * Audio : GiftedTech primary → DrexApp fallback
- * Video : apiskeith.top primary → iamtkm fallback
+ * Audio  : GiftedTech primary → DrexApp fallback
+ * Video  : apiskeith.top primary → iamtkm fallback
  */
 
-const yts   = require('yt-search');
-const axios = require('axios');
-const fs    = require('fs');
-const path  = require('path');
-const { sendButtons } = require('gifted-btns');
+const yts    = require('yt-search');
+const axios  = require('axios');
+const fs     = require('fs');
+const path   = require('path');
 const config = require('../../config');
 
 const RETRY_DELAY = 3000;
@@ -16,11 +15,12 @@ const TEMP_DIR    = path.join(__dirname, '../../temp');
 
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 
-// ── Extract button ID from any Baileys response type ─────────────────────────
-function extractButtonResponseId(msg) {
+// ── Extract selected ID from any button/list response type ───────────────────
+function extractSelectedId(msg) {
   const raw =
-    msg.message?.buttonsResponseMessage?.selectedButtonId   ||
-    msg.message?.templateButtonReplyMessage?.selectedId     ||
+    msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    msg.message?.buttonsResponseMessage?.selectedButtonId              ||
+    msg.message?.templateButtonReplyMessage?.selectedId                ||
     msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
     null;
 
@@ -64,7 +64,7 @@ async function searchYouTube(query) {
   });
 }
 
-// ── Audio download: GiftedTech → DrexApp fallback ────────────────────────────
+// ── Audio download: GiftedTech → DrexApp fallback ─────────────────────────────
 async function downloadAudio(videoUrl) {
   return withRetry(async () => {
     try {
@@ -97,7 +97,7 @@ async function downloadAudio(videoUrl) {
   });
 }
 
-// ── Video download: apiskeith → iamtkm fallback ──────────────────────────────
+// ── Video download: apiskeith → iamtkm fallback ───────────────────────────────
 async function downloadVideo(videoUrl) {
   return withRetry(async () => {
     try {
@@ -130,7 +130,7 @@ async function downloadVideo(videoUrl) {
   });
 }
 
-// ── Stream URL to a temp file ─────────────────────────────────────────────────
+// ── Stream URL to temp file ───────────────────────────────────────────────────
 async function streamToFile(url, filePath) {
   const response = await axios({
     method:       'get',
@@ -152,29 +152,72 @@ async function streamToFile(url, filePath) {
   }
 }
 
-// ── Delete temp file safely ───────────────────────────────────────────────────
+// ── Cleanup temp file safely ──────────────────────────────────────────────────
 function cleanUp(filePath) {
   try {
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch {}
 }
 
-// ── 5 format buttons ──────────────────────────────────────────────────────────
-function getMediaButtons(videoId, dateNow) {
-  return [
-    { id: `song_audio_${videoId}_${dateNow}`,     text: '🎵 Audio'          },
-    { id: `song_audiodoc_${videoId}_${dateNow}`,  text: '📄 Audio Document' },
-    { id: `song_voicenote_${videoId}_${dateNow}`, text: '🎙️ Voice Note'     },
-    { id: `song_video_${videoId}_${dateNow}`,     text: '🎬 Video MP4'      },
-    { id: `song_videodoc_${videoId}_${dateNow}`,  text: '📁 Video Document' },
-  ];
+// ── Send list message (supports unlimited rows, unlike buttons max 3) ─────────
+async function sendFormatList(sock, from, video, videoId, dateNow, quotedMsg) {
+  await sock.sendMessage(from, {
+    text:       
+      `⿻ *Title:*    ${video.title}\n` +
+      `⿻ *Duration:* ${video.timestamp        || 'N/A'}\n` +
+      `⿻ *Views:*    ${video.views?.toLocaleString() ?? 'N/A'}\n` +
+      `⿻ *Channel:*  ${video.author?.name     || 'N/A'}\n` +
+      `⿻ *Link:*     ${video.url}\n\n` +
+      `Select a download format from the list below.`,
+    footer:     `Made by ${config.botName || 'Supreme'}`,
+    title:      '🎵 MEDIA DOWNLOADER',
+    buttonText: '📥 Select Format',
+    sections: [
+      {
+        title: '🎵 Audio Formats',
+        rows: [
+          {
+            title:       '🎵 Audio MP3',
+            description: 'Send as playable audio',
+            rowId:       `song_audio_${videoId}_${dateNow}`,
+          },
+          {
+            title:       '📄 Audio Document',
+            description: 'Send as downloadable MP3 file',
+            rowId:       `song_audiodoc_${videoId}_${dateNow}`,
+          },
+          {
+            title:       '🎙️ Voice Note',
+            description: 'Send as WhatsApp voice note',
+            rowId:       `song_voicenote_${videoId}_${dateNow}`,
+          },
+        ],
+      },
+      {
+        title: '🎬 Video Formats',
+        rows: [
+          {
+            title:       '🎬 Video MP4',
+            description: 'Send as playable video',
+            rowId:       `song_video_${videoId}_${dateNow}`,
+          },
+          {
+            title:       '📁 Video Document',
+            description: 'Send as downloadable MP4 file',
+            rowId:       `song_videodoc_${videoId}_${dateNow}`,
+          },
+        ],
+      },
+    ],
+    listType: 1,
+  }, { quoted: quotedMsg });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 module.exports = {
-  name: 'download',
-  aliases: ['play3', 'dl', 'song3', 'yt3', 'ytv3', 'ytplay3'],
+  name: 'song3',
+  aliases: ['play3', 'mp3dl', 'mp4dl', 'ytdl3', 'ytmp3dl', 'ytmp4dl'],
   category: 'media',
   description: 'Search and download YouTube audio or video',
   usage: '.song <title>',
@@ -187,7 +230,7 @@ module.exports = {
     let query = args.join(' ').trim();
     if (!query) {
       const q = extra?.quoted;
-      query = q?.conversation || q?.extendedTextMessage?.text || '';
+      query   = q?.conversation || q?.extendedTextMessage?.text || '';
     }
 
     if (!query) {
@@ -221,28 +264,23 @@ module.exports = {
       .substring(0, 100)
       .trim();
 
-    // ── Step 2: send format buttons ────────────────────────────────────────
-    await sendButtons(sock, from, {
-      title:   '🎵 MEDIA DOWNLOADER',
-      body:
-        `⿻ *Title:*    ${video.title}\n` +
-        `⿻ *Duration:* ${video.timestamp        || 'N/A'}\n` +
-        `⿻ *Views:*    ${video.views?.toLocaleString() ?? 'N/A'}\n` +
-        `⿻ *Channel:*  ${video.author?.name     || 'N/A'}\n` +
-        `⿻ *Link:*     ${video.url}\n\n` +
-        `*Select download format:*`,
-      footer:  `Made by ${config.botName || 'Supreme'}`,
-      buttons: getMediaButtons(video.videoId, dateNow),
-    }, { quoted: msg });
+    // ── Step 2: send format list ───────────────────────────────────────────
+    try {
+      await sendFormatList(sock, from, video, video.videoId, dateNow, msg);
+    } catch (e) {
+      console.error('[song] list send error:', e.message);
+      await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+      return extra.reply(`❌ Failed to send format list: ${e.message}`);
+    }
 
     await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-    // ── Step 3: listen for button tap ──────────────────────────────────────
+    // ── Step 3: listen for list row selection ──────────────────────────────
     const handleResponse = async (event) => {
       const messageData = event.messages?.[0];
       if (!messageData?.message) return;
 
-      const selectedId = extractButtonResponseId(messageData);
+      const selectedId = extractSelectedId(messageData);
       if (!selectedId)                                    return;
       if (!selectedId.includes(`_${dateNow}`))            return;
       if (messageData.key?.remoteJid !== from)            return;
@@ -251,11 +289,11 @@ module.exports = {
       const responseSender = messageData.key?.participant || messageData.key?.remoteJid;
       if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-      // song_audio_abc_123     → [song, audio,     abc, 123]
-      // song_audiodoc_abc_123  → [song, audiodoc,  abc, 123]
-      // song_voicenote_abc_123 → [song, voicenote, abc, 123]
-      // song_video_abc_123     → [song, video,     abc, 123]
-      // song_videodoc_abc_123  → [song, videodoc,  abc, 123]
+      // song_audio_abc_123     → buttonType = "audio"
+      // song_audiodoc_abc_123  → buttonType = "audiodoc"
+      // song_voicenote_abc_123 → buttonType = "voicenote"
+      // song_video_abc_123     → buttonType = "video"
+      // song_videodoc_abc_123  → buttonType = "videodoc"
       const buttonType = selectedId.split('_')[1];
 
       const VALID = ['audio', 'audiodoc', 'voicenote', 'video', 'videodoc'];
@@ -266,7 +304,7 @@ module.exports = {
       let filePath;
 
       try {
-        // ── 🎵 Audio MP3 ────────────────────────────────────────────────
+        // ── 🎵 Audio MP3 ──────────────────────────────────────────────────
         if (buttonType === 'audio') {
           const data = await downloadAudio(video.url);
           filePath   = path.join(TEMP_DIR, `audio_${dateNow}.mp3`);
@@ -277,7 +315,7 @@ module.exports = {
             mimetype: 'audio/mpeg',
           }, { quoted: messageData });
 
-        // ── 📄 Audio Document ────────────────────────────────────────────
+        // ── 📄 Audio Document ──────────────────────────────────────────────
         } else if (buttonType === 'audiodoc') {
           const data = await downloadAudio(video.url);
           filePath   = path.join(TEMP_DIR, `audiodoc_${dateNow}.mp3`);
@@ -289,7 +327,7 @@ module.exports = {
             fileName: `${cleanTitle}.mp3`,
           }, { quoted: messageData });
 
-        // ── 🎙️ Voice Note ─────────────────────────────────────────────
+        // ── 🎙️ Voice Note ──────────────────────────────────────────────────
         } else if (buttonType === 'voicenote') {
           const data = await downloadAudio(video.url);
           filePath   = path.join(TEMP_DIR, `vn_${dateNow}.mp3`);
@@ -301,7 +339,7 @@ module.exports = {
             ptt:      true,
           }, { quoted: messageData });
 
-        // ── 🎬 Video MP4 ─────────────────────────────────────────────────
+        // ── 🎬 Video MP4 ───────────────────────────────────────────────────
         } else if (buttonType === 'video') {
           await sock.sendMessage(from, {
             text: `_⏳ Downloading video... please wait._`,
@@ -317,7 +355,7 @@ module.exports = {
             caption:  `🎬 *${video.title || ''}*`,
           }, { quoted: messageData });
 
-        // ── 📁 Video Document ────────────────────────────────────────────
+        // ── 📁 Video Document ──────────────────────────────────────────────
         } else if (buttonType === 'videodoc') {
           await sock.sendMessage(from, {
             text: `_⏳ Downloading video... please wait._`,
@@ -348,7 +386,7 @@ module.exports = {
       }
     };
 
-    // Persistent listener — supports repeated taps, no expiry
+    // Persistent listener — supports repeated selections, no expiry
     sock.ev.on('messages.upsert', handleResponse);
   },
 };
