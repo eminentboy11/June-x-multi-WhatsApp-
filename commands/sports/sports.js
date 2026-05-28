@@ -4,7 +4,9 @@
  */
 
 const axios = require('axios');
+const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
+const config = require('../../config');
 
 const API_BASE = 'https://www.thesportsdb.com/api/v1/json/3';
 
@@ -22,7 +24,7 @@ const LEAGUES = {
 };
 
 const VALID_LEAGUES = Object.keys(LEAGUES).join(' | ');
-const MAX_MSG_LENGTH = 3500; // WhatsApp safe limit per message
+const MAX_MSG_LENGTH = 3500;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,7 +43,19 @@ function formatEvent(e) {
     return `${away} vs ${home}  🕐 ${date} ${time}`;
 }
 
-// Split long message into chunks and send sequentially
+function extractButtonResponseId(msg) {
+    return (
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
+        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+        null
+    );
+}
+
+function getResponseSender(msg) {
+    return msg.key?.participant || msg.key?.remoteJid;
+}
+
 async function sendChunked(sock, chatId, msg, header, lines, footer) {
     const chunks = [];
     let current  = '';
@@ -82,22 +96,22 @@ module.exports = {
     aliases: ['score', 'scores', 'livescore'],
     category: 'general',
     description: 'Results, upcoming fixtures & standings for major leagues',
-    usage: '.sports <league> [next | standings]',
+    usage: '.sports <league>',
 
     async execute(sock, msg, args, extra) {
         try {
             const leagueKey = args[0]?.toLowerCase();
-            const mode      = args[1]?.toLowerCase() || 'results';
+            const chatId    = extra.from;
+            const prefix    = config.prefix || '.';
+            const dateNow   = Date.now();
+            const originalSender = msg.key?.participant || msg.key?.remoteJid;
 
             // ── No args: show help ────────────────────────────────────────────
             if (!leagueKey) {
                 return extra.reply(
                     applyFont(
                         `┏━━『 SPORTS COMMAND 』━━\n\n` +
-                        `Usage:\n` +
-                        `  .sports <league>\n` +
-                        `  .sports <league> next\n` +
-                        `  .sports <league> standings\n\n` +
+                        `Usage: .sports <league>\n\n` +
                         `Available leagues:\n` +
                         `  ⚽ epl   — Premier League\n` +
                         `  🏀 nba   — NBA Basketball\n` +
@@ -109,10 +123,6 @@ module.exports = {
                         `  ⚽ mls   — MLS\n` +
                         `  ⚽ sera  — Serie A\n` +
                         `  ⚽ bund  — Bundesliga\n\n` +
-                        `Examples:\n` +
-                        `  .sports epl\n` +
-                        `  .sports nba next\n` +
-                        `  .sports epl standings\n\n` +
                         `┗━━━━━━━━━━━━━━━━`
                     )
                 );
@@ -125,84 +135,142 @@ module.exports = {
                 );
             }
 
-            await sock.sendMessage(extra.from, { react: { text: '⏳', key: msg.key } });
+            await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
             const { id, label } = leagueInfo;
 
-            // ── Standings ─────────────────────────────────────────────────────
-            if (mode === 'standings') {
-                const raw   = await fetchData(`lookuptable.php?l=${id}`);
-                const table = raw.table || [];
-
-                if (!table.length) {
-                    await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
-                    return extra.reply(`❌ No standings available for *${label}* right now.`);
-                }
-
-                const lines = table.map(row => {
-                    const pos  = String(row.intRank || '').padStart(2);
-                    const team = (row.strTeam || '???').padEnd(22);
-                    const p    = row.intPlayed || 0;
-                    const w    = row.intWin    || 0;
-                    const d    = row.intDraw   || 0;
-                    const l    = row.intLoss   || 0;
-                    const pts  = row.intPoints || 0;
-                    return `${pos}. ${team} P${p} W${w} D${d} L${l} | ${pts}pts`;
-                });
-
-                await sendChunked(
-                    sock, extra.from, msg,
-                    `┏━━『 ${label} STANDINGS 』━━`,
-                    lines,
-                    `┗━━━━━━━━━━━━━━━━`
-                );
-
-                await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
-                return;
-            }
-
-            // ── Next fixtures ─────────────────────────────────────────────────
-            if (mode === 'next') {
-                const raw    = await fetchData(`eventsnextleague.php?id=${id}`);
-                const events = raw.events || [];
-
-                if (!events.length) {
-                    await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
-                    return extra.reply(`❌ No upcoming fixtures found for *${label}*.`);
-                }
-
-                const lines = events.map(formatEvent);
-
-                await sendChunked(
-                    sock, extra.from, msg,
-                    `┏━━『 ${label} UPCOMING (${lines.length} games) 』━━`,
-                    lines,
-                    `┗━━━━━━━━━━━━━━━━`
-                );
-
-                await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
-                return;
-            }
-
-            // ── Recent results (default) ──────────────────────────────────────
+            // ── Fetch recent results ──────────────────────────────────────────
             const raw    = await fetchData(`eventspastleague.php?id=${id}`);
             const events = (raw.events || []).reverse();
 
             if (!events.length) {
-                await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
+                await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
                 return extra.reply(`❌ No recent results found for *${label}*.`);
             }
 
-            const lines = events.map(formatEvent);
+            const resultLines = events.map(formatEvent);
 
+            // ── Send results first ────────────────────────────────────────────
             await sendChunked(
-                sock, extra.from, msg,
-                `┏━━『 ${label} RESULTS (${lines.length} games) 』━━`,
-                lines,
+                sock, chatId, msg,
+                `┏━━『 ${label} RESULTS (${resultLines.length} games) 』━━`,
+                resultLines,
                 `┗━━━━━━━━━━━━━━━━`
             );
 
-            await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
+            // ── Send buttons ──────────────────────────────────────────────────
+            const buttons = [
+                {
+                    id: `${prefix}sports_next_${leagueKey}_${dateNow}`,
+                    text: '📅 Upcoming Fixtures',
+                },
+                {
+                    id: `${prefix}sports_standings_${leagueKey}_${dateNow}`,
+                    text: '🏆 Standings',
+                },
+            ];
+
+            await sendButtons(sock, chatId, {
+                text: applyFont(`┏━━『 ${label} 』━━\n\nSelect an option below 👇\n\n┗━━━━━━━━━━━━━━━━`),
+                footer: `> Powered by ${config.botName}`,
+                buttons,
+            }, { quoted: msg });
+
+            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+
+            // ── Button listener ───────────────────────────────────────────────
+            const handleButtonTap = async (event) => {
+                const messageData = event.messages[0];
+                if (!messageData?.message) return;
+
+                const selectedId = extractButtonResponseId(messageData);
+                if (!selectedId) return;
+                if (messageData.key?.remoteJid !== chatId) return;
+
+                const responseSender = getResponseSender(messageData);
+                if (responseSender !== originalSender) return;
+
+                const isNext      = selectedId === `${prefix}sports_next_${leagueKey}_${dateNow}`;
+                const isStandings = selectedId === `${prefix}sports_standings_${leagueKey}_${dateNow}`;
+
+                if (!isNext && !isStandings) return;
+
+                // Remove listener once a button is tapped
+                sock.ev.off('messages.upsert', handleButtonTap);
+
+                await sock.sendMessage(chatId, { react: { text: '⏳', key: messageData.key } });
+
+                try {
+                    // ── Upcoming fixtures ─────────────────────────────────────
+                    if (isNext) {
+                        const nextRaw    = await fetchData(`eventsnextleague.php?id=${id}`);
+                        const nextEvents = nextRaw.events || [];
+
+                        if (!nextEvents.length) {
+                            await sock.sendMessage(chatId, { react: { text: '❌', key: messageData.key } });
+                            return await sock.sendMessage(chatId,
+                                { text: `❌ No upcoming fixtures found for *${label}*.` },
+                                { quoted: messageData }
+                            );
+                        }
+
+                        const lines = nextEvents.map(formatEvent);
+
+                        await sendChunked(
+                            sock, chatId, messageData,
+                            `┏━━『 ${label} UPCOMING (${lines.length} games) 』━━`,
+                            lines,
+                            `┗━━━━━━━━━━━━━━━━`
+                        );
+
+                        await sock.sendMessage(chatId, { react: { text: '✅', key: messageData.key } });
+                    }
+
+                    // ── Standings ─────────────────────────────────────────────
+                    if (isStandings) {
+                        const standRaw = await fetchData(`lookuptable.php?l=${id}`);
+                        const table    = standRaw.table || [];
+
+                        if (!table.length) {
+                            await sock.sendMessage(chatId, { react: { text: '❌', key: messageData.key } });
+                            return await sock.sendMessage(chatId,
+                                { text: `❌ No standings available for *${label}* right now.` },
+                                { quoted: messageData }
+                            );
+                        }
+
+                        const lines = table.map(row => {
+                            const pos  = String(row.intRank || '').padStart(2);
+                            const team = (row.strTeam || '???').padEnd(22);
+                            const p    = row.intPlayed || 0;
+                            const w    = row.intWin    || 0;
+                            const d    = row.intDraw   || 0;
+                            const l    = row.intLoss   || 0;
+                            const pts  = row.intPoints || 0;
+                            return `${pos}. ${team} P${p} W${w} D${d} L${l} | ${pts}pts`;
+                        });
+
+                        await sendChunked(
+                            sock, chatId, messageData,
+                            `┏━━『 ${label} STANDINGS (${lines.length} teams) 』━━`,
+                            lines,
+                            `┗━━━━━━━━━━━━━━━━`
+                        );
+
+                        await sock.sendMessage(chatId, { react: { text: '✅', key: messageData.key } });
+                    }
+
+                } catch (err) {
+                    console.error('[Sports] button handler error:', err.message);
+                    await sock.sendMessage(chatId, { react: { text: '❌', key: messageData.key } });
+                    await sock.sendMessage(chatId,
+                        { text: `❌ Failed to fetch data: ${err.message}` },
+                        { quoted: messageData }
+                    );
+                }
+            };
+
+            sock.ev.on('messages.upsert', handleButtonTap);
 
         } catch (error) {
             console.error('[Sports] error:', error.message);
