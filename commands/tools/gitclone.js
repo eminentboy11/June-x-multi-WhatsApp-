@@ -7,7 +7,7 @@ const axios = require('axios');
 
 module.exports = {
     name: 'gitclone',
-    aliases: ['gclone', 'ghclone'],
+    aliases: ['gclone', 'ghclone', 'clone'],
     category: 'tools',
     description: 'Download a GitHub repository as a ZIP file',
     usage: '.gitclone <github-url>',
@@ -41,7 +41,7 @@ module.exports = {
             branch = branch || 'main';
 
             await sock.sendMessage(extra.from, { react: { text: '🔍', key: msg.key } });
-            await extra.reply(`⏳ Fetching *${user}/${repo}* on branch \`${branch}\`...`);
+            await extra.reply(`⏳ Fetching *${user}/${repo}*...`);
 
             // Detect valid branch (main → master fallback)
             try {
@@ -57,25 +57,13 @@ module.exports = {
             }
 
             const zipUrl = `https://github.com/${user}/${repo}/archive/refs/heads/${branch}.zip`;
-            const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-            const filename = `${repo}-${branch}-${timestamp}.zip`;
-
-            // Get file size if available
-            let sizeText = '';
-            try {
-                const head = await axios.head(zipUrl);
-                const fileSize = head.headers['content-length'];
-                if (fileSize) {
-                    const sizeMB = (fileSize / (1024 * 1024)).toFixed(2);
-                    sizeText = ` • ${sizeMB} MB`;
-                }
-            } catch (_) {}
+            const filename = `${repo}.zip`;
 
             await sock.sendMessage(extra.from, {
                 document: { url: zipUrl },
                 fileName: filename,
                 mimetype: 'application/zip',
-                caption: `📦 *${user}/${repo}*\n🌿 Branch: \`${branch}\`${sizeText}\n📁 File: ${filename}`
+                caption: `📦 *${user}/${repo}* • \`${branch}\``
             }, { quoted: msg });
 
             await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
