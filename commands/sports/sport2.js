@@ -53,9 +53,9 @@ async function fetchData(endpoint) {
 // ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
-    name: 'sports',
-    aliases: ['score', 'scores', 'livescore'],
-    category: 'general',
+    name: 'sports2',
+    aliases: ['score2', 'scores2', 'livescore2'],
+    category: 'sports',
     description: 'Recent results, upcoming fixtures & standings for major leagues',
     usage: '.sports <league> [next | standings]',
 
