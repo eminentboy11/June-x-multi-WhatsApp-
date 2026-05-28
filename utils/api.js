@@ -172,7 +172,7 @@ const APIs = {
     const res = await tryRequest(() =>
       axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.result?.download_url) {
+    if (res?.data?.audio) {
       return {
         download: res.data.audio,
         title: res.data.title,
