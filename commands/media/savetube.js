@@ -1,34 +1,15 @@
 /**
- * SaveTube Command — powered by api.hostify.indevs.in
- * Download: GET /api/downloader/savetube?url=<youtube_url>&quality=<quality>
- *
- * Quality values:
- *   Audio → mp3
- *   Video → 360 | 480 | 720 | 1080
- *
- * Response shape:
- * {
- *   success: true,
- *   author: "PuruBoy",
- *   result: {
- *     title: "...",
- *     thumbnail: "...",
- *     quality: "360",
- *     type: "audio",
- *     downloadUrl: "https://cdn400.savetube.vip/..."
- *   }
- * }
+ * SaveYT Command — YouTube downloader
+ * API: https://yt-dl.officialhectormanuel.workers.dev/?url=<youtube_url>
  */
 
-const yts = require('yt-search');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
+const fs    = require('fs');
+const path  = require('path');
 const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
-const RETRY_DELAY = 3000;
-const BASE = 'https://api.hostify.indevs.in';
+const YT_API = 'https://yt-dl.officialhectormanuel.workers.dev/';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,176 +26,130 @@ function getResponseSender(msg) {
     return msg.key?.participant || msg.key?.remoteJid;
 }
 
-function isYouTubeUrl(text) {
-    return /https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)[^\s]+/i.test(text);
+function isYouTubeUrl(str) {
+    return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\/.+/.test(str.trim());
 }
 
-async function withRetry(fn, retries = 3, delayMs = RETRY_DELAY) {
-    let lastErr;
-    for (let i = 0; i < retries; i++) {
-        try {
-            return await fn();
-        } catch (e) {
-            lastErr = e;
-            const isBusy = e.message?.toLowerCase().includes('busy') ||
-                           e.message?.toLowerCase().includes('try again');
-            if (i < retries - 1 && isBusy) {
-                await new Promise(r => setTimeout(r, delayMs));
-            } else if (!isBusy) {
-                throw e;
-            }
-        }
+async function fetchYTInfo(url) {
+    const { data } = await axios.get(YT_API, {
+        params:  { url },
+        timeout: 30000,
+    });
+    if (!data?.status) throw new Error(data?.message || 'API returned an error');
+    return data;
+}
+
+async function downloadToFile(url, filePath) {
+    const res = await axios({ method: 'get', url, responseType: 'stream', timeout: 600000 });
+    const writer = fs.createWriteStream(filePath);
+    res.data.pipe(writer);
+    await new Promise((resolve, reject) => {
+        writer.on('finish', resolve);
+        writer.on('error', reject);
+    });
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+        throw new Error('Download failed — file is empty');
     }
-    throw lastErr;
 }
 
-async function searchYouTube(query) {
-    return withRetry(async () => {
-        const result = await yts(`${query} official`);
-        if (!result?.videos?.length) throw new Error('No results found');
-        return result.videos[0];
-    });
+function cleanTitle(str) {
+    return (str || 'video').replace(/[^\w\s.-]/gi, '').trim().substring(0, 80);
 }
 
-/**
- * Download via SaveTube API
- * quality: 'mp3' | '360' | '480' | '720' | '1080'
- */
-async function downloadSaveTube(videoUrl, quality) {
-    return withRetry(async () => {
-        console.log(`[savetube] downloading: ${videoUrl} @ ${quality}`);
-        const res = await axios.get(`${BASE}/api/downloader/savetube`, {
-            params:  { url: videoUrl, quality },
-            timeout: 120000,
-        });
+function getTempPath(name) {
+    const dir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
+    return path.join(dir, name);
+}
 
-        // ✅ Exact field names from confirmed response shape
-        if (!res.data?.success) {
-            throw new Error('API returned success: false');
-        }
-        const r = res.data.result;
-        if (!r?.downloadUrl) {
-            throw new Error('API returned no downloadUrl');
-        }
-
-        console.log('[savetube] delivering:', r.title);
-        return {
-            downloadUrl: r.downloadUrl,
-            title:       r.title     || '',
-            thumbnail:   r.thumbnail || '',
-            quality:     r.quality   || quality,
-            type:        r.type      || '',
-        };
-    });
+function safeDelete(filePath) {
+    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
 }
 
 // ── Button builders ───────────────────────────────────────────────────────────
 
 function getTypeButtons(dateNow) {
-    const prefix = config.prefix || '.';
+    const p = config.prefix || '.';
     return [
-        { id: `${prefix}st_type_audio_${dateNow}`, text: '🎵 Audio (MP3)' },
-        { id: `${prefix}st_type_video_${dateNow}`, text: '🎬 Video (MP4)' },
+        { id: `${p}yttype_audio_${dateNow}`,    text: '🎶 Audio'          },
+        { id: `${p}yttype_audiodoc_${dateNow}`, text: '📄 Audio Document' },
+        { id: `${p}yttype_video_${dateNow}`,    text: '🎬 Video'          },
     ];
 }
 
-function getAudioFormatButtons(dateNow) {
-    const prefix = config.prefix || '.';
-    return [
-        { id: `${prefix}st_afmt_audio_${dateNow}`,    text: '🎶 Audio' },
-        { id: `${prefix}st_afmt_audiodoc_${dateNow}`, text: '📄 Audio Document' },
-    ];
+function getQualityButtons(qualities, dateNow) {
+    const p = config.prefix || '.';
+    const labels = { '144': '144p 📱', '240': '240p 📱', '360': '360p SD', '480': '480p SD', '720': '720p HD', '1080': '1080p FHD' };
+    return qualities
+        .filter(q => q !== 'mp3')
+        .sort((a, b) => parseInt(a) - parseInt(b))
+        .map(q => ({
+            id:   `${p}ytqual_${q}_${dateNow}`,
+            text: labels[q] || `${q}p`,
+        }));
 }
 
-function getVideoQualityButtons(dateNow) {
-    const prefix = config.prefix || '.';
+function getVideoFormatButtons(dateNow) {
+    const p = config.prefix || '.';
     return [
-        { id: `${prefix}st_vq_360_${dateNow}`,  text: '📱 360p' },
-        { id: `${prefix}st_vq_480_${dateNow}`,  text: '💻 480p' },
-        { id: `${prefix}st_vq_720_${dateNow}`,  text: '🖥️ 720p HD' },
-        { id: `${prefix}st_vq_1080_${dateNow}`, text: '🎯 1080p FHD' },
-    ];
-}
-
-function getVideoFormatButtons(quality, dateNow) {
-    const prefix = config.prefix || '.';
-    return [
-        { id: `${prefix}st_vfmt_video_${quality}_${dateNow}`,    text: '🎬 Video' },
-        { id: `${prefix}st_vfmt_videodoc_${quality}_${dateNow}`, text: '📄 Video Document' },
+        { id: `${p}ytvfmt_video_${dateNow}`,    text: '🎬 Video'          },
+        { id: `${p}ytvfmt_videodoc_${dateNow}`, text: '📄 Video Document' },
     ];
 }
 
 // ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
-    name: 'savetube',
-    aliases: ['stube', 'svtube', 'ytdl'],
+    name: 'saveyt',
+    aliases: ['savetube', 'ytdown', 'ytsave'],
     category: 'media',
-    description: 'Download YouTube videos or audio via SaveTube',
-    usage: '.savetube <video name | youtube link>',
+    description: 'Download YouTube videos or audio in multiple formats and qualities',
+    usage: '.saveyt <youtube url>',
 
     async execute(sock, msg, args, extra) {
-        if (!args.length) {
-            return extra.reply(
-                `📥 *SaveTube Downloader*\n\n` +
-                `*Usage:*\n` +
-                `• \`.savetube not like us\` — search + download\n` +
-                `• \`.savetube https://youtube.com/watch?v=...\` — download via link\n` +
-                `• Reply to a message with \`.savetube\` — use replied text as query`
-            );
-        }
-
-        let query = args.join(' ').trim();
-
-        if (!query) {
-            const quoted = extra?.quoted;
-            query = quoted?.conversation || quoted?.extendedTextMessage?.text || '';
-        }
-
-        if (!query) {
-            return extra.reply('📥 Provide a video name or YouTube link.\nExample: `.savetube Not Like Us`');
-        }
-
-        if (query.length > 200) {
-            return extra.reply('📝 Query too long! Max 200 chars.');
-        }
-
         const from           = extra.from;
         const prefix         = config.prefix || '.';
         const originalSender = msg.key.participant || msg.key.remoteJid;
 
-        // ── Resolve video URL ─────────────────────────────────────────────────
-        let videoUrl;
-        let videoMeta = null;
+        const url = args[0]?.trim();
 
-        if (isYouTubeUrl(query)) {
-            videoUrl = query;
-            await sock.sendMessage(from, { react: { text: '🔗', key: msg.key } });
-        } else {
-            await sock.sendMessage(from, { react: { text: '🔍', key: msg.key } });
-            try {
-                videoMeta = await searchYouTube(query);
-                videoUrl  = videoMeta.url;
-            } catch (e) {
-                console.error('[savetube] search error:', e.message);
-                return extra.reply(`❌ Search failed: ${e.message}`);
-            }
+        if (!url || !isYouTubeUrl(url)) {
+            return extra.reply(
+                `🎬 *YouTube Downloader*\n\n` +
+                `*Usage:* \`.saveyt <youtube url>\`\n\n` +
+                `*Examples:*\n` +
+                `• \`.saveyt https://youtube.com/watch?v=xxxxx\`\n` +
+                `• \`.saveyt https://youtu.be/xxxxx\`\n\n` +
+                `*Formats available:*\n` +
+                `• 🎶 Audio (mp3)\n` +
+                `• 📄 Audio Document\n` +
+                `• 🎬 Video (144p — 1080p)\n` +
+                `• 📄 Video Document`
+            );
         }
 
+        await sock.sendMessage(from, { react: { text: '🔍', key: msg.key } });
+        await sock.sendMessage(from, { text: '⏳ _Fetching video info..._' }, { quoted: msg });
+
+        // ── Step 1: Fetch video info ───────────────────────────────────────────
+        let info;
+        try {
+            info = await fetchYTInfo(url);
+        } catch (err) {
+            console.error('[saveyt] fetch error:', err.message);
+            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+            return extra.reply(`❌ Failed to fetch video info: ${err.message}`);
+        }
+
+        const { title, thumbnail, audio: audioUrl, videos, available_qualities } = info;
         const dateNow = Date.now();
 
-        // ── Step 1: Video info + type buttons ─────────────────────────────────
+        // ── Step 2: Send type-selection buttons ───────────────────────────────
         await sendButtons(sock, from, {
-            title:   `📥 SAVETUBE DOWNLOADER`,
+            title:   `🎬 YOUTUBE DOWNLOADER`,
             text:
-                (videoMeta
-                    ? `⿻ *Title:*    ${videoMeta.title}\n` +
-                      `⿻ *Duration:* ${videoMeta.timestamp || 'N/A'}\n` +
-                      `⿻ *Views:*    ${videoMeta.views?.toLocaleString() ?? 'N/A'}\n` +
-                      `⿻ *Channel:*  ${videoMeta.author?.name || 'N/A'}\n` +
-                      `⿻ *Link:*     ${videoUrl}\n\n`
-                    : `⿻ *Link:* ${videoUrl}\n\n`
-                ) +
+                `*Title:* ${title}\n\n` +
+                `*Available qualities:* ${available_qualities.filter(q => q !== 'mp3').join(', ')}\n\n` +
                 `*Select download type:*`,
             footer:  `Made by ${config.botName}`,
             buttons: getTypeButtons(dateNow),
@@ -222,224 +157,176 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // ── Step 2: Type selection — persistent, multi-tap ────────────────────
+        // ── Step 3: Listen for type selection ─────────────────────────────────
         const handleTypeSelect = async (event) => {
-            const messageData = event.messages[0];
-            if (!messageData?.message) return;
+            const typeMsg = event.messages[0];
+            if (!typeMsg?.message) return;
 
-            const selectedId = extractButtonResponseId(messageData);
-            if (!selectedId) return;
-            if (!selectedId.includes('st_type_') || !selectedId.includes(`_${dateNow}`)) return;
-            if (messageData.key?.remoteJid !== from) return;
+            const typeId = extractButtonResponseId(typeMsg);
+            if (!typeId) return;
+            if (!typeId.includes('yttype_') || !typeId.includes(`_${dateNow}`)) return;
+            if (typeMsg.key?.remoteJid !== from) return;
+            if (from.endsWith('@g.us') && getResponseSender(typeMsg) !== originalSender) return;
 
-            const responseSender = getResponseSender(messageData);
-            if (from.endsWith('@g.us') && responseSender !== originalSender) return;
+            const typeMatch = typeId.replace(prefix, '').match(/^yttype_(\w+)_/);
+            if (!typeMatch) return;
+            const selectedType = typeMatch[1]; // audio | audiodoc | video
 
-            // ✅ No sock.ev.off — multi-tap
-            const typeChosen = selectedId.replace(prefix, '').split('_')[2]; // audio | video
+            await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
-            // ── AUDIO PATH ────────────────────────────────────────────────────
-            if (typeChosen === 'audio') {
-                const afmtDateNow = Date.now();
+            // ── Audio / Audio Document ─────────────────────────────────────────
+            if (selectedType === 'audio' || selectedType === 'audiodoc') {
+                sock.ev.off('messages.upsert', handleTypeSelect);
 
-                await sendButtons(sock, from, {
-                    title:   `🎵 AUDIO FORMAT`,
-                    text:    `*Select how to receive the audio:*`,
-                    footer:  `Made by ${config.botName}`,
-                    buttons: getAudioFormatButtons(afmtDateNow),
-                }, { quoted: messageData });
+                await sock.sendMessage(from, { text: '⏳ _Downloading audio..._' }, { quoted: typeMsg });
 
-                await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
+                const filePath = getTempPath(`yt_audio_${dateNow}.mp3`);
+                try {
+                    await downloadToFile(audioUrl, filePath);
 
-                const handleAudioFormat = async (event) => {
-                    const fmtMsg = event.messages[0];
-                    if (!fmtMsg?.message) return;
+                    const label = cleanTitle(title);
 
-                    const fmtId = extractButtonResponseId(fmtMsg);
-                    if (!fmtId) return;
-                    if (!fmtId.includes('st_afmt_') || !fmtId.includes(`_${afmtDateNow}`)) return;
-                    if (fmtMsg.key?.remoteJid !== from) return;
-
-                    const fmtSender = getResponseSender(fmtMsg);
-                    if (from.endsWith('@g.us') && fmtSender !== originalSender) return;
-
-                    // ✅ No sock.ev.off — multi-tap
-                    const formatType = fmtId.replace(prefix, '').split('_')[2]; // audio | audiodoc
-                    await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
-
-                    try {
-                        const apiData  = await downloadSaveTube(videoUrl, 'mp3');
-                        const tempDir  = path.join(__dirname, 'temp');
-                        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-                        const filePath = path.join(tempDir, `st_audio_${afmtDateNow}.mp3`);
-
-                        const stream = await axios({
-                            method: 'get', url: apiData.downloadUrl,
-                            responseType: 'stream', timeout: 600000,
-                        });
-                        const writer = fs.createWriteStream(filePath);
-                        stream.data.pipe(writer);
-                        await new Promise((resolve, reject) => {
-                            writer.on('finish', resolve);
-                            writer.on('error', reject);
-                        });
-
-                        if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-                            throw new Error('Download failed — file is empty');
-                        }
-
-                        const rawTitle   = apiData.title || videoMeta?.title || '';
-                        const cleanTitle = rawTitle.replace(/[^\w\s.-]/gi, '').substring(0, 100);
-
-                        if (formatType === 'audio') {
-                            await sock.sendMessage(from, {
-                                audio:    { url: filePath },
-                                mimetype: 'audio/mpeg',
-                            }, { quoted: fmtMsg });
-                        } else if (formatType === 'audiodoc') {
-                            await sock.sendMessage(from, {
-                                document: { url: filePath },
-                                mimetype: 'audio/mpeg',
-                                fileName: `${cleanTitle}.mp3`,
-                                caption:  `🎵 ${rawTitle}\n> ${config.botName}`,
-                            }, { quoted: fmtMsg });
-                        }
-
-                        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-                        await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-
-                    } catch (error) {
-                        console.error('[savetube] audio error:', error.message);
-                        await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                    if (selectedType === 'audio') {
                         await sock.sendMessage(from, {
-                            text: `🚫 Error: ${error.message}\n\n_Try again later._`,
-                        }, { quoted: fmtMsg });
+                            audio:    { url: filePath },
+                            mimetype: 'audio/mpeg',
+                        }, { quoted: typeMsg });
+                    } else {
+                        await sock.sendMessage(from, {
+                            document: { url: filePath },
+                            mimetype: 'audio/mpeg',
+                            fileName: `${label}.mp3`,
+                            caption:  `> ${config.botName}`,
+                        }, { quoted: typeMsg });
                     }
-                };
 
-                sock.ev.on('messages.upsert', handleAudioFormat);
-                // ✅ No setTimeout — no expiry
+                    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
+                } catch (err) {
+                    console.error('[saveyt] audio error:', err.message);
+                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                    await sock.sendMessage(from, { text: `🚫 Audio download failed: ${err.message}` }, { quoted: typeMsg });
+                } finally {
+                    safeDelete(filePath);
+                }
+                return;
             }
 
-            // ── VIDEO PATH ────────────────────────────────────────────────────
-            if (typeChosen === 'video') {
-                const vqDateNow = Date.now();
+            // ── Video: send quality buttons ────────────────────────────────────
+            if (selectedType === 'video') {
+                const qualDateNow = Date.now();
+                const qualButtons = getQualityButtons(available_qualities, qualDateNow);
+
+                if (!qualButtons.length) {
+                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                    return await sock.sendMessage(from, { text: '❌ No video qualities available for this video.' }, { quoted: typeMsg });
+                }
 
                 await sendButtons(sock, from, {
                     title:   `🎬 SELECT QUALITY`,
-                    text:    `*Select video quality:*`,
+                    text:
+                        `*Title:* ${title}\n\n` +
+                        `*Select video quality:*`,
                     footer:  `Made by ${config.botName}`,
-                    buttons: getVideoQualityButtons(vqDateNow),
-                }, { quoted: messageData });
+                    buttons: qualButtons,
+                }, { quoted: typeMsg });
 
-                await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
+                // ── Step 4: Listen for quality selection ──────────────────────
+                const handleQualSelect = async (qEvent) => {
+                    const qualMsg = qEvent.messages[0];
+                    if (!qualMsg?.message) return;
 
-                const handleQualitySelect = async (event) => {
-                    const qMsg = event.messages[0];
-                    if (!qMsg?.message) return;
+                    const qualId = extractButtonResponseId(qualMsg);
+                    if (!qualId) return;
+                    if (!qualId.includes('ytqual_') || !qualId.includes(`_${qualDateNow}`)) return;
+                    if (qualMsg.key?.remoteJid !== from) return;
+                    if (from.endsWith('@g.us') && getResponseSender(qualMsg) !== originalSender) return;
 
-                    const qId = extractButtonResponseId(qMsg);
-                    if (!qId) return;
-                    if (!qId.includes('st_vq_') || !qId.includes(`_${vqDateNow}`)) return;
-                    if (qMsg.key?.remoteJid !== from) return;
+                    const qualMatch = qualId.replace(prefix, '').match(/^ytqual_(\d+)_/);
+                    if (!qualMatch) return;
+                    const quality = qualMatch[1];
+                    const videoUrl = videos[quality];
 
-                    const qSender = getResponseSender(qMsg);
-                    if (from.endsWith('@g.us') && qSender !== originalSender) return;
+                    if (!videoUrl) {
+                        return await sock.sendMessage(from, { text: `❌ Quality *${quality}p* is not available.` }, { quoted: qualMsg });
+                    }
 
-                    // ✅ No sock.ev.off — re-pick quality
-                    const quality     = qId.replace(prefix, '').split('_')[2]; // 360|480|720|1080
-                    const vfmtDateNow = Date.now();
+                    sock.ev.off('messages.upsert', handleQualSelect);
+
+                    // ── Step 5: Send video format buttons ──────────────────────
+                    const fmtDateNow = Date.now();
 
                     await sendButtons(sock, from, {
-                        title:   `🎬 ${quality}p — SEND AS`,
-                        text:    `*Quality selected:* ${quality}p\n\n*Send as:*`,
+                        title:   `🎬 SELECT FORMAT`,
+                        text:
+                            `*Title:* ${title}\n` +
+                            `*Quality:* ${quality}p\n\n` +
+                            `*Select download format:*`,
                         footer:  `Made by ${config.botName}`,
-                        buttons: getVideoFormatButtons(quality, vfmtDateNow),
-                    }, { quoted: qMsg });
+                        buttons: getVideoFormatButtons(fmtDateNow),
+                    }, { quoted: qualMsg });
 
                     await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
-                    const handleVideoFormat = async (event) => {
-                        const vfMsg = event.messages[0];
-                        if (!vfMsg?.message) return;
+                    // ── Step 6: Listen for video format selection ──────────────
+                    const handleVideoFmt = async (fmtEvent) => {
+                        const fmtMsg = fmtEvent.messages[0];
+                        if (!fmtMsg?.message) return;
 
-                        const vfId = extractButtonResponseId(vfMsg);
-                        if (!vfId) return;
-                        if (!vfId.includes('st_vfmt_') || !vfId.includes(`_${vfmtDateNow}`)) return;
-                        if (vfMsg.key?.remoteJid !== from) return;
+                        const fmtId = extractButtonResponseId(fmtMsg);
+                        if (!fmtId) return;
+                        if (!fmtId.includes('ytvfmt_') || !fmtId.includes(`_${fmtDateNow}`)) return;
+                        if (fmtMsg.key?.remoteJid !== from) return;
+                        if (from.endsWith('@g.us') && getResponseSender(fmtMsg) !== originalSender) return;
 
-                        const vfSender = getResponseSender(vfMsg);
-                        if (from.endsWith('@g.us') && vfSender !== originalSender) return;
+                        const fmtMatch = fmtId.replace(prefix, '').match(/^ytvfmt_(\w+)_/);
+                        if (!fmtMatch) return;
+                        const videoFmt = fmtMatch[1]; // video | videodoc
 
-                        // ✅ No sock.ev.off — multi-tap
-                        // ID: <prefix>st_vfmt_<video|videodoc>_<quality>_<dateNow>
-                        const parts      = vfId.replace(prefix, '').split('_');
-                        const formatType = parts[2]; // video | videodoc
-                        const q          = parts[3]; // 360|480|720|1080
+                        sock.ev.off('messages.upsert', handleVideoFmt);
 
                         await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
+                        await sock.sendMessage(from, { text: `⏳ _Downloading ${quality}p video..._` }, { quoted: fmtMsg });
+
+                        const ext      = 'mp4';
+                        const filePath = getTempPath(`yt_video_${quality}_${fmtDateNow}.${ext}`);
 
                         try {
-                            const apiData  = await downloadSaveTube(videoUrl, q);
-                            const tempDir  = path.join(__dirname, 'temp');
-                            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-                            const filePath = path.join(tempDir, `st_video_${vfmtDateNow}.mp4`);
+                            await downloadToFile(videoUrl, filePath);
 
-                            const stream = await axios({
-                                method: 'get', url: apiData.downloadUrl,
-                                responseType: 'stream', timeout: 600000,
-                            });
-                            const writer = fs.createWriteStream(filePath);
-                            stream.data.pipe(writer);
-                            await new Promise((resolve, reject) => {
-                                writer.on('finish', resolve);
-                                writer.on('error', reject);
-                            });
+                            const label = cleanTitle(title);
 
-                            if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-                                throw new Error('Download failed — file is empty');
-                            }
-
-                            const rawTitle   = apiData.title || videoMeta?.title || '';
-                            const cleanTitle = rawTitle.replace(/[^\w\s.-]/gi, '').substring(0, 100);
-
-                            if (formatType === 'video') {
+                            if (videoFmt === 'video') {
                                 await sock.sendMessage(from, {
                                     video:    { url: filePath },
                                     mimetype: 'video/mp4',
-                                    caption:  `🎬 ${rawTitle} [${q}p]\n> ${config.botName}`,
-                                }, { quoted: vfMsg });
-                            } else if (formatType === 'videodoc') {
+                                    caption:  `🎬 *${title}*\n📺 Quality: ${quality}p\n> ${config.botName}`,
+                                }, { quoted: fmtMsg });
+                            } else {
                                 await sock.sendMessage(from, {
                                     document: { url: filePath },
                                     mimetype: 'video/mp4',
-                                    fileName: `${cleanTitle}_${q}p.mp4`,
-                                    caption:  `🎬 ${rawTitle} [${q}p]\n> ${config.botName}`,
-                                }, { quoted: vfMsg });
+                                    fileName: `${label}_${quality}p.mp4`,
+                                    caption:  `🎬 *${title}*\n📺 Quality: ${quality}p\n> ${config.botName}`,
+                                }, { quoted: fmtMsg });
                             }
 
-                            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
                             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-
-                        } catch (error) {
-                            console.error('[savetube] video error:', error.message);
+                        } catch (err) {
+                            console.error('[saveyt] video error:', err.message);
                             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                            await sock.sendMessage(from, {
-                                text: `🚫 Error: ${error.message}\n\n_Try again later._`,
-                            }, { quoted: vfMsg });
+                            await sock.sendMessage(from, { text: `🚫 Video download failed: ${err.message}` }, { quoted: fmtMsg });
+                        } finally {
+                            safeDelete(filePath);
                         }
                     };
 
-                    sock.ev.on('messages.upsert', handleVideoFormat);
-                    // ✅ No setTimeout — no expiry
+                    sock.ev.on('messages.upsert', handleVideoFmt);
                 };
 
-                sock.ev.on('messages.upsert', handleQualitySelect);
-                // ✅ No setTimeout — no expiry
+                sock.ev.on('messages.upsert', handleQualSelect);
             }
         };
 
         sock.ev.on('messages.upsert', handleTypeSelect);
-        // ✅ No setTimeout — no expiry
     },
 };
