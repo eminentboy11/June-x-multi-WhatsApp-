@@ -1,88 +1,224 @@
-/**
- * Git Clone Command
- * Downloads a GitHub repository as a ZIP file directly to chat
- */
+const { sendButtons } = require('gifted-btns');
+const { applyFont }  = require('../../utils/fontConverter');
+const axios  = require('axios');
+const config = require('../../config');
+const fs     = require('fs');
+const path   = require('path');
+const os     = require('os');
 
-const axios = require('axios');
+const GITHUB_USER = 'Vinpink2';
+const GITHUB_REPO = 'June_X_Ultra';
+const REPO_URL    = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
+const API_URL     = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}`;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function extractButtonResponseId(msg) {
+    return (
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
+        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+        null
+    );
+}
+
+function getResponseSender(msg) {
+    return msg.key?.participant || msg.key?.remoteJid;
+}
+
+// ── Button builder ────────────────────────────────────────────────────────────
+
+function buildMainButtons(repoUrl, dateNow) {
+    const prefix = config.prefix || '.';
+    return [
+        {
+            name: 'cta_url',
+            buttonParamsJson: JSON.stringify({
+                display_text: '🔗 View Repository',
+                url: repoUrl,
+            })
+        },
+        {
+            name: 'cta_url',
+            buttonParamsJson: JSON.stringify({
+                display_text: '⭐ Star Repo',
+                url: `${repoUrl}/stargazers`,
+            })
+        },
+        {
+            name: 'cta_url',
+            buttonParamsJson: JSON.stringify({
+                display_text: '🍴 Fork Repo',
+                url: `${repoUrl}/fork`,
+            })
+        },
+        {
+            name: 'cta_copy',
+            buttonParamsJson: JSON.stringify({
+                display_text: '📋 Copy Repo URL',
+                copy_code: repoUrl,
+            })
+        },
+        { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
+    ];
+}
+
+// ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
-    name: 'gitclone',
-    aliases: ['gclone', 'ghclone', 'clone'],
-    category: 'tools',
-    description: 'Download a GitHub repository as a ZIP file',
-    usage: '.gitclone <github-url>',
+    name: 'github',
+    aliases: ['repo', 'git', 'source', 'sc', 'script'],
+    category: 'general',
+    description: 'Show bot GitHub repository and statistics',
+    usage: '.github',
+    ownerOnly: false,
 
     async execute(sock, msg, args, extra) {
         try {
-            const query = args.join(' ').trim();
+            const chatId         = extra.from;
+            const prefix         = config.prefix || '.';
+            const originalSender = msg.key?.participant || msg.key?.remoteJid;
+            const footer         = `> Powered by ${config.botName}`;
+            const dateNow        = Date.now();
 
-            if (!query) return extra.reply(
-                '❌ Provide a GitHub repository URL!\n' +
-                'Example: .gitclone https://github.com/username/repo'
-            );
+            let text;
+            let repoUrl       = REPO_URL;
+            let defaultBranch = 'main';
 
-            const githubRegex = /(?:https?:\/\/)?(?:www\.)?github\.com[\/:]([^\/\n\r]+)\/([^\/\n\r#?]+)(?:[\/]?|[\/]tree[\/]([^\/\n\r]+)?)?/i;
-            const match = query.match(githubRegex);
-
-            if (!match) return extra.reply(
-                '❌ *Invalid GitHub URL!*\n\n' +
-                '*Supported formats:*\n' +
-                '• https://github.com/username/repo\n' +
-                '• https://github.com/username/repo/tree/branch\n' +
-                '• github.com/username/repo'
-            );
-
-            let [, user, repo, branch] = match;
-            if (!user || !repo) return extra.reply(
-                '❌ Could not extract repository info. Use format:\nhttps://github.com/username/repo'
-            );
-
-            repo = repo.replace(/\.git$/, '').replace(/[^a-zA-Z0-9\-_]/g, '');
-            branch = branch || 'main';
-
-            await sock.sendMessage(extra.from, { react: { text: '🔍', key: msg.key } });
-
-            // Detect valid branch (main → master fallback)
             try {
-                await axios.head(`https://api.github.com/repos/${user}/${repo}/branches/${branch}`);
-            } catch {
-                try {
-                    await axios.head(`https://api.github.com/repos/${user}/${repo}/branches/master`);
-                    branch = 'master';
-                } catch {
-                    await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
-                    return extra.reply('❌ Repository or branch not found! Please check the URL and make sure the repo is public.');
-                }
+                const { data: repo } = await axios.get(API_URL, {
+                    headers: { 'User-Agent': 'June_X_Ultra' },
+                    timeout: 10000,
+                });
+
+                repoUrl       = repo.html_url;
+                defaultBranch = repo.default_branch || 'main';
+
+                text = applyFont(
+                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
+                    `➥ Repository  ➜ ${repo.name}\n` +
+                    `➥ Owner       ➜ ${repo.owner.login}\n` +
+                    `➥ Description ➜ ${repo.description || 'N/A'}\n` +
+                    `➥ Language    ➜ ${repo.language || 'N/A'}\n` +
+                    `➥ License     ➜ ${repo.license?.name || 'N/A'}\n` +
+                    `➥ Branch      ➜ ${defaultBranch}\n` +
+                    `➥ Visibility  ➜ ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
+                    `┃ Statistics\n` +
+                    `➥ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
+                    `➥ Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
+                    `➥ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
+                    `➥ Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
+                    `➥ Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
+                    `┗━━━━━━━━━━━━━━━━`
+                );
+
+            } catch (apiError) {
+                console.error('[GitHub] API error:', apiError.message);
+
+                text = applyFont(
+                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
+                    `➥ Bot Name    ➜ ${config.botName}\n` +
+                    `➥ Repository  ➜ ${GITHUB_REPO}\n` +
+                    `➥ Owner       ➜ ${GITHUB_USER}\n` +
+                    `➥ URL         ➜ ${REPO_URL}\n\n` +
+                    `⚠️ Could not fetch live stats.\n` +
+                    `   Visit the repo for latest info.\n\n` +
+                    `┗━━━━━━━━━━━━━━━━`
+                );
             }
 
-            const zipUrl = `https://github.com/${user}/${repo}/archive/refs/heads/${branch}.zip`;
-            const filename = `${repo}.zip`;
-
-            await sock.sendMessage(extra.from, {
-                document: { url: zipUrl },
-                fileName: filename,
-                mimetype: 'application/zip',
-                caption: `📦 *${user}/${repo}* • \`${branch}\``
+            // ── Step 1: Send main buttons ─────────────────────────────────────
+            await sendButtons(sock, chatId, {
+                text,
+                footer,
+                buttons: buildMainButtons(repoUrl, dateNow),
             }, { quoted: msg });
 
-            await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
+            // ── Step 2: Listen for "Get ZIP" tap ──────────────────────────────
+            const handleZipTap = async (event) => {
+                const messageData = event.messages[0];
+                if (!messageData?.message) return;
+
+                const selectedId = extractButtonResponseId(messageData);
+                if (!selectedId) return;
+                if (selectedId !== `${prefix}ghzip_${dateNow}`) return;
+                if (messageData.key?.remoteJid !== chatId) return;
+
+                // Only original sender — silent ignore for everyone else
+                const responseSender = getResponseSender(messageData);
+                if (responseSender !== originalSender) return;
+
+                await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+
+                const zipUrl = `${repoUrl}/archive/refs/heads/${defaultBranch}.zip`;
+                let filePath;
+
+                try {
+                    filePath = path.join(
+                        os.tmpdir(),
+                        `${GITHUB_REPO}-${dateNow}.zip`
+                    );
+
+                    const zipStream = await axios({
+                        method:       'get',
+                        url:          zipUrl,
+                        responseType: 'stream',
+                        timeout:      120000,
+                        headers:      { 'User-Agent': 'June_X_Ultra' },
+                        maxRedirects: 5,
+                    });
+
+                    const writer = fs.createWriteStream(filePath);
+                    zipStream.data.pipe(writer);
+                    await new Promise((resolve, reject) => {
+                        writer.on('finish', resolve);
+                        writer.on('error', reject);
+                    });
+
+                    if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+                        throw new Error('ZIP download failed — file is empty');
+                    }
+
+                    const fileSizeMB = (fs.statSync(filePath).size / 1048576).toFixed(2);
+
+                    await sock.sendMessage(chatId, {
+                        document: fs.readFileSync(filePath),
+                        mimetype: 'application/zip',
+                        fileName: `${GITHUB_REPO}.zip`,
+                        caption: applyFont(
+                            `┏━━『 ZIP DOWNLOADED 』━━\n\n` +
+                            `➥ Repository ➜ ${GITHUB_REPO}\n` +
+                            `➥ Branch     ➜ ${defaultBranch}\n` +
+                            `➥ Size       ➜ ${fileSizeMB} MB\n\n` +
+                            `┗━━━━━━━━━━━━━━━━\n\n` +
+                            `> ${config.botName}`
+                        ),
+                    }, { quoted: messageData });
+
+                    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+
+                } catch (err) {
+                    console.error('[GitHub] ZIP download error:', err.message);
+                    await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
+                    await sock.sendMessage(chatId, {
+                        text: applyFont(
+                            `┏━━『 ERROR 』━━\n\n` +
+                            `➥ Failed  ➜ ZIP Download\n` +
+                            `➥ Reason  ➜ ${err.message}\n\n` +
+                            `  Try copying the link instead.\n\n` +
+                            `┗━━━━━━━━━━━━━━━━`
+                        ),
+                    }, { quoted: messageData });
+                } finally {
+                    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                }
+            };
+
+            sock.ev.on('messages.upsert', handleZipTap);
 
         } catch (error) {
-            console.error('Gitclone error:', error);
-
-            let errorMessage = `❌ Error: ${error.message}`;
-            if (error.response?.status === 404) {
-                errorMessage = '❌ Repository not found! Check the URL and make sure it\'s public.';
-            } else if (error.response?.status === 403) {
-                errorMessage = '❌ GitHub API rate limit exceeded. Try again later.';
-            } else if (error.response?.status === 500) {
-                errorMessage = '❌ GitHub server error. Try again later.';
-            } else if (error.code === 'ENOTFOUND' || error.code === 'ETIMEDOUT') {
-                errorMessage = '❌ Network error. Check your internet connection.';
-            }
-
-            await sock.sendMessage(extra.from, { react: { text: '❌', key: msg.key } });
-            await extra.reply(errorMessage);
+            console.error('[GitHub] command error:', error);
+            await extra.reply(`❌ Error: ${error.message}`);
         }
     }
 };
