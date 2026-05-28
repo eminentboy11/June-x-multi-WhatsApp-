@@ -163,7 +163,7 @@ function getButtons() {
   const prefix = config.prefix || '.';
   return [
     { id: `${prefix}repo`,       text: '💻 Bot Repo' },
-    { id: `${prefix}alive`,         text: '🔘 alive' },
+    { id: `${prefix}alive`,         text: '🛸 alive' },
     { id: `${prefix}ping`,   text: '🏓 Ping' },
     { id: `${prefix}uptime`, text: '⏱️ Uptime' }
   ];
