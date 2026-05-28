@@ -3,7 +3,7 @@ const config = require('../../config');
 
 module.exports = {
     name: 'fetch',
-    aliases: ['get', 'dl'],
+    aliases: ['get', 'browse'],
     category: 'tools',
     description: 'Fetch content from a URL and send it to the chat',
     usage: '.fetch <url>',
