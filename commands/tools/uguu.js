@@ -6,6 +6,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const { sendButtons } = require('gifted-btns');
+const { downloadMediaMessage } = require('@whiskeysockets/baileys'); // ✅ Added import
 const config = require('../../config');
 
 module.exports = {
@@ -25,13 +26,12 @@ module.exports = {
             const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
 
             if (quoted) {
-                // Determine the media type from the quoted message
                 const mediaType =
-                    quoted.imageMessage      ? 'imageMessage'      :
-                    quoted.videoMessage      ? 'videoMessage'      :
-                    quoted.audioMessage      ? 'audioMessage'      :
-                    quoted.documentMessage   ? 'documentMessage'   :
-                    quoted.stickerMessage    ? 'stickerMessage'    :
+                    quoted.imageMessage    ? 'imageMessage'    :
+                    quoted.videoMessage    ? 'videoMessage'    :
+                    quoted.audioMessage    ? 'audioMessage'    :
+                    quoted.documentMessage ? 'documentMessage' :
+                    quoted.stickerMessage  ? 'stickerMessage'  :
                     null;
 
                 if (!mediaType) {
@@ -42,15 +42,12 @@ module.exports = {
 
                 // Build a fake message object for downloadMediaMessage
                 const fakeMsg = {
-                    key: msg.message.extendedTextMessage.contextInfo.stanzaId
-                        ? { ...msg.key, id: msg.message.extendedTextMessage.contextInfo.stanzaId }
-                        : msg.key,
+                    key: { ...msg.key },
                     message: quoted
                 };
 
-                fileBuffer = await sock.downloadMediaMessage(fakeMsg);
+                fileBuffer = await downloadMediaMessage(fakeMsg, 'buffer', {}, { logger: undefined });
 
-                // Resolve filename and mime
                 contentType = mediaMsg.mimetype || 'application/octet-stream';
                 const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
                 fileName = mediaMsg.fileName || `upload_${Date.now()}.${ext}`;
@@ -59,17 +56,18 @@ module.exports = {
             // ─── MODE 2: URL Argument ───────────────────────────────────────
             } else {
                 const url = args.join(' ').trim();
-                if (!url) return extra.reply(
-                    '❌ Please provide a file URL or reply to a media message!\nExample:\n.uguu https://example.com/image.png'
-                );
+                if (!url) {
+                    return extra.reply(
+                        '❌ Please provide a file URL or reply to a media message!\nExample:\n.uguu https://example.com/image.png'
+                    );
+                }
 
                 const fileResponse = await axios.get(url, {
                     responseType: 'arraybuffer',
                     timeout: 30000,
-                    maxContentLength: 100 * 1024 * 1024
+                    maxBodyLength: 100 * 1024 * 1024
                 });
 
-                // Extract filename from URL or Content-Disposition header
                 const contentDisposition = fileResponse.headers['content-disposition'];
                 if (contentDisposition) {
                     const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
@@ -89,7 +87,7 @@ module.exports = {
             const form = new FormData();
             form.append('files[]', fileBuffer, {
                 filename: fileName,
-                contentType: contentType
+                contentType
             });
 
             const { data: uguuRes } = await axios.post(
