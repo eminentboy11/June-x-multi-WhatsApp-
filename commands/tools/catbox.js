@@ -8,6 +8,9 @@ const FormData = require('form-data');
 const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
+// Baileys helper
+const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+
 module.exports = {
     name: 'catbox',
     aliases: ['cbox', 'host'],
@@ -21,9 +24,8 @@ module.exports = {
 
             let fileBuffer, fileName, contentType, fileSizeKB;
 
-            // ─── MODE 1: Quoted Media ───────────────────────────────────────
+            // ─── MODE 1: Quoted Media ───────────────────────────────
             const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-
             if (quoted) {
                 const mediaType =
                     quoted.imageMessage     ? 'imageMessage'     :
@@ -33,12 +35,9 @@ module.exports = {
                     quoted.stickerMessage   ? 'stickerMessage'   :
                     null;
 
-                if (!mediaType) {
-                    return extra.reply('❌ Quoted message has no supported media!');
-                }
+                if (!mediaType) return extra.reply('❌ Quoted message has no supported media!');
 
                 const mediaMsg = quoted[mediaType];
-
                 const fakeMsg = {
                     key: msg.message.extendedTextMessage.contextInfo.stanzaId
                         ? { ...msg.key, id: msg.message.extendedTextMessage.contextInfo.stanzaId }
@@ -46,14 +45,14 @@ module.exports = {
                     message: quoted
                 };
 
-                fileBuffer = await sock.downloadMediaMessage(fakeMsg);
-
+                // Use Baileys downloadMediaMessage
+                fileBuffer = await downloadMediaMessage(fakeMsg, 'buffer', {}, { logger: sock.logger });
                 contentType = mediaMsg.mimetype || 'application/octet-stream';
                 const ext = contentType.split('/')[1]?.split(';')[0] || 'bin';
                 fileName = mediaMsg.fileName || `upload_${Date.now()}.${ext}`;
                 fileSizeKB = (fileBuffer.byteLength / 1024).toFixed(1);
 
-            // ─── MODE 2: URL Argument ───────────────────────────────────────
+            // ─── MODE 2: URL Argument ───────────────────────────────
             } else {
                 const url = args.join(' ').trim();
                 if (!url) return extra.reply(
@@ -63,7 +62,7 @@ module.exports = {
                 const fileResponse = await axios.get(url, {
                     responseType: 'arraybuffer',
                     timeout: 30000,
-                    maxContentLength: 200 * 1024 * 1024 // 200MB catbox limit
+                    maxContentLength: 200 * 1024 * 1024 // 200MB limit
                 });
 
                 const contentDisposition = fileResponse.headers['content-disposition'];
@@ -81,7 +80,7 @@ module.exports = {
                 fileSizeKB = (fileBuffer.byteLength / 1024).toFixed(1);
             }
 
-            // ─── Upload to Catbox.moe ───────────────────────────────────────
+            // ─── Upload to Catbox.moe ───────────────────────────────
             const form = new FormData();
             form.append('reqtype', 'fileupload');
             form.append('fileToUpload', fileBuffer, {
@@ -108,7 +107,6 @@ module.exports = {
             await sock.sendMessage(extra.from, { react: { text: '✅', key: msg.key } });
 
             const hostedName = hostedUrl.split('/').pop();
-
             const responseText =
                 ` *📦 File Hosted on Catbox*\n\n` +
                 ` *File:* ${hostedName}\n` +
