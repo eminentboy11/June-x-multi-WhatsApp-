@@ -1,10 +1,16 @@
 /**
- * AI Commands
+ * AI Commands — powered by api.drexapp.space
  */
 
 const axios = require('axios');
 
-const fetchJSON = async (url) => (await fetch(url)).json();
+const BASE = 'https://api.drexapp.space';
+
+const drex = async (path, params) => {
+    const { data } = await axios.get(`${BASE}${path}`, { params, timeout: 60000 });
+    if (!data?.status) throw new Error(data?.error || 'API returned no result');
+    return data.result;
+};
 
 // ── Shared send helpers ───────────────────────────────────────────────────────
 
@@ -18,26 +24,125 @@ const send = (sock, msg, text) =>
 
 module.exports = [
 
+    // ── IMAGE GENERATION ──────────────────────────────────────────────────────
+
     {
         name: 'generate',
         aliases: ['genimage', 'aiimage'],
         category: 'ai',
-        description: 'Generate an AI image from a text prompt',
+        description: 'Generate an AI image from a text prompt using Flux',
         usage: '.generate <prompt>',
 
         async execute(sock, msg, args, extra) {
-            const text = args.join(' ').trim();
-            if (!text) return extra.reply('❌ Please provide a prompt\n\nExample: .generate sunset over mountains');
+            const prompt = args.join(' ').trim();
+            if (!prompt) return extra.reply('❌ Please provide a prompt\n\nExample: .generate sunset over mountains');
+
+            await react(sock, msg, '🎨');
+            await extra.reply('⏳ *Generating image...*');
 
             try {
-                const url = `https://api.gurusensei.workers.dev/dream?prompt=${encodeURIComponent(text)}`;
-                await sock.sendMessage(extra.from, { image: { url } }, { quoted: msg });
+                const result = await drex('/ai/flux', { prompt });
+                if (!result?.url) throw new Error('No image URL returned');
+
+                await sock.sendMessage(extra.from, {
+                    image:   { url: result.url },
+                    caption: `🎨 *AI Image*\n\n_Prompt:_ ${prompt}\n> ${result.model || 'Flux'}`,
+                }, { quoted: msg });
+                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[generate]', err.message);
+                await react(sock, msg, '❌');
                 extra.reply('❌ Failed to generate image. Please try again.');
             }
         },
     },
+
+    {
+        name: 'dalle',
+        aliases: ['luminai', 'flux', 'fluxai'],
+        category: 'ai',
+        description: 'Generate an AI image using Flux via Pollinations',
+        usage: '.dalle <prompt>',
+
+        async execute(sock, msg, args, extra) {
+            const prompt = args.join(' ').trim();
+            if (!prompt) return extra.reply('❌ Please provide a prompt\n\nExample: .dalle futuristic city at night');
+
+            await react(sock, msg, '🌟');
+            await extra.reply('⏳ *Flux is generating...*');
+
+            try {
+                const result = await drex('/ai/flux', { prompt });
+                if (!result?.url) throw new Error('No image URL returned');
+
+                await sock.sendMessage(extra.from, {
+                    image:   { url: result.url },
+                    caption: `🌟 *Flux AI Image*\n\n_Prompt:_ ${prompt}\n> ${result.model || 'Flux'}`,
+                }, { quoted: msg });
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[dalle]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ Flux image generation failed. Please try again.');
+            }
+        },
+    },
+
+    // ── CHATGPT ───────────────────────────────────────────────────────────────
+
+    {
+        name: 'chatgpt',
+        aliases: ['gpt'],
+        category: 'ai',
+        description: 'Ask ChatGPT (GPT-4o-mini via DuckDuckGo) a question',
+        usage: '.chatgpt <question>',
+
+        async execute(sock, msg, args, extra) {
+            const query = args.join(' ').trim();
+            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .chatgpt What is JavaScript?');
+
+            await react(sock, msg, '🤖');
+            await extra.reply('⏳ *ChatGPT is thinking...*');
+
+            try {
+                const result = await drex('/ai/gpt', { prompt: query });
+                await send(sock, msg, `🤖 *ChatGPT*\n\n${result.response}`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[chatgpt]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ ChatGPT service error. Please try again later.');
+            }
+        },
+    },
+
+    {
+        name: 'gpt2',
+        aliases: ['gptai'],
+        category: 'ai',
+        description: 'Ask GPT via OpenAI-compatible Pollinations endpoint',
+        usage: '.gpt2 <question>',
+
+        async execute(sock, msg, args, extra) {
+            const query = args.join(' ').trim();
+            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt2 What is artificial intelligence?');
+
+            await react(sock, msg, '🤖');
+            await extra.reply('⏳ *GPT is thinking...*');
+
+            try {
+                const result = await drex('/ai/openai', { prompt: query });
+                await send(sock, msg, `🤖 *GPT Response*\n\n${result.response}\n\n_Powered by OpenAI_`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[gpt2]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ GPT service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── COPILOT ───────────────────────────────────────────────────────────────
 
     {
         name: 'copilot',
@@ -54,12 +159,8 @@ module.exports = [
             await extra.reply('⏳ *Copilot is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.nexray.eu.cc/ai/copilot?text=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🪟 *Microsoft Copilot*\n\n${data.result}`);
+                const result = await drex('/ai/gpt', { prompt: query });
+                await send(sock, msg, `🪟 *Microsoft Copilot*\n\n${result.response}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[copilot]', err.message);
@@ -69,65 +170,7 @@ module.exports = [
         },
     },
 
-    {
-        name: 'chatgpt',
-        aliases: ['gpt'],
-        category: 'ai',
-        description: 'Ask ChatGPT a question',
-        usage: '.chatgpt <question>',
-
-        async execute(sock, msg, args, extra) {
-            const query = args.join(' ').trim();
-            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .chatgpt What is JavaScript?');
-
-            await react(sock, msg, '🤖');
-            await extra.reply('⏳ *ChatGPT is thinking...*');
-
-            try {
-                const data = await fetchJSON(
-                    `https://api.nexray.eu.cc/ai/chatgpt?text=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🤖 *ChatGPT*\n\n${data.result}`);
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[chatgpt]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ ChatGPT service error. Please try again later.');
-            }
-        },
-    },
-
-    {
-        name: 'gpt2',
-        aliases: ['gptai'],
-        category: 'ai',
-        description: 'Ask GPT via Wolf-Tech API',
-        usage: '.gpt2 <question>',
-
-        async execute(sock, msg, args, extra) {
-            const query = args.join(' ').trim();
-            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt2 What is artificial intelligence?');
-
-            await react(sock, msg, '🤖');
-            await sock.sendPresenceUpdate('composing', extra.from);
-
-            try {
-                const { data } = await axios.get(
-                    `https://apis.xwolf.space/api/ai/gpt?q=${encodeURIComponent(query)}`
-                );
-                const result = data?.result || '❌ No response received.';
-
-                await send(sock, msg, `🤖 *GPT Response*\n\n${result}\n\n_Powered by Wolf-Tech AI_`);
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[gpt2]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ GPT service error. Please try again later.');
-            }
-        },
-    },
+    // ── META AI ───────────────────────────────────────────────────────────────
 
     {
         name: 'metaai',
@@ -144,12 +187,8 @@ module.exports = [
             await extra.reply('⏳ *Meta AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.nekolabs.web.id/text-generation/ai4chat?text=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `💭 *Meta AI*\n\n${data.result}\n\n⏱️ *Response Time:* ${data.responseTime || 'N/A'}`);
+                const result = await drex('/ai/openai', { prompt: query });
+                await send(sock, msg, `💭 *Meta AI*\n\n${result.response}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[metaai]', err.message);
@@ -159,11 +198,13 @@ module.exports = [
         },
     },
 
+    // ── LLAMA ─────────────────────────────────────────────────────────────────
+
     {
         name: 'llama',
         aliases: ['llamaai'],
         category: 'ai',
-        description: 'Ask Llama AI a question',
+        description: 'Ask Llama 3.3 70B via Groq (ultra-fast inference)',
         usage: '.llama <question>',
 
         async execute(sock, msg, args, extra) {
@@ -174,12 +215,8 @@ module.exports = [
             await extra.reply('⏳ *Llama AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.privatezia.biz.id/api/ai/deepai?query=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.data) throw new Error('Empty response');
-
-                await send(sock, msg, `🦙 *Llama AI*\n\n${data.data}`);
+                const result = await drex('/ai/groq', { q: query });
+                await send(sock, msg, `🦙 *Llama 3.3 70B*\n\n${result.reply}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[llama]', err.message);
@@ -189,11 +226,13 @@ module.exports = [
         },
     },
 
+    // ── BLACKBOX ──────────────────────────────────────────────────────────────
+
     {
         name: 'blackbox',
         aliases: ['bb'],
         category: 'ai',
-        description: 'Ask Blackbox AI a question',
+        description: 'Ask Blackbox AI (AI + real-time web search) a question',
         usage: '.blackbox <question>',
 
         async execute(sock, msg, args, extra) {
@@ -204,12 +243,8 @@ module.exports = [
             await extra.reply('⏳ *Blackbox AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.privatezia.biz.id/api/ai/blackbox?query=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.data) throw new Error('Empty response');
-
-                await send(sock, msg, `📦 *Blackbox AI*\n\n${data.data}`);
+                const result = await drex('/ai/compound', { q: query });
+                await send(sock, msg, `📦 *Blackbox AI*\n\n${result.reply}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[blackbox]', err.message);
@@ -219,35 +254,7 @@ module.exports = [
         },
     },
 
-    {
-        name: 'dalle',
-        aliases: ['luminai'],
-        category: 'ai',
-        description: 'Ask LuminAI a question',
-        usage: '.dalle <question>',
-
-        async execute(sock, msg, args, extra) {
-            const query = args.join(' ').trim();
-            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .dalle What is the universe?');
-
-            await react(sock, msg, '🌟');
-            await extra.reply('⏳ *LuminAI is thinking...*');
-
-            try {
-                const data = await fetchJSON(
-                    `https://api.privatezia.biz.id/api/ai/luminai?query=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.data) throw new Error('Empty response');
-
-                await send(sock, msg, `🌟 *LuminAI*\n\n${data.data}`);
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[dalle]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ LuminAI service error. Please try again later.');
-            }
-        },
-    },
+    // ── SUMMARIZE ─────────────────────────────────────────────────────────────
 
     {
         name: 'summarize',
@@ -264,12 +271,8 @@ module.exports = [
             await extra.reply('⏳ *Summarizing...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.privatezia.biz.id/api/ai/ai4chat?query=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.data) throw new Error('Empty response');
-
-                await send(sock, msg, `📝 *Summary*\n\n${data.data}`);
+                const result = await drex('/ai/gpt', { prompt: `Summarize the following text:\n\n${query}` });
+                await send(sock, msg, `📝 *Summary*\n\n${result.response}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[summarize]', err.message);
@@ -279,11 +282,13 @@ module.exports = [
         },
     },
 
+    // ── MISTRAL ───────────────────────────────────────────────────────────────
+
     {
         name: 'mistral',
         aliases: ['mistralai'],
         category: 'ai',
-        description: 'Ask Mistral AI a question',
+        description: 'Ask Mistral AI (o3-mini reasoning) a question',
         usage: '.mistral <question>',
 
         async execute(sock, msg, args, extra) {
@@ -294,12 +299,8 @@ module.exports = [
             await extra.reply('⏳ *Mistral AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/deepseek-r1?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🔍 *Mistral AI*\n\n${data.result}`);
+                const result = await drex('/ai/o3', { prompt: query });
+                await send(sock, msg, `🔍 *Mistral AI*\n\n${result.response}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[mistral]', err.message);
@@ -309,11 +310,13 @@ module.exports = [
         },
     },
 
+    // ── THINK (DEEP REASONING) ────────────────────────────────────────────────
+
     {
         name: 'think',
         aliases: [],
         category: 'ai',
-        description: 'Deep thinking mode powered by Microsoft Copilot',
+        description: 'Deep thinking mode powered by o3-mini reasoning',
         usage: '.think <complex question>',
 
         async execute(sock, msg, args, extra) {
@@ -321,35 +324,27 @@ module.exports = [
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .think Analyze the ethics of AI in healthcare');
 
             await react(sock, msg, '🧠');
-            await extra.reply('🧠 *Copilot is thinking deeply... This may take a moment.*');
+            await extra.reply('🧠 *o3-mini is thinking deeply... This may take a moment.*');
 
             try {
-                const { data } = await axios.get(
-                    `https://malvin-api.vercel.app/ai/copilot-think?text=${encodeURIComponent(query)}`
-                );
-                if (!data?.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🧠 *Microsoft Copilot — Deep Think*\n\n${data.result}\n\n💭 _Deep analysis completed_`);
+                const result = await drex('/ai/o3', { prompt: query });
+                await send(sock, msg, `🧠 *Deep Think — o3-mini*\n\n${result.response}\n\n💭 _Deep analysis completed_`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[think]', err.message);
                 await react(sock, msg, '❌');
-                if (err.code === 'ECONNABORTED') {
-                    extra.reply('❌ Request timed out. Please try again.');
-                } else if (err.response?.status === 429) {
-                    extra.reply('❌ Rate limit exceeded. Please wait before trying again.');
-                } else {
-                    extra.reply('❌ Deep Think service error. Please try again later.');
-                }
+                extra.reply('❌ Deep Think service error. Please try again later.');
             }
         },
     },
+
+    // ── VENICE ────────────────────────────────────────────────────────────────
 
     {
         name: 'venice',
         aliases: ['vai'],
         category: 'ai',
-        description: 'Ask Venice AI a question',
+        description: 'Ask Venice AI (Groq compound with web search) a question',
         usage: '.venice <question>',
 
         async execute(sock, msg, args, extra) {
@@ -360,12 +355,8 @@ module.exports = [
             await extra.reply('⏳ *Venice AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/venice?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🌊 *Venice AI*\n\n${data.result}`);
+                const result = await drex('/ai/compound', { q: query });
+                await send(sock, msg, `🌊 *Venice AI*\n\n${result.reply}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[venice]', err.message);
@@ -374,6 +365,8 @@ module.exports = [
             }
         },
     },
+
+    // ── PERPLEXITY ────────────────────────────────────────────────────────────
 
     {
         name: 'perplexity',
@@ -390,12 +383,10 @@ module.exports = [
             await extra.reply('⏳ *Perplexity AI is searching...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/perplexity?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🔎 *Perplexity AI*\n\n${data.result}`);
+                const result = await drex('/ai/perplexity', { q: query });
+                const answer = result.answer;
+                if (!answer) throw new Error('Empty response');
+                await send(sock, msg, `🔎 *Perplexity AI*\n\n${answer}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[perplexity]', err.message);
@@ -405,11 +396,13 @@ module.exports = [
         },
     },
 
+    // ── BARD ──────────────────────────────────────────────────────────────────
+
     {
         name: 'bard',
         aliases: [],
         category: 'ai',
-        description: 'Ask Google Bard a question',
+        description: 'Ask Google Bard (Perplexity GPT-4o) a question',
         usage: '.bard <question>',
 
         async execute(sock, msg, args, extra) {
@@ -420,12 +413,10 @@ module.exports = [
             await extra.reply('⏳ *Bard is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/bard?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `✨ *Google Bard*\n\n${data.result}`);
+                const result = await drex('/ai/perplexity/gpt4o', { q: query });
+                const answer = result.answer;
+                if (!answer) throw new Error('Empty response');
+                await send(sock, msg, `✨ *Google Bard*\n\n${answer}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[bard]', err.message);
@@ -434,6 +425,8 @@ module.exports = [
             }
         },
     },
+
+    // ── GPT-4 NANO ────────────────────────────────────────────────────────────
 
     {
         name: 'gpt4nano',
@@ -450,12 +443,8 @@ module.exports = [
             await extra.reply('⏳ *GPT-4 Nano is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/gpt4nano?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🤖 *GPT-4 Nano*\n\n${data.result}`);
+                const result = await drex('/ai/gpt', { prompt: query });
+                await send(sock, msg, `🤖 *GPT-4 Nano*\n\n${result.response}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gpt4nano]', err.message);
@@ -465,11 +454,13 @@ module.exports = [
         },
     },
 
+    // ── KELVIN AI ─────────────────────────────────────────────────────────────
+
     {
         name: 'kelvinai',
         aliases: [],
         category: 'ai',
-        description: 'Ask Kelvin AI a question',
+        description: 'Ask Kelvin AI (Llama 3.3 70B Groq) a question',
         usage: '.kelvinai <question>',
 
         async execute(sock, msg, args, extra) {
@@ -480,12 +471,8 @@ module.exports = [
             await extra.reply('⏳ *Kelvin AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/ai?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `⚡ *Kelvin AI*\n\n${data.result}`);
+                const result = await drex('/ai/groq', { q: query });
+                await send(sock, msg, `⚡ *Kelvin AI*\n\n${result.reply}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[kelvinai]', err.message);
@@ -495,11 +482,13 @@ module.exports = [
         },
     },
 
+    // ── CLAUDE ────────────────────────────────────────────────────────────────
+
     {
         name: 'claude',
         aliases: [],
         category: 'ai',
-        description: 'Ask Claude AI a question',
+        description: 'Ask Claude 3.5 Sonnet via Perplexity a question',
         usage: '.claude <question>',
 
         async execute(sock, msg, args, extra) {
@@ -510,12 +499,10 @@ module.exports = [
             await extra.reply('⏳ *Claude is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/claude?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `🧠 *Claude AI*\n\n${data.result}`);
+                const result = await drex('/ai/perplexity/claude', { q: query });
+                const answer = result.answer;
+                if (!answer) throw new Error('Empty response');
+                await send(sock, msg, `🧠 *Claude AI*\n\n${answer}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[claude]', err.message);
@@ -525,11 +512,13 @@ module.exports = [
         },
     },
 
+    // ── GEMINI ────────────────────────────────────────────────────────────────
+
     {
         name: 'gemini',
         aliases: ['geminai'],
         category: 'ai',
-        description: 'Ask Google Gemini a question',
+        description: 'Ask Google Gemini (OpenAI-compatible) a question',
         usage: '.gemini <question>',
 
         async execute(sock, msg, args, extra) {
@@ -540,12 +529,8 @@ module.exports = [
             await extra.reply('⏳ *Gemini is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.giftedtech.co.ke/api/ai/gemini?apikey=gifted&q=${encodeURIComponent(query)}`
-                );
-                if (!data.success || !data.result) throw new Error('Empty response');
-
-                await send(sock, msg, `♊ *Google Gemini*\n\n${data.result}`);
+                const result = await drex('/ai/openai', { prompt: query });
+                await send(sock, msg, `♊ *Google Gemini*\n\n${result.response}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gemini]', err.message);
@@ -555,11 +540,13 @@ module.exports = [
         },
     },
 
+    // ── GLM ───────────────────────────────────────────────────────────────────
+
     {
         name: 'glm',
         aliases: ['glm47', 'glmflash'],
         category: 'ai',
-        description: 'Ask GLM-4 Flash a question',
+        description: 'Ask GLM AI (compound web search) a question',
         usage: '.glm <question>',
 
         async execute(sock, msg, args, extra) {
@@ -570,12 +557,8 @@ module.exports = [
             await extra.reply('⏳ *GLM AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.privatezia.biz.id/api/ai/ai4chat?query=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.data) throw new Error('Empty response');
-
-                await send(sock, msg, `💡 *GLM AI*\n\n${data.data}`);
+                const result = await drex('/ai/compound', { q: query });
+                await send(sock, msg, `💡 *GLM AI*\n\n${result.reply}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[glm]', err.message);
@@ -585,11 +568,13 @@ module.exports = [
         },
     },
 
+    // ── PHI-2 ─────────────────────────────────────────────────────────────────
+
     {
         name: 'phi2',
         aliases: ['phiai'],
         category: 'ai',
-        description: 'Ask PHI-2 AI a question',
+        description: 'Ask PHI-2 AI (Llama 3.3 via Groq) a question',
         usage: '.phi2 <question>',
 
         async execute(sock, msg, args, extra) {
@@ -600,17 +585,195 @@ module.exports = [
             await extra.reply('⏳ *PHI-2 AI is thinking...*');
 
             try {
-                const data = await fetchJSON(
-                    `https://api.privatezia.biz.id/api/ai/deepai?query=${encodeURIComponent(query)}`
-                );
-                if (!data.status || !data.data) throw new Error('Empty response');
-
-                await send(sock, msg, `🔬 *PHI-2 AI*\n\n${data.data}`);
+                const result = await drex('/ai/groq', { q: query });
+                await send(sock, msg, `🔬 *PHI-2 AI*\n\n${result.reply}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[phi2]', err.message);
                 await react(sock, msg, '❌');
                 extra.reply('❌ PHI-2 AI service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── COMPOUND (AI + WEB SEARCH) ────────────────────────────────────────────
+
+    {
+        name: 'compound',
+        aliases: ['websearch'],
+        category: 'ai',
+        description: 'AI with real-time web search built in (Groq compound-mini)',
+        usage: '.compound <question>',
+
+        async execute(sock, msg, args, extra) {
+            const query = args.join(' ').trim();
+            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .compound Latest Node.js version');
+
+            await react(sock, msg, '🌐');
+            await extra.reply('⏳ *Searching the web + AI...*');
+
+            try {
+                const result = await drex('/ai/compound', { q: query });
+                await send(sock, msg, `🌐 *AI + Web Search*\n\n${result.reply}`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[compound]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ Compound AI service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── NEWS AI ───────────────────────────────────────────────────────────────
+
+    {
+        name: 'ainews',
+        aliases: ['news'],
+        category: 'ai',
+        description: 'Get AI-powered answers focused on latest news',
+        usage: '.ainews <topic>',
+
+        async execute(sock, msg, args, extra) {
+            const query = args.join(' ').trim();
+            if (!query) return extra.reply('❌ Please provide a topic\n\nExample: .ainews latest AI developments');
+
+            await react(sock, msg, '📰');
+            await extra.reply('⏳ *Fetching latest news...*');
+
+            try {
+                const result = await drex('/ai/perplexity/news', { q: query });
+                const answer = result.answer;
+                if (!answer) throw new Error('Empty response');
+                await send(sock, msg, `📰 *News AI*\n\n${answer}`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[ainews]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ News AI service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── GPT-4o ────────────────────────────────────────────────────────────────
+
+    {
+        name: 'gpt4o',
+        aliases: ['gpt4'],
+        category: 'ai',
+        description: 'Ask GPT-4o via Perplexity — high accuracy complex reasoning',
+        usage: '.gpt4o <question>',
+
+        async execute(sock, msg, args, extra) {
+            const query = args.join(' ').trim();
+            if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt4o How does a black hole form?');
+
+            await react(sock, msg, '🤖');
+            await extra.reply('⏳ *GPT-4o is thinking...*');
+
+            try {
+                const result = await drex('/ai/perplexity/gpt4o', { q: query });
+                const answer = result.answer;
+                if (!answer) throw new Error('Empty response');
+                await send(sock, msg, `🤖 *GPT-4o*\n\n${answer}`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[gpt4o]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ GPT-4o service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── SCITE (RESEARCH AI) ───────────────────────────────────────────────────
+
+    {
+        name: 'scite',
+        aliases: ['research', 'science'],
+        category: 'ai',
+        description: 'AI-powered answers backed by academic citations (Scite.ai)',
+        usage: '.scite <research question>',
+
+        async execute(sock, msg, args, extra) {
+            const query = args.join(' ').trim();
+            if (!query) return extra.reply('❌ Please provide a research question\n\nExample: .scite Effects of caffeine on sleep');
+
+            await react(sock, msg, '🔬');
+            await extra.reply('⏳ *Searching academic sources...*');
+
+            try {
+                const result = await drex('/ai/scite', { q: query });
+                const answer = result?.answer || result?.response || result?.reply;
+                if (!answer) throw new Error('Empty response');
+                await send(sock, msg, `🔬 *Research AI (Scite)*\n\n${answer}`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[scite]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ Research AI service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── TEXT TO SPEECH ────────────────────────────────────────────────────────
+
+    {
+        name: 'tts',
+        aliases: ['texttospeech', 'speak'],
+        category: 'ai',
+        description: 'Convert text to speech (returns audio)',
+        usage: '.tts <text>',
+
+        async execute(sock, msg, args, extra) {
+            const text = args.join(' ').trim();
+            if (!text) return extra.reply('❌ Please provide text\n\nExample: .tts Hello, how are you?');
+
+            await react(sock, msg, '🔊');
+            await extra.reply('⏳ *Converting text to speech...*');
+
+            try {
+                const result = await drex('/ai/tts', { text });
+                const audioUrl = result?.url || result?.audio;
+                if (!audioUrl) throw new Error('No audio URL returned');
+
+                await sock.sendMessage(extra.from, {
+                    audio:    { url: audioUrl },
+                    mimetype: 'audio/mpeg',
+                }, { quoted: msg });
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[tts]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ TTS service error. Please try again later.');
+            }
+        },
+    },
+
+    // ── WHISPER TRANSCRIBE ────────────────────────────────────────────────────
+
+    {
+        name: 'whisper',
+        aliases: ['transcribe', 'speech2text'],
+        category: 'ai',
+        description: 'Transcribe audio from a URL using OpenAI Whisper',
+        usage: '.whisper <audio url>',
+
+        async execute(sock, msg, args, extra) {
+            const url = args[0]?.trim();
+            if (!url || !url.startsWith('http')) return extra.reply('❌ Please provide an audio URL\n\nExample: .whisper https://example.com/audio.mp3');
+
+            await react(sock, msg, '🎙️');
+            await extra.reply('⏳ *Transcribing audio...*');
+
+            try {
+                const result = await drex('/ai/whisper', { url });
+                const text = result?.text;
+                if (!text) throw new Error('No transcription returned');
+                await send(sock, msg, `🎙️ *Whisper Transcription*\n\n${text}\n\n_Language: ${result.language || 'auto'}_`);
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[whisper]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply('❌ Whisper service error. Please try again later.');
             }
         },
     },
