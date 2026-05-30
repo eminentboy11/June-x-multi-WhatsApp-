@@ -1,13 +1,25 @@
 const axios = require('axios');
-const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
+const { tryFetchProfilePictureUrl, displayUserTag, normalizeJidWithLid } = require('../../utils/jidHelper');
 
 function toJid(input) {
   if (!input) return null;
   let s = String(input).trim();
-  if (s.includes('@')) return s;
+  // Already a full JID — normalize it
+  if (s.includes('@')) return normalizeJidWithLid(s);
   s = s.replace(/[^0-9]/g, '');
   if (!s) return null;
   return `${s}@s.whatsapp.net`;
+}
+
+function quotedSenderJid(ctx, chatJid) {
+  // ctx.participant = quoted sender JID in groups (may be @lid)
+  // ctx.remoteJid  = quoted sender JID in DMs, or group JID in groups
+  if (ctx.participant) return normalizeJidWithLid(ctx.participant);
+  // Only use remoteJid as the sender if this is a DM (not a group)
+  if (ctx.remoteJid && !String(chatJid).endsWith('@g.us')) {
+    return normalizeJidWithLid(ctx.remoteJid);
+  }
+  return null;
 }
 
 async function downloadBuffer(url, retries = 3) {
@@ -41,9 +53,11 @@ module.exports = {
                 || msg.message?.videoMessage?.contextInfo
                 || {};
 
-      // 1) Mention / tag
+      const chatJid = extra.from || msg.key.remoteJid;
+
+      // 1) Mention / tag — normalize @lid if needed
       if (Array.isArray(ctx.mentionedJid) && ctx.mentionedJid.length) {
-        targetUser = ctx.mentionedJid[0];
+        targetUser = normalizeJidWithLid(ctx.mentionedJid[0]);
       }
 
       // 2) Phone number / JID argument
@@ -51,18 +65,16 @@ module.exports = {
         targetUser = toJid(args[0]);
       }
 
-      // 3) Reply to a message
+      // 3) Reply to a quoted message — properly extract sender JID
       if (!targetUser && ctx.quotedMessage) {
-        targetUser = ctx.participant
-          || ctx.remoteJid
-          || msg.message?.extendedTextMessage?.contextInfo?.participant;
+        targetUser = quotedSenderJid(ctx, chatJid);
       }
 
       // 4) Default — sender themselves
       if (!targetUser) {
-        targetUser = extra.sender
-          || msg.key.participant
-          || msg.key.remoteJid;
+        targetUser = normalizeJidWithLid(
+          extra.sender || msg.key.participant || msg.key.remoteJid
+        );
       }
 
       if (!targetUser) {
