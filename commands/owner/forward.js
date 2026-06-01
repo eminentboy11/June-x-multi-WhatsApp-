@@ -34,7 +34,7 @@ function toJid(input) {
 module.exports = {
     name: 'forward',
     aliases: ['fwd', 'sendto'],
-    category: 'general',
+    category: 'owner',
     description: 'Forward a message or quoted media to another number',
     usage: '.forward <number> [custom text] — reply to a message to forward it',
     ownerOnly:true,
