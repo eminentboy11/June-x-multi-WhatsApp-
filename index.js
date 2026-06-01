@@ -57,6 +57,7 @@ const { rmSync } = require('fs')
 const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
+const { applyFont } = require('./utils/fontConverter')
 
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true'
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
@@ -440,8 +441,7 @@ async function sendWelcomeMessage(sock) {
         const platform = detectPlatform()
         const ownerName = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName
 
-        await sock.sendMessage(botJid, {
-            text:
+        const welcomeText = applyFont(
 `┏━━━━━━✧ CONNECTED ✧━━━━━━━
 ┃✧ Bot: ${config.botName}
 ┃✧ Prefix: [ ${prefix} ]
@@ -452,7 +452,9 @@ async function sendWelcomeMessage(sock) {
 ┃✧ T.Group: t.me/juneOff
 ┃✧ Telegram: t.me/supremlord
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━`
-        })
+        )
+
+        await sock.sendMessage(botJid, { text: welcomeText })
 
         log('[ BOT ] Connected and welcome message sent.', 'green')
         deleteErrorCountFile()
