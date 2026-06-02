@@ -897,168 +897,14 @@ const handleMessage = async (sock, msg) => {
 
                 if (isGroupChatbot || isDmChatbot) {
                     const { keithApi } = require('./utils/keithApi');
-                    const axios = require('axios');
-                    const agent = settings.agent || 'keith';
 
                     try { await sock.sendPresenceUpdate('composing', from); } catch (_) {}
 
-                    // ── Text agent list (in priority/fallback order) ──────────────
-                    const TEXT_AGENTS = [
-                        { id: 'keith',      endpoint: '/keithai' },
-                        { id: 'gpt',        endpoint: '/ai/gpt4' },
-                        { id: 'gemini',     endpoint: '/ai/gemini' },
-                        { id: 'claude',     endpoint: '/ai/claudeai' },
-                        { id: 'deepseek',   endpoint: '/ai/deepseek' },
-                        { id: 'grok',       endpoint: '/ai/grok' },
-                        { id: 'meta',       endpoint: '/ai/metai' },
-                        { id: 'mistral',    endpoint: '/ai/mistral' },
-                        { id: 'perplexity', endpoint: '/ai/perplexity' },
-                    ];
-
-                    async function tryTextAgent(endpoint) {
-                        const data = await keithApi(endpoint, { q: body });
-                        return data.result || data.answer || data.reply || data.message || null;
-                    }
-
-                    async function tryAllTextAgents() {
-                        for (const ag of TEXT_AGENTS) {
-                            try {
-                                const res = await tryTextAgent(ag.endpoint);
-                                if (res) return res;
-                            } catch (_) {}
-                        }
-                        return null;
-                    }
-
-                    // ── Vision helper ────────────────────────────────────────────
-                    async function getImageMessage() {
-                        const m = msg.message || {};
-                        if (m.imageMessage) return m.imageMessage;
-                        const quoted = m.extendedTextMessage?.contextInfo?.quotedMessage;
-                        if (quoted?.imageMessage) return quoted.imageMessage;
-                        return null;
-                    }
-
-                    async function runVision(imageMessage, question) {
-                        const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-                        const fs   = require('fs');
-                        const path = require('path');
-                        const FormData = require('form-data');
-                        const tempDir  = path.join(__dirname, 'temp');
-                        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-                        const tempPath = path.join(tempDir, `vision_cb_${Date.now()}.jpg`);
-                        try {
-                            const stream = await downloadContentFromMessage(imageMessage, 'image');
-                            const chunks = [];
-                            for await (const chunk of stream) chunks.push(chunk);
-                            fs.writeFileSync(tempPath, Buffer.concat(chunks));
-
-                            const form = new FormData();
-                            form.append('reqtype', 'fileupload');
-                            form.append('fileToUpload', fs.createReadStream(tempPath));
-                            const upRes = await axios.post('https://catbox.moe/user/api.php', form, {
-                                headers: form.getHeaders(), timeout: 30000
-                            });
-                            const imageUrl = upRes.data;
-                            const q = question && question.trim() ? question : 'Describe this image in detail';
-                            const apiUrl = `https://api.bk9.dev/ai/geminiimg?url=${encodeURIComponent(imageUrl)}&q=${encodeURIComponent(q)}`;
-                            const vRes = await axios.get(apiUrl, { timeout: 60000 });
-                            return vRes.data?.BK9 || null;
-                        } finally {
-                            setTimeout(() => {
-                                try { if (fs.existsSync(tempPath)) require('fs').unlinkSync(tempPath); } catch {}
-                            }, 3000);
-                        }
-                    }
-
-                    // ── Meme helpers ─────────────────────────────────────────────
-                    async function sendRandomMeme() {
-                        const memeRes = await axios.get('https://meme-api.com/gimme', { timeout: 15000 });
-                        const meme = memeRes.data;
-                        if (!meme?.url) return;
-                        const imgBuf = await axios.get(meme.url, { responseType: 'arraybuffer', timeout: 20000 });
-                        await sock.sendMessage(from, {
-                            image: Buffer.from(imgBuf.data),
-                            caption: `😂 *${meme.title}*\n\n📱 r/${meme.subreddit} | ⬆️ ${meme.ups}`
-                        }, { quoted: msg });
-                    }
-
-                    async function sendMemeSearch(query) {
-                        const url = `https://api.shizo.top/tools/meme-search?apikey=shizo&query=${encodeURIComponent(query)}`;
-                        const res = await axios.get(url, {
-                            responseType: 'arraybuffer',
-                            headers: { 'User-Agent': 'Mozilla/5.0' },
-                            timeout: 20000
-                        });
-                        const buf = Buffer.from(res.data);
-                        if (!buf || buf.length === 0) throw new Error('Empty meme response');
-                        const contentType = res.headers['content-type'] || '';
-                        const isGIF = contentType.includes('gif') || buf.slice(0, 6).toString('ascii').startsWith('GIF');
-                        if (isGIF) {
-                            await sock.sendMessage(from, {
-                                document: buf, mimetype: 'image/gif', fileName: 'meme.gif'
-                            }, { quoted: msg });
-                        } else {
-                            await sock.sendMessage(from, { image: buf }, { quoted: msg });
-                        }
-                    }
-
-                    // ── Dispatch based on active agent ───────────────────────────
+                    // ── Single API call — keithai ──────────────────────────────
                     try {
-                        if (agent === 'vision') {
-                            const imageMessage = await getImageMessage();
-                            if (imageMessage) {
-                                const result = await runVision(imageMessage, body);
-                                if (result) {
-                                    await sock.sendMessage(from, { text: result }, { quoted: msg });
-                                } else {
-                                    const fb = await tryTextAgent('/keithai');
-                                    if (fb) await sock.sendMessage(from, { text: String(fb) }, { quoted: msg });
-                                }
-                            } else {
-                                const fb = await tryTextAgent('/keithai');
-                                if (fb) await sock.sendMessage(from, { text: String(fb) }, { quoted: msg });
-                            }
-
-                        } else if (agent === 'meme') {
-                            await sendRandomMeme();
-
-                        } else if (agent === 'memesearch') {
-                            if (body.trim()) {
-                                try {
-                                    await sendMemeSearch(body.trim());
-                                } catch (_) {
-                                    await sendRandomMeme();
-                                }
-                            } else {
-                                await sendRandomMeme();
-                            }
-
-                        } else if (agent === 'all') {
-                            const imageMessage = await getImageMessage();
-                            if (imageMessage) {
-                                try {
-                                    const vr = await runVision(imageMessage, body || 'Describe this image');
-                                    if (vr) {
-                                        await sock.sendMessage(from, { text: vr }, { quoted: msg });
-                                        return;
-                                    }
-                                } catch (_) {}
-                            }
-                            const result = await tryAllTextAgents();
-                            if (result) await sock.sendMessage(from, { text: String(result) }, { quoted: msg });
-
-                        } else {
-                            const agentInfo = TEXT_AGENTS.find(a => a.id === agent);
-                            const endpoint  = agentInfo ? agentInfo.endpoint : '/keithai';
-                            let result = null;
-                            try {
-                                result = await tryTextAgent(endpoint);
-                            } catch (_) {
-                                try { result = await tryTextAgent('/keithai'); } catch (_2) {}
-                            }
-                            if (result) await sock.sendMessage(from, { text: String(result) }, { quoted: msg });
-                        }
+                        const data = await keithApi('/keithai', { q: body });
+                        const result = data.result || data.answer || data.reply || data.message || null;
+                        if (result) await sock.sendMessage(from, { text: String(result) }, { quoted: msg });
                     } catch (_dispatchErr) {
                         // Silent fail — chatbot must never break the handler
                     }
@@ -1882,27 +1728,31 @@ const initializeAntiCall = (sock) => {
     } catch (_) {}
   });
 
-  // Anti-call feature - reject and block incoming calls
+  // Anti-call feature — decline/block incoming calls
   sock.ev.on('call', async (calls) => {
     try {
       // Reload config to get fresh settings
       delete require.cache[require.resolve('./config')];
       const config = require('./config');
-      
+
       if (!config.defaultGroupSettings.anticall) return;
+
+      const action = config.defaultGroupSettings.anticallAction || 'block';
 
       for (const call of calls) {
         if (call.status === 'offer') {
-          // Reject the call
+          // Decline the call
           await sock.rejectCall(call.id, call.from);
 
-          // Block the caller
-          await sock.updateBlockStatus(call.from, 'block');
+          // Block the caller if action is 'block' or 'on'
+          if (action === 'block') {
+            await sock.updateBlockStatus(call.from, 'block');
 
-          // Notify user
-          await sock.sendMessage(call.from, {
-            text: '🚫 Calls are not allowed. You have been blocked.'
-          });
+            // Notify user
+            await sock.sendMessage(call.from, {
+              text: '🚫 Calls are not allowed. You have been blocked.'
+            });
+          }
         }
       }
     } catch (err) {

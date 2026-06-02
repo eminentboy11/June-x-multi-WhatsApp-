@@ -33,6 +33,7 @@ module.exports = {
       antiviewonce: false,
       antibot: false,
       anticall: false,
+      anticallAction: 'decline',
       antigroupmention: false,
       antigroupmentionAction: 'delete',
       antigroupstatus: false,
