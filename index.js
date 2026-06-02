@@ -317,9 +317,9 @@ async function downloadSessionData() {
                 const b64 = sid.split('June-Ultra:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('JUNE-MD:~')) {
+            } else if (sid.startsWith('June::~')) {
                 // Primary format: plain base64
-                const b64 = sid.split('JUNE-MD:~')[1]
+                const b64 = sid.split('June::~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
             } else {
