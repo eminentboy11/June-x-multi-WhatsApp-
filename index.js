@@ -106,7 +106,7 @@ const handler = require('./handler')
 
 const sessionDir = path.join(__dirname, config.sessionName || 'session')
 const credsPath = path.join(sessionDir, 'creds.json')
-const loginFile = path.join(sessionDir, 'login.json')
+const loginFile = path.join(__dirname, 'login.json')
 const envPath = path.join(process.cwd(), '.env')
 
 // ─── Auto-generate .env if missing ────────────────────────────────────────────
@@ -254,7 +254,6 @@ const question = (text) => rl
 // ─── Session Helpers ──────────────────────────────────────────────────────────
 
 async function saveLoginMethod(method) {
-    await fs.promises.mkdir(sessionDir, { recursive: true })
     await fs.promises.writeFile(loginFile, JSON.stringify({ method }, null, 2))
 }
 
@@ -1163,31 +1162,23 @@ function startKeepAliveServer() {
 
     function tryListen() {
         if (portIndex >= PORTS_TO_TRY.length) {
-            log('[ KEEP-ALIVE ] No available port found — server not started.', 'yellow');
             return;
         }
         const PORT = PORTS_TO_TRY[portIndex];
         server.listen(PORT, '0.0.0.0');
 
         server.once('listening', () => {
-            log(`[ KEEP-ALIVE ] Server listening on port ${PORT}`, 'green');
-
             // Self-ping every 4 minutes
             const selfPingUrl = process.env.APP_URL || `http://localhost:${PORT}/health`;
             setInterval(() => {
-                http.get(selfPingUrl, (r) => {
-                    if (r.statusCode === 200) log('[ KEEP-ALIVE ] Self-ping OK ✅', 'cyan');
-                }).on('error', () => {});
+                http.get(selfPingUrl, (r) => {}).on('error', () => {});
             }, 4 * 60 * 1000);
         });
 
         server.once('error', (err) => {
             if (err.code === 'EADDRINUSE') {
-                log(`[ KEEP-ALIVE ] Port ${PORT} busy, trying next...`, 'yellow');
                 portIndex++;
                 tryListen();
-            } else {
-                log(`[ KEEP-ALIVE ] Server error: ${err.message}`, 'yellow');
             }
         });
     }
