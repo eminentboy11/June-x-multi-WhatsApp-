@@ -18,7 +18,6 @@ module.exports = {
       }, { quoted: msg });
     }
 
-    await sock.sendMessage(from, { text: '⏳ Fetching file info...' }, { quoted: msg });
 
     try {
       // Fetch the MediaFire page
@@ -51,9 +50,6 @@ module.exports = {
         }, { quoted: msg });
       }
 
-      await sock.sendMessage(from, {
-        text: `◆ *MEDIAFIRE DOWNLOADER*\n\n☆ *File:* ${fileName}\n◇ *Size:* ${fileSize}\n\n⬇️ Downloading...`
-      }, { quoted: msg });
 
       // Download the file
       const fileResponse = await axios.get(directLink, {
