@@ -1,5 +1,5 @@
 /**
- * Crop Command
+ * Crop Command — Fixed
  * Crop any sticker/image/video into a perfect square sticker (animated for videos)
  */
 
@@ -13,193 +13,220 @@ const webp = require('node-webpmux');
 const config = require('../../config');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
-// Max file size: 50MB
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
-const getQuotedMessage = (message) =>
-  message.message?.extendedTextMessage?.contextInfo?.quotedMessage ||
-  message.message?.buttonsResponseMessage?.contextInfo?.quotedMessage ||
-  message.message?.listResponseMessage?.contextInfo?.quotedMessage ||
-  null;
+// ── Helpers (same pattern as fixed sticker.js) ─────────────────────
 
-const resolveMedia = (message) => {
-  const messageType = Object.keys(message.message || {})[0];
-  if (messageType === 'imageMessage' || messageType === 'stickerMessage' || messageType === 'videoMessage' || messageType === 'documentMessage') {
-    return { type: messageType, media: message.message[messageType] };
+/**
+ * Extract media from any message wrapper.
+ * Returns { type, media } or null.
+ */
+function extractMedia(messageObj) {
+  if (!messageObj) return null;
+  const allowed = ['imageMessage', 'videoMessage', 'stickerMessage', 'gifMessage'];
+  for (const type of allowed) {
+    if (messageObj[type]) return { type, media: messageObj[type] };
   }
-  const quoted = getQuotedMessage(message);
-  if (!quoted) return null;
-  const quotedType = Object.keys(quoted || {})[0];
-  if (quotedType === 'imageMessage' || quotedType === 'stickerMessage' || quotedType === 'videoMessage' || quotedType === 'documentMessage') {
-    return { type: quotedType, media: quoted[quotedType] };
+  // documentMessage only if image/video mime
+  if (messageObj.documentMessage &&
+      /^(image|video)/.test(messageObj.documentMessage.mimetype || '')) {
+    return { type: 'documentMessage', media: messageObj.documentMessage };
   }
   return null;
-};
+}
+
+/**
+ * Pull contextInfo from wherever it lives in the message.
+ * Covers: text replies, image/video/sticker-caption replies.
+ */
+function getContextInfo(msg) {
+  const m = msg.message;
+  if (!m) return null;
+  return (
+    m.extendedTextMessage?.contextInfo  ||
+    m.imageMessage?.contextInfo         ||
+    m.videoMessage?.contextInfo         ||
+    m.stickerMessage?.contextInfo       ||
+    m.documentMessage?.contextInfo      ||
+    null
+  );
+}
+
+/**
+ * Determine if media should be treated as animated.
+ */
+function isAnimatedMedia(messageObj) {
+  if (!messageObj) return false;
+  if (messageObj.videoMessage)                           return true;
+  if (messageObj.imageMessage?.mimetype?.includes('gif')) return true;
+  if (messageObj.imageMessage?.gifPlayback)              return true;
+  if ((messageObj.stickerMessage?.isAnimated))           return true;
+  if ((messageObj.gifMessage))                           return true;
+  return false;
+}
+
+const execPromise = (cmd) =>
+  new Promise((resolve, reject) =>
+    exec(cmd, { maxBuffer: 50 * 1024 * 1024 }, (err, _stdout, stderr) => {
+      if (err) { err.stderr = stderr; return reject(err); }
+      resolve();
+    })
+  );
+
+// ── Command ────────────────────────────────────────────────────────
 
 module.exports = {
   name: 'crop',
   aliases: ['square', 'cropper'],
-  description: 'Crop sticker/image/video to a perfect square sticker (animated for videos)',
+  description: 'Crop sticker/image/video to a perfect square sticker',
   usage: '.crop (reply to sticker/image/video)',
   category: 'general',
-  
+
   async execute(sock, msg, args, extra) {
-    // Declare temp files outside try block so they're available in finally
-    const tmpDir = getTempDir();
-    const tempInput = path.join(tmpDir, `temp_${Date.now()}`);
-    const tempOutput = path.join(tmpDir, `crop_${Date.now()}.webp`);
-    const tempFiles = [tempInput, tempOutput];
-    
+    const chatId = extra.from;
+    const tmpDir  = getTempDir();
+    const ts      = Date.now();
+    const tempInput  = path.join(tmpDir, `crop_in_${ts}`);
+    const tempOutput = path.join(tmpDir, `crop_out_${ts}.webp`);
+    const tempFiles  = [tempInput, tempOutput];
+
     try {
-      // The message that will be quoted in the reply
-      const messageToQuote = msg;
-      
-      // The message object that contains the media to be downloaded
+      // ── 1. Resolve target message ─────────────────────────────
       let targetMessage = msg;
 
-      // If the message is a reply, the target media is in the quoted message
-      if (msg.message?.extendedTextMessage?.contextInfo?.quotedMessage) {
-        const quotedInfo = msg.message.extendedTextMessage.contextInfo;
+      const ctxInfo = getContextInfo(msg);
+      if (ctxInfo?.quotedMessage) {
         targetMessage = {
           key: {
-            remoteJid: extra.from,
-            id: quotedInfo.stanzaId,
-            participant: quotedInfo.participant
+            remoteJid:   chatId,
+            id:          ctxInfo.stanzaId,
+            // FIX: fromMe needed for downloadMediaMessage to pick correct CDN
+            fromMe:      ctxInfo.participant === sock.user?.id ||
+                         ctxInfo.participant === sock.user?.lid,
+            participant: ctxInfo.participant || chatId,
           },
-          message: quotedInfo.quotedMessage
+          message: ctxInfo.quotedMessage,
         };
       }
 
-      const mediaInfo = resolveMedia(targetMessage);
-      
+      // ── 2. Find media ─────────────────────────────────────────
+      const mediaInfo = extractMedia(targetMessage.message);
+
       if (!mediaInfo) {
-        return extra.reply('✂️ Reply to a *sticker*, *image*, or *video* that you want to crop.');
+        return extra.reply(
+          '✂️ Reply to a *sticker*, *image*, or *video* with `.crop`\n' +
+          'or send media with `.crop` as caption.'
+        );
       }
 
-      const { type, media } = mediaInfo;
-      const mediaMessage = media;
+      const { type, media: mediaMessage } = mediaInfo;
 
-      if (!mediaMessage) {
-        return extra.reply('✂️ Please reply to an image/video/sticker with .crop, or send an image/video/sticker with .crop as the caption.');
+      // ── 3. Download ───────────────────────────────────────────
+      let mediaBuffer;
+      try {
+        mediaBuffer = await downloadMediaMessage(
+          targetMessage,
+          'buffer',
+          {},
+          { logger: undefined, reuploadRequest: sock.updateMediaMessage }
+        );
+      } catch (dlErr) {
+        console.error('[crop] downloadMediaMessage failed:', dlErr.message);
+        return extra.reply('❌ Could not download the media. Try forwarding it fresh and retry.');
       }
 
-      // Download media
-      const mediaBuffer = await downloadMediaMessage(
-        targetMessage,
-        'buffer',
-        {},
-        { logger: undefined, reuploadRequest: sock.updateMediaMessage }
-      );
-
-      if (!mediaBuffer) {
-        return extra.reply('❌ Failed to download media. Please try again.');
+      if (!mediaBuffer || mediaBuffer.length === 0) {
+        return extra.reply('❌ Downloaded media was empty. Please try again.');
       }
 
-      // Check file size
       if (mediaBuffer.length > MAX_FILE_SIZE) {
-        return extra.reply(`❌ File too large: ${(mediaBuffer.length / 1024 / 1024).toFixed(2)}MB (max: ${MAX_FILE_SIZE / 1024 / 1024}MB)`);
+        return extra.reply(
+          `❌ File too large: ${(mediaBuffer.length / 1024 / 1024).toFixed(2)} MB (max 50 MB)`
+        );
       }
 
-      // Write media to temp file
       fs.writeFileSync(tempInput, mediaBuffer);
 
-      // Check if media is animated (GIF or video)
-      const isAnimated = mediaMessage.mimetype?.includes('gif') || 
-                        mediaMessage.mimetype?.includes('video') || 
-                        mediaMessage.seconds > 0 ||
-                        type === 'videoMessage';
+      // ── 4. Build ffmpeg command ───────────────────────────────
+      const animated    = isAnimatedMedia(targetMessage.message);
+      const isLargeFile = mediaBuffer.length > 5 * 1024 * 1024;
 
-      // Get file size to determine compression level
-      const fileSizeKB = mediaBuffer.length / 1024;
-      const isLargeFile = fileSizeKB > 5000; // 5MB threshold
+      // Square-crop filter: crop to smallest dimension, then scale to 512×512
+      const cropFilter = 'crop=min(iw\\,ih):min(iw\\,ih),scale=512:512';
 
-      // Convert to WebP using ffmpeg with crop to square
-      // For videos: more aggressive compression, lower quality, shorter duration
-      // For images: standard compression
       let ffmpegCommand;
-      
-      if (isAnimated) {
+      if (animated) {
         if (isLargeFile) {
-          // Large video: very aggressive compression, max 2 seconds, very low quality
-          ffmpegCommand = `"${ffmpegPath}" -i "${tempInput}" -t 2 -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,fps=8" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 100k -max_muxing_queue_size 1024 "${tempOutput}"`;
+          ffmpegCommand =
+            `"${ffmpegPath}" -y -i "${tempInput}" -t 2 ` +
+            `-vf "${cropFilter},fps=8" ` +
+            `-c:v libwebp -preset default -loop 0 -vsync 0 ` +
+            `-pix_fmt yuva420p -quality 30 -compression_level 6 ` +
+            `-b:v 100k -max_muxing_queue_size 1024 "${tempOutput}"`;
         } else {
-          // Normal video: aggressive compression, max 3 seconds, lower quality
-          ffmpegCommand = `"${ffmpegPath}" -i "${tempInput}" -t 3 -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,fps=12" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 50 -compression_level 6 -b:v 150k -max_muxing_queue_size 1024 "${tempOutput}"`;
+          ffmpegCommand =
+            `"${ffmpegPath}" -y -i "${tempInput}" -t 3 ` +
+            `-vf "${cropFilter},fps=12" ` +
+            `-c:v libwebp -preset default -loop 0 -vsync 0 ` +
+            `-pix_fmt yuva420p -quality 50 -compression_level 6 ` +
+            `-b:v 150k -max_muxing_queue_size 1024 "${tempOutput}"`;
         }
       } else {
-        // Image: standard compression
-        ffmpegCommand = `"${ffmpegPath}" -i "${tempInput}" -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,format=rgba" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 75 -compression_level 6 "${tempOutput}"`;
+        ffmpegCommand =
+          `"${ffmpegPath}" -y -i "${tempInput}" ` +
+          `-vf "${cropFilter},format=rgba" ` +
+          `-c:v libwebp -preset default -loop 0 -vsync 0 ` +
+          `-pix_fmt yuva420p -quality 75 -compression_level 6 "${tempOutput}"`;
       }
 
-      await new Promise((resolve, reject) => {
-        exec(ffmpegCommand, (error, stdout, stderr) => {
-          if (error) {
-            console.error('FFmpeg error:', error);
-            console.error('FFmpeg stderr:', stderr);
-            reject(error);
-          } else {
-            console.log('FFmpeg stdout:', stdout);
-            resolve();
-          }
-        });
-      });
+      await execPromise(ffmpegCommand);
 
-      // Check if output file exists and has content
-      if (!fs.existsSync(tempOutput)) {
-        throw new Error('FFmpeg failed to create output file');
+      // ── 5. Validate output ────────────────────────────────────
+      if (!fs.existsSync(tempOutput) || fs.statSync(tempOutput).size === 0) {
+        throw new Error('FFmpeg produced no output file.');
       }
 
-      const outputStats = fs.statSync(tempOutput);
-      if (outputStats.size === 0) {
-        throw new Error('FFmpeg created empty output file');
-      }
-
-      // Read the WebP file
-      let webpBuffer = fs.readFileSync(tempOutput);
-      
-      // Check final file size
-      const finalSizeKB = webpBuffer.length / 1024;
-      console.log(`Final sticker size: ${Math.round(finalSizeKB)} KB`);
-      
-      // If still too large, we'll send it anyway but log a warning
-      if (finalSizeKB > 1000) { // 1MB limit for WhatsApp stickers
-        console.log(`⚠️ Warning: Sticker size (${Math.round(finalSizeKB)} KB) exceeds recommended limit but will be sent anyway`);
-      }
-
-      // Add metadata using webpmux
+      // ── 6. Inject EXIF metadata ───────────────────────────────
+      const webpBuffer = fs.readFileSync(tempOutput);
       const img = new webp.Image();
       await img.load(webpBuffer);
 
-      // Create metadata
       const json = {
-        'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-        'sticker-pack-name': config.packname || 'Made by',
-        'emojis': ['✂️']
+        'sticker-pack-id':        crypto.randomBytes(32).toString('hex'),
+        'sticker-pack-name':      config.packname || 'LIGHT-MD',
+        'sticker-pack-publisher': config.packpublisher || '',
+        emojis: ['✂️'],
       };
 
-      // Create exif buffer
-      const exifAttr = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
+      const exifAttr = Buffer.from([
+        0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x16, 0x00, 0x00, 0x00,
+      ]);
       const jsonBuffer = Buffer.from(JSON.stringify(json), 'utf8');
       const exif = Buffer.concat([exifAttr, jsonBuffer]);
       exif.writeUIntLE(jsonBuffer.length, 14, 4);
 
-      // Set the exif data
       img.exif = exif;
-
-      // Get the final buffer with metadata
       const finalBuffer = await img.save(null);
 
-      // Send the sticker
-      await sock.sendMessage(extra.from, { 
-        sticker: finalBuffer
-      }, { quoted: messageToQuote });
+      // ── 7. Send ───────────────────────────────────────────────
+      await sock.sendMessage(chatId, { sticker: finalBuffer }, { quoted: msg });
 
     } catch (error) {
-      console.error('Crop command error:', error);
-      await extra.reply('❌ Failed to crop sticker! Try with an image or video.');
+      console.error('[crop] Error:', error);
+
+      let friendly = '❌ Failed to crop. Try with a different image or video.';
+      if (error.message?.includes('ffmpeg') || error.stderr) {
+        friendly = '❌ Could not process this media format with ffmpeg.';
+      } else if (error.message?.includes('webp') || error.message?.includes('load')) {
+        friendly = '❌ WebP conversion failed. Media may be corrupted.';
+      }
+
+      await extra.reply(friendly);
+
     } finally {
-      // Always cleanup temp files
-      tempFiles.forEach(file => deleteTempFile(file));
+      tempFiles.forEach(f => deleteTempFile(f));
     }
-  }
+  },
 };
