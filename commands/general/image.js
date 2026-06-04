@@ -58,7 +58,7 @@ module.exports = [
   {
     name: 'image',
     aliases: ['img-search', 'photo', 'pic', 'search-img'],
-    category: 'Search',
+    category: 'general',
     description: 'Search and fetch an image from the web using DuckDuckGo',
     usage: '.image <query> [--num 1-10]',
 
