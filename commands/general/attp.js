@@ -5,42 +5,7 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 const { writeExifVid } = require('../../utils/exif');
-
-// ffmpeg-static ships WITHOUT the drawtext filter.
-// Search multiple known locations (PATH, system dirs, Nix store on Replit)
-// before falling back to ffmpeg-static so this works on any server.
-// Evaluated lazily (on first use) to avoid blocking startup.
-let _ffmpegPath = null;
-function resolveFFmpeg() {
-  if (_ffmpegPath) return _ffmpegPath;
-  const candidates = [];
-  try {
-    const bin = execSync('which ffmpeg 2>/dev/null', { encoding: 'utf8', timeout: 3000 }).trim();
-    if (bin) candidates.push(bin);
-  } catch (_) {}
-  candidates.push('/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg');
-  try {
-    // Use find with -maxdepth and a short timeout to avoid hanging on large stores
-    const nixBins = execSync(
-      'find /nix/store -maxdepth 3 -name ffmpeg -type f 2>/dev/null | head -5',
-      { encoding: 'utf8', timeout: 4000 }
-    ).split('\n').filter(Boolean);
-    candidates.push(...nixBins);
-  } catch (_) {}
-  try { candidates.push(require('ffmpeg-static')); } catch (_) {}
-
-  for (const bin of candidates) {
-    try {
-      if (!bin || !fs.existsSync(bin)) continue;
-      const out = execSync(`"${bin}" -filters 2>&1`, { encoding: 'utf8', timeout: 5000 });
-      if (out.includes('drawtext')) { _ffmpegPath = bin; return bin; }
-    } catch (_) {}
-  }
-  _ffmpegPath = require('ffmpeg-static');
-  return _ffmpegPath;
-}
 
 module.exports = {
   name: 'attp',
@@ -118,7 +83,7 @@ function renderBlinkingVideoWithFfmpeg(text) {
       'pipe:1'
     ];
 
-    const ff = spawn(ffmpegPath, args);
+    const ff = spawn('ffmpeg', args);
     const chunks = [];
     const errors = [];
     ff.stdout.on('data', d => chunks.push(d));
