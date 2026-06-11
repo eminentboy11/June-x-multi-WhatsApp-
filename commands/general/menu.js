@@ -103,7 +103,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
   menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
   menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
-  menu += `┃ Speed: ${ping} ms\n`;
+  menu += `┃ ꜱᴘᴇᴇᴅ: ${ping} ms\n`;
   menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
   menu += `┃ Vᴇʀꜱɪᴏɴ: v${config.version}\n`;
   menu += `┃ ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
