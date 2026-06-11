@@ -2,7 +2,7 @@ module.exports = {
     ownerNumber: ['254794898005','254798952773','254764249858'],
     ownerName: ['Supreme', '✮⃝𝐒ᵘᵖʳᵉᵐᵉ', 'Tay keith'],
     
-    botName: 'June-Ultra',
+    botName: 'JuneX-Ultra',
     prefix: '.',
     version: '2.8.4',
     sessionName: '',
