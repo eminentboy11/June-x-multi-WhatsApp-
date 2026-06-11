@@ -9,7 +9,6 @@ const os = require('os');
 
 const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
-// Detect host/platform
 const detectPlatform = () => {
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return "🚉 Railway";
   if (process.env.DYNO) return "☁️ Heroku";
@@ -159,16 +158,13 @@ function getThumbnail() {
   try { return fs.readFileSync(picked); } catch { return null; }
 }
 
-function getButtons(repoUrl) {
-  const prefix = config.prefix || '.';
-  const youtubeUrl = config.social?.youtube || 'https://youtube.com';
-
+function getButtons(repoUrl, youtubeUrl, prefix, dateNow) {
   return [
     {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
         display_text: '💻 Open Repo',
-        url: config.social?.github || 'https://github.com'
+        url: repoUrl
       })
     },
     {
@@ -178,13 +174,7 @@ function getButtons(repoUrl) {
         url: youtubeUrl
       })
     },
-    {
-      name: 'cta_copy',
-      buttonParamsJson: JSON.stringify({
-        display_text: '🏓 Ping',
-        copy_code: `${prefix}ping`
-      })
-    }
+    { id: `${prefix}ping_${dateNow}`, text: '🏓 Ping' }
   ];
 }
 
@@ -221,6 +211,8 @@ module.exports = {
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
+      const youtubeUrl = config.social?.youtube || 'https://youtube.com';
+      const prefix = config.prefix || '.';
       const chatId = extra.from;
       const fullMenu = applyFont(menulist + `\n> © Supreme`);
 
@@ -246,14 +238,18 @@ module.exports = {
         }, { quoted: msg });
 
       } else if (menustyle === '2') {
-        const footer = `Powered by Supreme`;
         const menuTextClean = applyFont(menulist);
-        await sendButtons(sock, chatId, {
-          title: '',
-          body: menuTextClean,
-          footer: footer,
-          buttons: getButtons(plink),
-        }, { quoted: msg });
+        const dateNow = Date.now();
+        try {
+          await sendButtons(sock, chatId, {
+            text: menuTextClean,
+            footer: `Powered by Supreme`,
+            buttons: getButtons(plink, youtubeUrl, prefix, dateNow),
+          }, { quoted: msg });
+        } catch (e) {
+          console.error('Style 2 error:', e);
+          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+        }
 
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
