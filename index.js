@@ -362,9 +362,9 @@ async function getLoginMethod() {
     if (choice === '1') {
         log(`\nEnter your session ID, if it doesn't work put it in .env file (Get it from bot repository)`, 'green')
         log('Formats accepted:', 'green')
-        log('  June-X:~<base64>', 'green')
-        log('  Ultra-X:~<base64>', 'green')
-        log('  June-Ultra:~<base64>', 'green')
+        log('1. June-X:~<base64>', 'green')
+        log('2. Ultra-X:~<base64>', 'green')
+        log('3. June-Ultra:~<base64>', 'green')
         let sessionId = await question(chalk.greenBright('\nYour session ID: '))
         sessionId = sessionId.trim()
         if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
