@@ -97,17 +97,18 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu = `┏━━❐✧ ${bot} ✧❐\n`;
-  menu += `┃✧ Prefix: [${prefix}]\n`;
-  menu += `┃✧ Owner: ${ownerName}\n`;
-  menu += `┃✧ Mode: ${currentMode}\n`;
-  menu += `┃✧ Platform: ${hostName}\n`;
-  menu += `┃✧ Speed: ${ping} ms\n`;
-  menu += `┃✧ Uptime: ${uptimeFormatted}\n`;
-  menu += `┃✧ Version: v${config.version}\n`;
-  menu += `┃✧ Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  menu += `┃✧ RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  menu += `┃✧ Commands: ${totalCount}\n`;
+  let menu = 
+          `┏━━❐✧ ${bot} ✧❐\n`;
+  menu += `┃ Prefix: [${prefix}]\n`;
+  menu += `┃ Owner: ${ownerName}\n`;
+  menu += `┃ Mode: ${currentMode}\n`;
+  menu += `┃ Platform: ${hostName}\n`;
+  menu += `┃ Speed: ${ping} ms\n`;
+  menu += `┃ Uptime: ${uptimeFormatted}\n`;
+  menu += `┃ Version: v${config.version}\n`;
+  menu += `┃ Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃ RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃ Commands: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
@@ -172,7 +173,7 @@ function getButtons(repoUrl, youtubeUrl, prefix, dateNow) {
     {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
-        display_text: '💻 Open Repo',
+        display_text: '🌠 Open Repo',
         url: repoUrl
       })
     },
