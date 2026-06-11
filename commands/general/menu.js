@@ -99,9 +99,9 @@ function buildMenuText(categories, extra, totalCount, speed) {
 
   let menu = 
           `┏━━❐✧ ${bot} ✧❐\n`;
-  menu += `┃ Prefix: [${prefix}]\n`;
+  menu += `┃ ᴘʀᴇꜰɪx: [${prefix}]\n`;
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
-  menu += `┃ Mode: ${currentMode}\n`;
+  menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
   menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
   menu += `┃ Speed: ${ping} ms\n`;
   menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
