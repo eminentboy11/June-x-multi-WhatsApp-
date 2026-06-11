@@ -97,7 +97,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu = 
+  let menu =
           `┏━━❐◉ ${bot} ◉❐\n`;
   menu += `┃ ᴘʀᴇꜰɪx: [${prefix}]\n`;
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
@@ -227,13 +227,12 @@ module.exports = {
       const originalSender = msg.key?.participant || msg.key?.remoteJid;
       const fullMenu = applyFont(menulist + `\n> © Supreme`);
 
+      // ── Style 1: Image with externalAdReply ──────────────────────────────
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
-          document: { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
+          image: tylorkids || { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
           caption: fullMenu,
-          mimetype: "application/zip",
-          fileName: `${botname}`,
-          fileLength: "9999999",
+          mentions: [extra.sender],
           contextInfo: {
             mentionedJid: [extra.sender],
             externalAdReply: {
@@ -248,6 +247,7 @@ module.exports = {
           },
         }, { quoted: msg });
 
+      // ── Style 2: Buttons ─────────────────────────────────────────────────
       } else if (menustyle === '2') {
         const menuTextClean = applyFont(menulist);
         const dateNow = Date.now();
@@ -260,7 +260,7 @@ module.exports = {
             buttons: getButtons(plink, youtubeUrl, prefix, dateNow),
           }, { quoted: msg });
 
-          // ── Ping button listener ────────────────────────────────────────
+          // ── Ping button listener ──────────────────────────────────────
           const handlePingTap = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -290,6 +290,7 @@ module.exports = {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
+      // ── Style 3: Text with externalAdReply ───────────────────────────────
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
           text: fullMenu,
@@ -307,6 +308,7 @@ module.exports = {
           },
         }, { quoted: msg });
 
+      // ── Style 4: Image caption ───────────────────────────────────────────
       } else if (menustyle === '4') {
         await sock.sendMessage(chatId, {
           image: tylorkids || { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
@@ -314,9 +316,10 @@ module.exports = {
           mentions: [extra.sender],
         }, { quoted: msg });
 
+      // ── Style 5: nativeFlowMessage ───────────────────────────────────────
       } else if (menustyle === '5') {
         try {
-          let massage = generateWAMessageFromContent(chatId, {
+          const massage = generateWAMessageFromContent(chatId, {
             viewOnceMessage: {
               message: {
                 interactiveMessage: {
@@ -334,30 +337,40 @@ module.exports = {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
+      // ── Style 6: viewOnce image ──────────────────────────────────────────
       } else if (menustyle === '6') {
         try {
-          await sock.relayMessage(chatId, {
-            requestPaymentMessage: {
-              currencyCodeIso4217: 'USD',
-              requestFrom: '0@s.whatsapp.net',
-              amount1000: '1',
-              noteMessage: {
-                extendedTextMessage: {
-                  text: fullMenu,
+          const imgBuffer = tylorkids || null;
+          const viewOnceMsg = generateWAMessageFromContent(chatId, {
+            viewOnceMessage: {
+              message: {
+                imageMessage: {
+                  url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png",
+                  mimetype: "image/png",
+                  caption: fullMenu,
+                  jpegThumbnail: imgBuffer || undefined,
                   contextInfo: {
                     mentionedJid: [msg.key.participant || msg.key.remoteJid],
                     externalAdReply: {
                       showAdAttribution: false,
+                      title: botname,
+                      body: ownername,
+                      thumbnail: imgBuffer || undefined,
+                      sourceUrl: plink,
+                      mediaType: 1,
+                      renderLargerThumbnail: true,
                     },
                   },
                 },
               },
             },
-          }, {});
+          }, { quoted: msg, userJid: sock.user?.id });
+          await sock.relayMessage(chatId, viewOnceMsg.message, { messageId: viewOnceMsg.key.id });
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
+      // ── Fallback ─────────────────────────────────────────────────────────
       } else {
         await sock.sendMessage(chatId, {
           text: fullMenu,
