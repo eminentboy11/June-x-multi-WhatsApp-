@@ -125,7 +125,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
     menu += `┏━━❐ \`${label}\` ❐\n`;
     for (const cmd of cmds) {
-      menu += `┃✦ ${cmd.name}\n`;
+      menu += `┃➧ ${cmd.name}\n`;
     }
     menu += `┗❐\n`;
     sectionIndex++;
