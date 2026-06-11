@@ -233,7 +233,7 @@ module.exports = {
           caption: fullMenu,
           mimetype: "application/zip",
           fileName: `${botname}`,
-          fileLength: "9999999",
+          fileLength: "99999",
           contextInfo: {
             mentionedJid: [extra.sender],
             externalAdReply: {
@@ -256,7 +256,7 @@ module.exports = {
         try {
           await sendButtons(sock, chatId, {
             text: menuTextClean,
-            footer: `Powered by Supreme`,
+            footer: `© Supreme`,
             buttons: getButtons(plink, youtubeUrl, prefix, dateNow),
           }, { quoted: msg });
 
