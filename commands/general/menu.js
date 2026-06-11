@@ -100,15 +100,15 @@ function buildMenuText(categories, extra, totalCount, speed) {
   let menu = 
           `┏━━❐✧ ${bot} ✧❐\n`;
   menu += `┃ Prefix: [${prefix}]\n`;
-  menu += `┃ Owner: ${ownerName}\n`;
+  menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
   menu += `┃ Mode: ${currentMode}\n`;
-  menu += `┃ Platform: ${hostName}\n`;
+  menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
   menu += `┃ Speed: ${ping} ms\n`;
-  menu += `┃ Uptime: ${uptimeFormatted}\n`;
-  menu += `┃ Version: v${config.version}\n`;
-  menu += `┃ Usage: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  menu += `┃ RAM: ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  menu += `┃ Commands: ${totalCount}\n`;
+  menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
+  menu += `┃ Vᴇʀꜱɪᴏɴ: v${config.version}\n`;
+  menu += `┃ ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃ ʀᴀᴍ: ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃ Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
