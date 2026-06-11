@@ -159,13 +159,32 @@ function getThumbnail() {
   try { return fs.readFileSync(picked); } catch { return null; }
 }
 
-function getButtons() {
+function getButtons(repoUrl) {
   const prefix = config.prefix || '.';
+  const youtubeUrl = config.social?.youtube || 'https://youtube.com';
+
   return [
-    { id: `${prefix}repo`,       text: '💻 Bot Repo' },
-    { id: `${prefix}alive`,         text: '🛸 alive' },
-    { id: `${prefix}ping`,   text: '🏓 Ping' },
-    { id: `${prefix}uptime`, text: '⏱️ Uptime' }
+    {
+      name: 'cta_url',
+      buttonParamsJson: JSON.stringify({
+        display_text: '💻 Open Repo',
+        url: config.social?.github || 'https://github.com'
+      })
+    },
+    {
+      name: 'cta_url',
+      buttonParamsJson: JSON.stringify({
+        display_text: '▶️ YouTube',
+        url: youtubeUrl
+      })
+    },
+    {
+      name: 'cta_copy',
+      buttonParamsJson: JSON.stringify({
+        display_text: '🏓 Ping',
+        copy_code: `${prefix}ping`
+      })
+    }
   ];
 }
 
@@ -231,9 +250,9 @@ module.exports = {
         const menuTextClean = applyFont(menulist);
         await sendButtons(sock, chatId, {
           title: '',
-          text: menuTextClean,
+          body: menuTextClean,
           footer: footer,
-          buttons: getButtons(),
+          buttons: getButtons(plink),
         }, { quoted: msg });
 
       } else if (menustyle === '3') {
