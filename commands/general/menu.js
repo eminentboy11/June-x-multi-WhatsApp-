@@ -217,11 +217,11 @@ module.exports = {
       const speedMs = Date.now() - msgTimestamp;
 
       const menulist = buildMenuText(categories, extra, uniqueCount, speedMs);
-      const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
       const youtubeUrl = config.social?.youtube || 'https://youtube.com';
+      const tylorkids = plink;
       const prefix = config.prefix || '.';
       const chatId = extra.from;
       const originalSender = msg.key?.participant || msg.key?.remoteJid;
