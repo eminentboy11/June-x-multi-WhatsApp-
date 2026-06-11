@@ -97,7 +97,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu =
+  let menu = 
           `┏━━❐◉ ${bot} ◉❐\n`;
   menu += `┃ ᴘʀᴇꜰɪx: [${prefix}]\n`;
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
@@ -229,10 +229,11 @@ module.exports = {
 
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
-          document: tylorkids || { url: 'https://i.ibb.co/2W0H9Jq/avatar-contact.png' },
+          document: { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
           caption: fullMenu,
-          mimetype: 'application/pdf',
+          mimetype: "application/pdf",
           fileName: `${botname}.pdf`,
+          fileLength: "9999999",
           contextInfo: {
             mentionedJid: [extra.sender],
             externalAdReply: {
@@ -259,6 +260,7 @@ module.exports = {
             buttons: getButtons(plink, youtubeUrl, prefix, dateNow),
           }, { quoted: msg });
 
+          // ── Ping button listener ────────────────────────────────────────
           const handlePingTap = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -288,15 +290,11 @@ module.exports = {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
-      // ── Style 3: Image + caption with thumbnail ─────────────────────────────
-      // Fixed: was text+externalAdReply which WhatsApp blocks
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
-          image: tylorkids || { url: 'https://i.ibb.co/2W0H9Jq/avatar-contact.png' },
-          caption: fullMenu,
+          text: fullMenu,
           mentions: [extra.sender],
           contextInfo: {
-            mentionedJid: [extra.sender],
             externalAdReply: {
               showAdAttribution: false,
               title: botname,
@@ -304,14 +302,14 @@ module.exports = {
               thumbnail: tylorkids,
               sourceUrl: plink,
               mediaType: 1,
-              renderLargerThumbnail: false,
+              renderLargerThumbnail: true,
             },
           },
         }, { quoted: msg });
 
       } else if (menustyle === '4') {
         await sock.sendMessage(chatId, {
-          image: tylorkids || { url: 'https://i.ibb.co/2W0H9Jq/avatar-contact.png' },
+          image: tylorkids || { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
           caption: fullMenu,
           mentions: [extra.sender],
         }, { quoted: msg });
@@ -336,30 +334,26 @@ module.exports = {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
 
-      // ── Style 6: Forwarded-style message with ad reply ──────────────────────
-      // Fixed: was requestPaymentMessage which WhatsApp blocks for bots
       } else if (menustyle === '6') {
         try {
-          const fwdMsg = generateWAMessageFromContent(chatId, {
-            extendedTextMessage: {
-              text: fullMenu,
-              contextInfo: {
-                isForwarded: true,
-                forwardingScore: 999,
-                mentionedJid: [extra.sender],
-                externalAdReply: {
-                  showAdAttribution: false,
-                  title: botname,
-                  body: ownername,
-                  thumbnail: tylorkids || undefined,
-                  sourceUrl: plink,
-                  mediaType: 1,
-                  renderLargerThumbnail: true,
+          await sock.relayMessage(chatId, {
+            requestPaymentMessage: {
+              currencyCodeIso4217: 'USD',
+              requestFrom: '0@s.whatsapp.net',
+              amount1000: '1',
+              noteMessage: {
+                extendedTextMessage: {
+                  text: fullMenu,
+                  contextInfo: {
+                    mentionedJid: [msg.key.participant || msg.key.remoteJid],
+                    externalAdReply: {
+                      showAdAttribution: false,
+                    },
+                  },
                 },
               },
             },
-          }, { quoted: msg, userJid: sock.user?.id });
-          await sock.relayMessage(chatId, fwdMsg.message, { messageId: fwdMsg.key.id });
+          }, {});
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
         }
