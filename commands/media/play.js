@@ -53,10 +53,25 @@ async function searchYouTube(query) {
     });
 }
 
+async function getVideoFromUrl(url) {
+    const ytId = (url.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
+    if (!ytId) throw new Error('Invalid YouTube URL');
+    const result = await yts({ videoId: ytId });
+    if (!result?.title) throw new Error('Could not fetch video info');
+    return {
+        title: result.title,
+        timestamp: result.timestamp || '',
+        views: result.views || 0,
+        author: result.author || {},
+        url: url,
+        videoId: ytId,
+    };
+}
+
 async function downloadAudio(videoUrl) {
     return withRetry(async () => {
         try {
-            // Primary: GiftedTech
+            // Primary
             const primary = await axios.get(
                 `https://api.drexapp.space/downloader/ytplay?q=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
@@ -71,9 +86,9 @@ async function downloadAudio(videoUrl) {
             }
             throw new Error('Primary API failed');
         } catch (err) {
-            console.warn('[song] primary audio API failed, using fallback:', err.message);
+            console.warn('[play2] primary API failed, using fallback:', err.message);
 
-            // Fallback: DrexApp
+            // Fallback
             const fallback = await axios.get(
                 `https://apis.xwolf.space/download/yta?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
@@ -107,15 +122,16 @@ module.exports = {
     aliases: ['song2', 'mp3', 'yta2'],
     category: 'media',
     description: 'Search and download YouTube songs as audio',
-    usage: '.song <song name>',
+    usage: '.play2 <song name or YouTube URL>',
 
     async execute(sock, msg, args, extra) {
         if (!args.length) {
             return extra.reply(
                 `🎵 *Song Downloader*\n\n` +
                 `*Usage:*\n` +
-                `• \`.song not like us\` — search + download\n` +
-                `• Reply to a message with \`.song\` — use replied text as query`
+                `• \`.play2 not like us\` — search by name\n` +
+                `• \`.play2 https://youtu.be/xxx\` — use YouTube link\n` +
+                `• Reply to a message with \`.play2\` — use replied text as query`
             );
         }
 
@@ -127,23 +143,27 @@ module.exports = {
         }
 
         if (!query) {
-            return extra.reply('🎵 Provide a song name.\nExample: `.song Not Like Us`');
+            return extra.reply('🎵 Provide a song name or YouTube URL.\nExample: `.play2 Not Like Us`');
         }
 
-        if (query.length > 100) {
-            return extra.reply('📝 Song name too long! Max 100 chars.');
+        if (query.length > 200) {
+            return extra.reply('📝 Query too long! Max 200 chars.');
         }
 
         const from = extra.from;
         await sock.sendMessage(from, { react: { text: '🎼', key: msg.key } });
 
-        // Step 1: Search YouTube
+        // Step 1: Search YouTube OR resolve URL directly
+        const isUrl = query.startsWith('http://') || query.startsWith('https://');
         let video;
+
         try {
-            video = await searchYouTube(query);
+            video = isUrl
+                ? await getVideoFromUrl(query)
+                : await searchYouTube(query);
         } catch (e) {
-            console.error('[song] search error:', e.message);
-            return extra.reply(`❌ Search failed: ${e.message}`);
+            console.error('[play2] video resolve error:', e.message);
+            return extra.reply(`❌ ${isUrl ? 'Could not fetch video info' : 'Search failed'}: ${e.message}`);
         }
 
         const dateNow = Date.now();
@@ -240,13 +260,12 @@ module.exports = {
                 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
             } catch (error) {
-                console.error('[song] download error:', error.message);
+                console.error('[play2] download error:', error.message);
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                 await sock.sendMessage(from, {
                     text: `🚫 Error: ${error.message}\n\n_Try again later._`,
                 }, { quoted: messageData });
             } finally {
-                // Always clean up temp file
                 if (filePath && fs.existsSync(filePath)) {
                     fs.unlinkSync(filePath);
                 }
