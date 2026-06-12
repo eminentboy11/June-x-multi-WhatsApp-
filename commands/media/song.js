@@ -1,6 +1,7 @@
 const yts = require('yt-search');
 const APIs = require('../../utils/api');
 const config = require('../../config');
+const { sendButtons } = require('gifted-btns');
 
 module.exports = {
     name: 'play',
@@ -91,6 +92,11 @@ module.exports = {
 
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
+            const finalThumbnail = audioData.thumbnail || thumbnail;
+
+            const dateNow = Date.now();
+            const prefix = config.prefix || '.';
+            const originalSender = msg.key.participant || msg.key.remoteJid;
 
             // --- Send metadata caption with thumbnail ---
             const caption =
@@ -101,32 +107,77 @@ module.exports = {
                 `⿻ *Link:* ${videoUrl}\n\n` +
                 `> _${config.botName}_`;
 
-            if (thumbnail) {
+            if (finalThumbnail) {
                 await sock.sendMessage(chatId, {
-                    image: { url: thumbnail },
+                    image: { url: finalThumbnail },
                     caption,
                 }, { quoted: msg });
             } else {
                 await sock.sendMessage(chatId, { text: caption }, { quoted: msg });
             }
 
-            // --- Send as DOCUMENT ---
-            await sock.sendMessage(chatId, {
-                document: { url: audioData.download },
-                mimetype: 'audio/mpeg',
-                fileName: `${safeTitle}.mp3`
+            // --- Send buttons ---
+            await sendButtons(sock, chatId, {
+                title: `🎵 SONG DOWNLOADER`,
+                text: `*Select download format:*`,
+                footer: `Made by ${config.botName}`,
+                buttons: [
+                    { id: `${prefix}audio_${dateNow}`,    text: '🎶 1. Audio MP3' },
+                    { id: `${prefix}audiodoc_${dateNow}`, text: '📄 2. Audio Document' },
+                ],
             }, { quoted: msg });
 
-            // --- Send as playable AUDIO ---
-            await sock.sendMessage(chatId, {
-                audio: { url: audioData.download },
-                mimetype: 'audio/mpeg',
-                ptt: false
-            }, { quoted: msg });
+            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
-            await sock.sendMessage(chatId, {
-                react: { text: '✅', key: msg.key }
-            });
+            // --- Listen for button response ---
+            const handleResponse = async (event) => {
+                const messageData = event.messages[0];
+                if (!messageData?.message) return;
+
+                const selectedButtonId =
+                    messageData.message?.buttonsResponseMessage?.selectedButtonId ||
+                    messageData.message?.templateButtonReplyMessage?.selectedId ||
+                    messageData.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+                    null;
+
+                if (!selectedButtonId) return;
+                if (!selectedButtonId.includes(`_${dateNow}`)) return;
+                if (messageData.key?.remoteJid !== chatId) return;
+
+                const responseSender = messageData.key?.participant || messageData.key?.remoteJid;
+                if (chatId.endsWith('@g.us') && responseSender !== originalSender) return;
+
+                await sock.sendMessage(chatId, { react: { text: '⬇️', key: msg.key } });
+
+                try {
+                    const buttonType = selectedButtonId.replace(prefix, '').split('_')[0];
+
+                    if (buttonType === 'audio') {
+                        await sock.sendMessage(chatId, {
+                            audio: { url: audioData.download },
+                            mimetype: 'audio/mpeg',
+                        }, { quoted: messageData });
+
+                    } else if (buttonType === 'audiodoc') {
+                        await sock.sendMessage(chatId, {
+                            document: { url: audioData.download },
+                            mimetype: 'audio/mpeg',
+                            fileName: `${safeTitle}.mp3`,
+                        }, { quoted: messageData });
+                    }
+
+                    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+
+                } catch (error) {
+                    console.error('[play] send error:', error.message);
+                    await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
+                    await sock.sendMessage(chatId, {
+                        text: `🚫 Error: ${error.message}\n\n_Try again later._`,
+                    }, { quoted: messageData });
+                }
+            };
+
+            sock.ev.on('messages.upsert', handleResponse);
 
         } catch (error) {
             console.error('Error in play/song command:', error);
