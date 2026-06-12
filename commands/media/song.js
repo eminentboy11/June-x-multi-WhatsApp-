@@ -1,5 +1,6 @@
 const yts = require('yt-search');
 const APIs = require('../../utils/api');
+const config = require('../../config');
 
 module.exports = {
     name: 'play',
@@ -63,7 +64,6 @@ module.exports = {
             }
 
             // --- Audio download ---
-            // Tries each API in order, stops at first success
             const apiFns = [
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
                 () => APIs.getEliteProTechDownloadByUrl(videoUrl),
@@ -89,9 +89,26 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            // Use title from API if yts didn't find one
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
+
+            // --- Send metadata caption with thumbnail ---
+            const caption =
+                `🎵 *${finalTitle}*\n\n` +
+                `⿻ *Duration:* ${duration || 'N/A'}\n` +
+                `⿻ *Views:* ${views || 'N/A'}\n` +
+                `⿻ *Channel:* ${author || 'N/A'}\n` +
+                `⿻ *Link:* ${videoUrl}\n\n` +
+                `> _${config.botName}_`;
+
+            if (thumbnail) {
+                await sock.sendMessage(chatId, {
+                    image: { url: thumbnail },
+                    caption,
+                }, { quoted: msg });
+            } else {
+                await sock.sendMessage(chatId, { text: caption }, { quoted: msg });
+            }
 
             // --- Send as DOCUMENT ---
             await sock.sendMessage(chatId, {
@@ -106,6 +123,10 @@ module.exports = {
                 mimetype: 'audio/mpeg',
                 ptt: false
             }, { quoted: msg });
+
+            await sock.sendMessage(chatId, {
+                react: { text: '✅', key: msg.key }
+            });
 
         } catch (error) {
             console.error('Error in play/song command:', error);
