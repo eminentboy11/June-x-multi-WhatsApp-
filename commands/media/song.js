@@ -30,7 +30,6 @@ module.exports = {
             let title = searchQuery;
             let duration = '';
             let views = '';
-            let thumbnail = '';
             let author = '';
 
             // --- Metadata extraction ---
@@ -46,7 +45,6 @@ module.exports = {
                 title = found.title;
                 duration = found.timestamp || '';
                 views = found.views ? found.views.toLocaleString() : '';
-                thumbnail = found.thumbnail || '';
                 author = found.author?.name || '';
             } else {
                 try {
@@ -57,7 +55,6 @@ module.exports = {
                             title = result.title;
                             duration = result.timestamp || '';
                             views = result.views ? result.views.toLocaleString() : '';
-                            thumbnail = result.thumbnail || '';
                             author = result.author?.name || '';
                         }
                     }
@@ -92,34 +89,21 @@ module.exports = {
 
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
-            const finalThumbnail = audioData.thumbnail || thumbnail;
 
             const dateNow = Date.now();
             const prefix = config.prefix || '.';
             const originalSender = msg.key.participant || msg.key.remoteJid;
 
-            // --- Send metadata caption with thumbnail ---
-            const caption =
-                `🎵 *${finalTitle}*\n\n` +
-                `⿻ *Duration:* ${duration || 'N/A'}\n` +
-                `⿻ *Views:* ${views || 'N/A'}\n` +
-                `⿻ *Channel:* ${author || 'N/A'}\n` +
-                `⿻ *Link:* ${videoUrl}\n\n` +
-                `> _${config.botName}_`;
-
-            if (finalThumbnail) {
-                await sock.sendMessage(chatId, {
-                    image: { url: finalThumbnail },
-                    caption,
-                }, { quoted: msg });
-            } else {
-                await sock.sendMessage(chatId, { text: caption }, { quoted: msg });
-            }
-
-            // --- Send buttons ---
+            // --- Send buttons with metadata ---
             await sendButtons(sock, chatId, {
                 title: `🎵 SONG DOWNLOADER`,
-                text: `*Select download format:*`,
+                text:
+                    `⿻ *Title:* ${finalTitle}\n` +
+                    `⿻ *Duration:* ${duration || 'N/A'}\n` +
+                    `⿻ *Views:* ${views || 'N/A'}\n` +
+                    `⿻ *Channel:* ${author || 'N/A'}\n` +
+                    `⿻ *Link:* ${videoUrl}\n\n` +
+                    `*Select download format:*`,
                 footer: `Made by ${config.botName}`,
                 buttons: [
                     { id: `${prefix}audio_${dateNow}`,    text: '🎶 1. Audio MP3' },
