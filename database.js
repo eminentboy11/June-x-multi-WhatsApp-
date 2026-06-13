@@ -12,6 +12,7 @@ const USERS_DB = path.join(DB_PATH, 'users.json');
 const WARNINGS_DB = path.join(DB_PATH, 'warnings.json');
 const MODS_DB = path.join(DB_PATH, 'mods.json');
 const MUTED_DB = path.join(DB_PATH, 'muted.json');
+const BOTMODE_DB = path.join(DB_PATH, 'botmode.json');
 
 // Initialize database directory
 if (!fs.existsSync(DB_PATH)) {
@@ -30,6 +31,7 @@ initDB(USERS_DB, {});
 initDB(WARNINGS_DB, {});
 initDB(MODS_DB, { moderators: [] });
 initDB(MUTED_DB, {});
+initDB(BOTMODE_DB, { mode: 'public' });
 
 // Read database
 const readDB = (filePath) => {
@@ -244,6 +246,19 @@ const getMutedUsers = (groupId) => {
   return data[groupId] || [];
 };
 
+// Bot Mode
+const VALID_BOT_MODES = ['public', 'private', 'group', 'pm'];
+
+const getBotMode = () => {
+  const data = readDB(BOTMODE_DB);
+  return data.mode || 'public';
+};
+
+const setBotMode = (mode) => {
+  if (!VALID_BOT_MODES.includes(mode)) throw new Error(`Invalid mode: ${mode}`);
+  return writeDB(BOTMODE_DB, { mode });
+};
+
 module.exports = {
   getGroupSettings,
   updateGroupSettings,
@@ -264,4 +279,7 @@ module.exports = {
   unmuteUser,
   isUserMuted,
   getMutedUsers,
+  getBotMode,
+  setBotMode,
+  VALID_BOT_MODES,
 };
