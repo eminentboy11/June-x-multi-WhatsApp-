@@ -18,7 +18,6 @@ const detectPlatform = () => {
   if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return "🌀 CypherX Platform";
   if (process.env.P_SERVER_UUID) return "🖥️ Panel";
   if (process.env.LXC) return "📦 Linux Container (LXC)";
-
   switch (os.platform()) {
     case "win32": return "🪟 Windows";
     case "darwin": return "🍎 macOS";
@@ -60,8 +59,8 @@ function formatMemory(bytes) {
 }
 
 const progressBar = (used, total, size = 10) => {
-  let percentage = Math.round((used / total) * size);
-  let bar = '█'.repeat(percentage) + '░'.repeat(size - percentage);
+  const percentage = Math.round((used / total) * size);
+  const bar = '█'.repeat(percentage) + '░'.repeat(size - percentage);
   return `[${bar}] ${Math.round((used / total) * 100)}%`;
 };
 
@@ -97,8 +96,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu = 
-          `┏━━❐◉ ${bot} ◉❐\n`;
+  let menu =  `┏━━❐◉ ${bot} ◉❐\n`;
   menu += `┃ ᴘʀᴇꜰɪx: [${prefix}]\n`;
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
   menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
@@ -121,7 +119,6 @@ function buildMenuText(categories, extra, totalCount, speed) {
   for (const key of ordered) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
-
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
     menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
     for (const cmd of cmds) {
@@ -144,7 +141,6 @@ function getThumbnail() {
   if (fs.existsSync(customPath)) {
     try { return fs.readFileSync(customPath); } catch {}
   }
-
   const defaults = [
     path.join(__dirname, '../../assets/menu1.jpg'),
     path.join(__dirname, '../../utils/bot_image.jpg'),
@@ -172,17 +168,11 @@ function getButtons(repoUrl, youtubeUrl, prefix, dateNow) {
   return [
     {
       name: 'cta_url',
-      buttonParamsJson: JSON.stringify({
-        display_text: '📑 Open Repo',
-        url: repoUrl
-      })
+      buttonParamsJson: JSON.stringify({ display_text: '📑 Open Repo', url: repoUrl })
     },
     {
       name: 'cta_url',
-      buttonParamsJson: JSON.stringify({
-        display_text: '▶️ YouTube',
-        url: youtubeUrl
-      })
+      buttonParamsJson: JSON.stringify({ display_text: '▶️ YouTube', url: youtubeUrl })
     },
     { id: `${prefix}ping_${dateNow}`, text: '🏓 Ping' }
   ];
@@ -199,8 +189,8 @@ module.exports = {
     try {
       const commands = loadCommands();
       const categories = {};
-
       let uniqueCount = 0;
+
       commands.forEach((cmd, name) => {
         if (cmd.name === name) {
           if (!categories[cmd.category]) categories[cmd.category] = [];
@@ -210,6 +200,19 @@ module.exports = {
       });
 
       const menustyle = getMenuStyle();
+
+      // ── Loading message ─────────────────────────────────────────────────
+      const loadingMsg = await sock.sendMessage(extra.from, {
+        text: applyFont('⏳ Loading menu...')
+      }, { quoted: msg });
+
+      // Edits loading bubble in-place
+      const markDone = () => sock.sendMessage(extra.from, {
+        text: applyFont('✅'),
+        edit: loadingMsg.key
+      }).catch(() => {});
+
+      // ────────────────────────────────────────────────────────────────────
 
       const msgTimestamp = msg.messageTimestamp
         ? msg.messageTimestamp * 1000
@@ -247,6 +250,7 @@ module.exports = {
             },
           },
         }, { quoted: msg });
+        await markDone();
 
       } else if (menustyle === '2') {
         const menuTextClean = applyFont(menulist);
@@ -259,23 +263,19 @@ module.exports = {
             footer: `Powered by Supreme`,
             buttons: getButtons(plink, youtubeUrl, prefix, dateNow),
           }, { quoted: msg });
+          await markDone();
 
-          // ── Ping button listener ────────────────────────────────────────
           const handlePingTap = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
-
             const selectedId = extractButtonId(messageData);
             if (!selectedId) return;
             if (selectedId !== pingButtonId) return;
             if (messageData.key?.remoteJid !== chatId) return;
-
             const responseSender = messageData.key?.participant || messageData.key?.remoteJid;
             if (responseSender !== originalSender) return;
-
             const pingCmd = commands.get('ping');
             if (!pingCmd) return;
-
             await pingCmd.execute(sock, messageData, [], {
               from: chatId,
               sender: responseSender,
@@ -284,10 +284,10 @@ module.exports = {
           };
 
           sock.ev.on('messages.upsert', handlePingTap);
-
         } catch (e) {
           console.error('Style 2 error:', e);
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+          await markDone();
         }
 
       } else if (menustyle === '3') {
@@ -306,6 +306,7 @@ module.exports = {
             },
           },
         }, { quoted: msg });
+        await markDone();
 
       } else if (menustyle === '4') {
         await sock.sendMessage(chatId, {
@@ -313,6 +314,7 @@ module.exports = {
           caption: fullMenu,
           mentions: [extra.sender],
         }, { quoted: msg });
+        await markDone();
 
       } else if (menustyle === '5') {
         try {
@@ -322,16 +324,16 @@ module.exports = {
                 interactiveMessage: {
                   body: { text: null },
                   footer: { text: fullMenu },
-                  nativeFlowMessage: {
-                    buttons: [{ text: null }],
-                  },
+                  nativeFlowMessage: { buttons: [{ text: null }] },
                 },
               },
             },
           }, { quoted: msg, userJid: sock.user?.id });
           await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id });
+          await markDone();
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+          await markDone();
         }
 
       } else if (menustyle === '6') {
@@ -346,16 +348,16 @@ module.exports = {
                   text: fullMenu,
                   contextInfo: {
                     mentionedJid: [msg.key.participant || msg.key.remoteJid],
-                    externalAdReply: {
-                      showAdAttribution: false,
-                    },
+                    externalAdReply: { showAdAttribution: false },
                   },
                 },
               },
             },
           }, {});
+          await markDone();
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+          await markDone();
         }
 
       } else {
@@ -363,6 +365,7 @@ module.exports = {
           text: fullMenu,
           mentions: [extra.sender],
         }, { quoted: msg });
+        await markDone();
       }
 
     } catch (error) {
