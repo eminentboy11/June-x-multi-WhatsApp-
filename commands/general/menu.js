@@ -208,7 +208,7 @@ module.exports = {
 
       // Edits loading bubble in-place
       const markDone = () => sock.sendMessage(extra.from, {
-        text: applyFont('✅'),
+        text: applyFont('JuneX-Ultra by supreme'),
         edit: loadingMsg.key
       }).catch(() => {});
 
