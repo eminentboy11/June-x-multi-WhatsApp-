@@ -203,12 +203,12 @@ module.exports = {
 
       // ── Loading message ─────────────────────────────────────────────────
       const loadingMsg = await sock.sendMessage(extra.from, {
-        text: applyFont('⏳ Loading menu...')
+        text: applyFont('⏳ Loading menu instance...')
       }, { quoted: msg });
 
       // Edits loading bubble in-place
       const markDone = () => sock.sendMessage(extra.from, {
-        text: applyFont('JuneX-Ultra by supreme'),
+        text: applyFont(`${bot} menu loaded...`),
         edit: loadingMsg.key
       }).catch(() => {});
 
