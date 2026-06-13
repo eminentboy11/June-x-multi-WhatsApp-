@@ -210,7 +210,7 @@ async function handleStatusDelete(sock, updates) {
 module.exports = {
     name: 'antideletestatus',
     aliases: ['antidelstatus', 'statusprotect'],
-    category: 'admin',
+    category: 'owner',
     description: 'Recover deleted statuses — sends them to bot self-chat',
     usage: '.antideletestatus on | off',
     adminOnly: true,
