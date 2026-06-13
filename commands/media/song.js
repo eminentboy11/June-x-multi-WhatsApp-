@@ -90,81 +90,50 @@ module.exports = {
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
-            const dateNow = Date.now();
-            const prefix = config.prefix || '.';
-            const originalSender = msg.key.participant || msg.key.remoteJid;
-
-            // --- Send buttons with metadata ---
+            // --- Send info card with YouTube button ---
             await sendButtons(sock, chatId, {
                 title: `🎵 SONG DOWNLOADER`,
                 text:
                     `⿻ *Title:* ${finalTitle}\n` +
                     `⿻ *Duration:* ${duration || 'N/A'}\n` +
                     `⿻ *Views:* ${views || 'N/A'}\n` +
-                    `⿻ *Channel:* ${author || 'N/A'}\n` +
-                    `⿻ *Link:* ${videoUrl}\n\n` +
-                    `*Select download format:*`,
-                footer: `Made by ${config.botName}`,
+                    `⿻ *Channel:* ${author || 'N/A'}`,
+                footer: `> Powered by ${config.botName}`,
                 buttons: [
-                    { id: `${prefix}audio_${dateNow}`,    text: '🎶 1. Audio MP3' },
-                    { id: `${prefix}audiodoc_${dateNow}`, text: '📄 2. Audio Document' },
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '▶️ Tap to Open YouTube',
+                            url: videoUrl
+                        })
+                    }
                 ],
             }, { quoted: msg });
 
-            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+            // --- Send audio (playable) ---
+            await sock.sendMessage(chatId, {
+                audio: { url: audioData.download },
+                mimetype: 'audio/mpeg',
+                caption: `🎶 ${finalTitle}`,
+            }, { quoted: msg });
 
-            // --- Listen for button response ---
-            const handleResponse = async (event) => {
-                const messageData = event.messages[0];
-                if (!messageData?.message) return;
+            // --- Send audio (document/downloadable) ---
+            await sock.sendMessage(chatId, {
+                document: { url: audioData.download },
+                mimetype: 'audio/mpeg',
+                fileName: `${safeTitle}.mp3`,
+                caption: `📄 ${finalTitle}`,
+            }, { quoted: msg });
 
-                const selectedButtonId =
-                    messageData.message?.buttonsResponseMessage?.selectedButtonId ||
-                    messageData.message?.templateButtonReplyMessage?.selectedId ||
-                    messageData.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
-                    null;
-
-                if (!selectedButtonId) return;
-                if (!selectedButtonId.includes(`_${dateNow}`)) return;
-                if (messageData.key?.remoteJid !== chatId) return;
-
-                const responseSender = messageData.key?.participant || messageData.key?.remoteJid;
-                if (chatId.endsWith('@g.us') && responseSender !== originalSender) return;
-
-                await sock.sendMessage(chatId, { react: { text: '⬇️', key: msg.key } });
-
-                try {
-                    const buttonType = selectedButtonId.replace(prefix, '').split('_')[0];
-
-                    if (buttonType === 'audio') {
-                        await sock.sendMessage(chatId, {
-                            audio: { url: audioData.download },
-                            mimetype: 'audio/mpeg',
-                        }, { quoted: messageData });
-
-                    } else if (buttonType === 'audiodoc') {
-                        await sock.sendMessage(chatId, {
-                            document: { url: audioData.download },
-                            mimetype: 'audio/mpeg',
-                            fileName: `${safeTitle}.mp3`,
-                        }, { quoted: messageData });
-                    }
-
-                    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
-
-                } catch (error) {
-                    console.error('[play] send error:', error.message);
-                    await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
-                    await sock.sendMessage(chatId, {
-                        text: `🚫 Error: ${error.message}\n\n_Try again later._`,
-                    }, { quoted: messageData });
-                }
-            };
-
-            sock.ev.on('messages.upsert', handleResponse);
+            await sock.sendMessage(chatId, {
+                react: { text: '✅', key: msg.key }
+            });
 
         } catch (error) {
             console.error('Error in play/song command:', error);
+            await sock.sendMessage(chatId, {
+                react: { text: '❌', key: msg.key }
+            });
             await sock.sendMessage(msg.key.remoteJid, {
                 text: '❌ Download failed. Please try again later.'
             }, { quoted: msg });
