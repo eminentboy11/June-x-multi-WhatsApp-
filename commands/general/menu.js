@@ -143,10 +143,10 @@ function getThumbnail() {
   const defaults = [
     path.join(__dirname, '../../assets/menu1.jpg'),
     path.join(__dirname, '../../utils/bot_image.jpg'),
-    path.join(__dirname, '../../assets/menu2.jpg'),
-    path.join(__dirname, '../../assets/menu3.jpg'),
-    path.join(__dirname, '../../assets/menu4.jpg'),
-    path.join(__dirname, '../../assets/menu5.jpg'),
+    path.join(__dirname, '../../utils/menu2.jpg'),
+    path.join(__dirname, '../../utils/menu3.jpg'),
+    path.join(__dirname, '../../utils/menu4.jpg'),
+    path.join(__dirname, '../../utils/menu5.jpg'),
   ];
   const available = defaults.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
   if (!available.length) return null;
