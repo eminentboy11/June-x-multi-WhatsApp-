@@ -11,8 +11,6 @@ const GITHUB_REPO = 'June-Ultra';
 const REPO_URL    = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
 const API_URL     = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}`;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function extractButtonResponseId(msg) {
     return (
         msg.message?.buttonsResponseMessage?.selectedButtonId ||
@@ -26,30 +24,14 @@ function getResponseSender(msg) {
     return msg.key?.participant || msg.key?.remoteJid;
 }
 
-// ── Button builder ────────────────────────────────────────────────────────────
-
 function buildMainButtons(repoUrl, dateNow) {
     const prefix = config.prefix || '.';
     return [
         {
             name: 'cta_url',
             buttonParamsJson: JSON.stringify({
-                display_text: '🔗 View Repository',
+                display_text: '🔗 Open Repo',
                 url: repoUrl,
-            })
-        },
-        {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-                display_text: '⭐ Star Repo',
-                url: `${repoUrl}/stargazers`,
-            })
-        },
-        {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-                display_text: '🍴 Fork Repo',
-                url: `${repoUrl}/fork`,
             })
         },
         {
@@ -59,11 +41,9 @@ function buildMainButtons(repoUrl, dateNow) {
                 copy_code: repoUrl,
             })
         },
-        { id: `${prefix}ghzip_${dateNow}`, text: '📦 Get ZIP' },
+        { id: `${prefix}ghzip_${dateNow}`, text: '📦 Download ZIP' },
     ];
 }
-
-// ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
     name: 'github',
@@ -127,14 +107,14 @@ module.exports = {
                 );
             }
 
-            // ── Step 1: Send main buttons ─────────────────────────────────────
+            // ── Send buttons ──────────────────────────────────────────────────
             await sendButtons(sock, chatId, {
                 text,
                 footer,
                 buttons: buildMainButtons(repoUrl, dateNow),
             }, { quoted: msg });
 
-            // ── Step 2: Listen for "Get ZIP" tap ──────────────────────────────
+            // ── Listen for Download ZIP tap ───────────────────────────────────
             const handleZipTap = async (event) => {
                 const messageData = event.messages[0];
                 if (!messageData?.message) return;
@@ -144,9 +124,10 @@ module.exports = {
                 if (selectedId !== `${prefix}ghzip_${dateNow}`) return;
                 if (messageData.key?.remoteJid !== chatId) return;
 
-                // Only original sender — silent ignore for everyone else
                 const responseSender = getResponseSender(messageData);
                 if (responseSender !== originalSender) return;
+
+                sock.ev.off('messages.upsert', handleZipTap);
 
                 await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
@@ -154,10 +135,7 @@ module.exports = {
                 let filePath;
 
                 try {
-                    filePath = path.join(
-                        os.tmpdir(),
-                        `${GITHUB_REPO}-${dateNow}.zip`
-                    );
+                    filePath = path.join(os.tmpdir(), `${GITHUB_REPO}-${dateNow}.zip`);
 
                     const zipStream = await axios({
                         method:       'get',
@@ -215,6 +193,9 @@ module.exports = {
             };
 
             sock.ev.on('messages.upsert', handleZipTap);
+
+            // Auto cleanup after 5 minutes
+            setTimeout(() => sock.ev.off('messages.upsert', handleZipTap), 5 * 60 * 1000);
 
         } catch (error) {
             console.error('[GitHub] command error:', error);
