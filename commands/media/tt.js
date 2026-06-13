@@ -58,7 +58,7 @@ module.exports = {
       await sock.sendMessage(from, {
         video: videoBuffer,
         mimetype: 'video/mp4',
-        footer: `Powered by ${config.botName}`
+        caption: `> Powered by ${config.botName}`
       }, { quoted: msg });
 
       if (audioUrl) {
