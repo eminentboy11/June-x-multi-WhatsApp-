@@ -103,7 +103,7 @@ module.exports = {
                     {
                         name: 'cta_url',
                         buttonParamsJson: JSON.stringify({
-                            display_text: '▶️ Tap to Open YouTube',
+                            display_text: '▶️ Openo on YouTube',
                             url: videoUrl
                         })
                     },
@@ -129,7 +129,7 @@ module.exports = {
                 document: { url: audioData.download },
                 mimetype: 'audio/mpeg',
                 fileName: `${safeTitle}.mp3`,
-                caption: `📄 ${finalTitle}`,
+                caption: ``,
             }, { quoted: msg });
 
             await sock.sendMessage(chatId, {
