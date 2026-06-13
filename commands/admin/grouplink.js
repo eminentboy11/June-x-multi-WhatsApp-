@@ -4,7 +4,7 @@
 
 module.exports = {
     name: 'grouplink',
-    aliases: ['link', 'invite'],
+    aliases: ['link', 'gclink'],
     category: 'admin',
     description: 'Get group invite link',
     usage: '.grouplink',
