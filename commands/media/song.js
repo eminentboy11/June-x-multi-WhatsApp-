@@ -1,7 +1,5 @@
 const yts = require('yt-search');
 const APIs = require('../../utils/api');
-const config = require('../../config');
-const { sendButtons } = require('gifted-btns');
 
 module.exports = {
     name: 'play',
@@ -15,9 +13,19 @@ module.exports = {
             const chatId = extra.from;
             const searchQuery = args.join(' ').trim();
 
+            // Detect which command was used
+            const usedCommand = msg.message?.conversation?.trim().split(' ')[0]?.replace(/./, '').toLowerCase()
+                || msg.message?.extendedTextMessage?.text?.trim().split(' ')[0]?.replace(/./, '').toLowerCase()
+                || 'play';
+
+            // song → audio, play/yta → document
+            const sendAsAudio = usedCommand === 'song';
+
             if (!searchQuery) {
                 return await sock.sendMessage(chatId, {
-                    text: '🎵 Please provide a song name or YouTube URL.'
+                    text: sendAsAudio
+                        ? '🎵 Please provide a song name or YouTube URL.\nExample: .song Blinding Lights'
+                        : '🎵 Please provide a song name or YouTube URL.\nExample: .play Blinding Lights'
                 }, { quoted: msg });
             }
 
@@ -30,6 +38,7 @@ module.exports = {
             let title = searchQuery;
             let duration = '';
             let views = '';
+            let thumbnail = '';
             let author = '';
 
             // --- Metadata extraction ---
@@ -45,6 +54,7 @@ module.exports = {
                 title = found.title;
                 duration = found.timestamp || '';
                 views = found.views ? found.views.toLocaleString() : '';
+                thumbnail = found.thumbnail || '';
                 author = found.author?.name || '';
             } else {
                 try {
@@ -55,6 +65,7 @@ module.exports = {
                             title = result.title;
                             duration = result.timestamp || '';
                             views = result.views ? result.views.toLocaleString() : '';
+                            thumbnail = result.thumbnail || '';
                             author = result.author?.name || '';
                         }
                     }
@@ -90,47 +101,22 @@ module.exports = {
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
-            // --- Send info card with buttons ---
-            await sendButtons(sock, chatId, {
-                title: `🎵 SONG DOWNLOADER`,
-                text:
-                    `⿻ *Title:* ${finalTitle}\n` +
-                    `⿻ *Duration:* ${duration || 'N/A'}\n` +
-                    `⿻ *Views:* ${views || 'N/A'}\n` +
-                    `⿻ *Channel:* ${author || 'N/A'}`,
-                footer: `> Powered by ${config.botName}`,
-                buttons: [
-                    {
-                        name: 'cta_url',
-                        buttonParamsJson: JSON.stringify({
-                            display_text: '▶️ Openo on YouTube',
-                            url: videoUrl
-                        })
-                    },
-                    {
-                        name: 'cta_url',
-                        buttonParamsJson: JSON.stringify({
-                            display_text: '🎧 Open on Spotify',
-                            url: `https://open.spotify.com/search/${encodeURIComponent(finalTitle)}`
-                        })
-                    }
-                ],
-            }, { quoted: msg });
+            if (sendAsAudio) {
+                // .song → playable audio
+                await sock.sendMessage(chatId, {
+                    audio: { url: audioData.download },
+                    mimetype: 'audio/mpeg',
+                    ptt: false
+                }, { quoted: msg });
 
-            // --- Send audio (playable) ---
-            await sock.sendMessage(chatId, {
-                audio: { url: audioData.download },
-                mimetype: 'audio/mpeg',
-                caption: `🎶 ${finalTitle}`,
-            }, { quoted: msg });
-
-            // --- Send audio (document/downloadable) ---
-            await sock.sendMessage(chatId, {
-                document: { url: audioData.download },
-                mimetype: 'audio/mpeg',
-                fileName: `${safeTitle}.mp3`,
-                caption: ``,
-            }, { quoted: msg });
+            } else {
+                // .play / .yta → document (downloadable)
+                await sock.sendMessage(chatId, {
+                    document: { url: audioData.download },
+                    mimetype: 'audio/mpeg',
+                    fileName: `${safeTitle}.mp3`
+                }, { quoted: msg });
+            }
 
             await sock.sendMessage(chatId, {
                 react: { text: '✅', key: msg.key }
