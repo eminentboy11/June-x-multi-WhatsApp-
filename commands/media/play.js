@@ -90,15 +90,15 @@ async function downloadAudio(videoUrl) {
 
             // Fallback
             const fallback = await axios.get(
-                `https://apis.xwolf.space/download/yta?url=${encodeURIComponent(videoUrl)}`,
+                `https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (!fallback.data?.status || !fallback.data?.downloadUrl) {
+            if (!fallback.data?.status || !fallback.data?.audio) {
                 throw new Error('Fallback API failed to fetch audio');
             }
             return {
                 status: true,
-                result: fallback.data.downloadUrl,
+                result: fallback.data.audio,
                 title: fallback.data.title,
                 thumbnail: fallback.data.thumbnail,
             };
