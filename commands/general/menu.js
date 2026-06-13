@@ -208,7 +208,7 @@ module.exports = {
 
       // Edits loading bubble in-place
       const markDone = () => sock.sendMessage(extra.from, {
-        text: applyFont(`${bot} menu loaded...`),
+        text: applyFont(`${config.botName} menu loaded...`),
         edit: loadingMsg.key
       }).catch(() => {});
 
