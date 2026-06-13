@@ -173,7 +173,7 @@ function getButtons(repoUrl, youtubeUrl, prefix, dateNow) {
     {
       name: 'cta_url',
       buttonParamsJson: JSON.stringify({
-        display_text: '🌠 Open Repo',
+        display_text: '📑 Open Repo',
         url: repoUrl
       })
     },
@@ -232,7 +232,7 @@ module.exports = {
           document: { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
           caption: fullMenu,
           mimetype: "application/pdf",
-          fileName: `${botname}.pdf`,
+          fileName: `${botname}notes.pdf`,
           fileLength: "9999999",
           contextInfo: {
             mentionedJid: [extra.sender],
