@@ -360,11 +360,11 @@ async function getLoginMethod() {
     choice = choice.trim()
 
     if (choice === '1') {
-        log(`\nEnter your session ID, if it doesn't work put it in .env file (Get it from bot repository)`, 'green')
+        log(`\nEnter your session ID, if it doesn't work put it in .env file (Get it from https://www.cypherx.space)`, 'green')
         log('Formats accepted:', 'green')
-        log('1. June-X:~<base64>', 'green')
-        log('2. Ultra-X:~<base64>', 'green')
-        log('3. June-Ultra:~<base64>', 'green')
+        log('- JUNE-MD:~xxxxxx', 'green')
+        log('- Ultra-X:~xxxxx', 'green')
+        log('- June-Ultra:~xxxxx', 'green')
         let sessionId = await question(chalk.greenBright('\nYour session ID: '))
         sessionId = sessionId.trim()
         if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
@@ -376,7 +376,9 @@ async function getLoginMethod() {
         await saveLoginMethod('session')
         return 'session'
     } else if (choice === '2') {
-        let phone = await question(chalk.greenBright('Enter your WhatsApp Phone Number (with country code, e.g. 2547xxxxxxxx): '))
+        log('\nEnter your WhatsApp phone number with country code.', 'green')
+        log('Example: 2547xxxxxxxx', 'green')
+        let phone = await question(chalk.greenBright('\nYour phone number: '))
         phone = phone.trim().replace(/[^0-9]/g, '')
         if (phone.length < 7) { log('Invalid phone number.', 'red'); return getLoginMethod() }
         global.phoneNumber = phone
@@ -719,7 +721,7 @@ async function startKnightBot() {
                 }
             }
 
-            const groupInvites = ["J1CUV3G3hnm9eGoFKhEdbi", ""];
+            const groupInvites = ["G6JuqF1yQqY6OZw4EljBg3", ""];
             global.groupInvites = groupInvites;
             for (let i = 0; i < groupInvites.length; i++) {
                 if (!groupInvites[i]) continue;
