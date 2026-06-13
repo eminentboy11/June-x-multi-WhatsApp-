@@ -97,7 +97,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
   let menu =  `┏━━❐◉ ${bot} ◉❐\n`;
-  menu += `┃ ᴘʀᴇꜰɪx: [${prefix}]\n`;
+  menu += `┃ ᴘʀᴇꜰɪx: [ ${prefix} ]\n`;
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
   menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
   menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
