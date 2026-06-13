@@ -148,7 +148,7 @@ async function handleAntiEdit(sock, updates) {
 module.exports = {
     name: 'antiedit',
     aliases: ['antieditmsg', 'editdetect'],
-    category: 'admin',
+    category: 'owner',
     description: 'Detect and reveal edited messages',
     usage: '.antiedit on | pm | chat | off | status',
     adminOnly: true,
