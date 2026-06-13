@@ -95,17 +95,17 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu =  `┏━━❐◉ ${bot} ◉❐\n`;
-  menu += `┃ ᴘʀᴇꜰɪx: [ ${prefix} ]\n`;
-  menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
-  menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
-  menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
-  menu += `┃ ꜱᴘᴇᴇᴅ: ${ping} ms\n`;
-  menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
-  menu += `┃ Vᴇʀꜱɪᴏɴ: v${config.version}\n`;
-  menu += `┃ ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  menu += `┃ ʀᴀᴍ: ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  menu += `┃ Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
+  let menu =  `┏❐◉ ${bot} ◉❐\n`;
+  menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
+  menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
+  menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
+  menu += `┃ *ᴘʟᴀᴛꜰᴏʀᴍ:* ${hostName}\n`;
+  menu += `┃ *ꜱᴘᴇᴇᴅ:* ${ping} ms\n`;
+  menu += `┃ *ᴜᴘᴛɪᴍᴇ:* ${uptimeFormatted}\n`;
+  menu += `┃ *Vᴇʀꜱɪᴏɴ:* v${config.version}\n`;
+  menu += `┃ *ᴜꜱᴀɢᴇ:* ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃ *ʀᴀᴍ:* ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃ *Cᴏᴍᴍᴀɴᴅꜱ:* ${totalCount}\n`;
   menu += `┗❐\n${readmore}\n`;
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
@@ -119,7 +119,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
-    menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
+    menu += `┏❐◆ \`${label}\` ◆❐\n`;
     for (const cmd of cmds) {
       menu += `┃➧ ${cmd.name}\n`;
     }
