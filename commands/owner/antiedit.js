@@ -73,38 +73,46 @@ function botSelfJid(sock) {
 }
 
 async function handleAntiEdit(sock, updates) {
-    const mode   = getMode();
+    const mode = getMode();
     if (mode === 'off') return;
 
     const selfJid = botSelfJid(sock);
 
     for (const { key, update } of updates) {
         try {
+            const proto = update?.message?.protocolMessage;
             const newMsg =
+                proto?.editedMessage ||
                 update?.message?.editedMessage?.message ||
-                update?.message?.protocolMessage?.editedMessage ||
                 null;
 
             if (!newMsg) continue;
 
             const chatId = key.remoteJid;
-            const msgId  = key.id;
 
-            // Determine where to send the reveal
+            // ✅ Removed groups-only filter — now handles DMs and groups
+
+            const originalMsgId = proto?.key?.id || key.id;
+
             const targetJid = mode === 'pm' && selfJid ? selfJid : chatId;
 
-            const original     = messageStore.get(chatId)?.get(msgId);
-            const originalText = original?.text || '[Original not available]';
-            const sender       = original?.sender || key.participant || key.remoteJid || 'Unknown';
+            const original     = messageStore.get(chatId)?.get(originalMsgId);
+            const originalText = original?.text || null;
+
+            const rawSender  = original?.sender || key.participant || key.remoteJid || '';
+            const sender     = rawSender.includes(':')
+                ? rawSender.split(':')[0] + '@s.whatsapp.net'
+                : rawSender;
+            const senderNum  = sender.split('@')[0];
 
             const editedText =
                 newMsg.conversation ||
                 newMsg.extendedTextMessage?.text ||
-                '[Edited content not available]';
+                null;
 
-            if (originalText !== '[Original not available]' && originalText === editedText) continue;
+            if (!editedText) continue;
+            if (originalText && originalText === editedText) continue;
 
-            const senderNum = sender.split('@')[0].split(':')[0];
             const timestamp = original?.timestamp
                 ? new Date(original.timestamp * 1000).toLocaleString('en-GB', {
                     hour12: false,
@@ -114,28 +122,34 @@ async function handleAntiEdit(sock, updates) {
                   })
                 : new Date().toLocaleString();
 
-            // Show origin chat info when sending to PM
+            // Label whether the edit came from a group or DM
+            const isGroup   = chatId.endsWith('@g.us');
             const chatLabel = targetJid !== chatId
-                ? `\n💬 *Chat:* ${chatId.includes('@g.us') ? 'Group' : 'DM'} (${chatId.split('@')[0]})`
+                ? `\n💬 *${isGroup ? 'Group' : 'DM'}:* ${chatId.split('@')[0]}`
                 : '';
+
+            const chatType  = isGroup ? '👥 Group' : '💬 Private Chat';
 
             const readmore  = String.fromCharCode(8206).repeat(4001);
             const replyText =
                 `✏️ *EDITED MESSAGE DETECTED!*\n` +
                 `━━━━━━━━━━━━━━━━━━━━\n` +
                 `👤 *Sender:* @${senderNum}\n` +
+                `📌 *Chat Type:* ${chatType}\n` +
                 `🕐 *Time:* ${timestamp}` +
                 chatLabel + '\n' +
                 `━━━━━━━━━━━━━━━━━━━━\n${readmore}\n` +
-                `📝 *Original:*\n${originalText}\n\n` +
+                `📝 *Original:*\n${originalText || '[Not cached — message sent before bot started]'}\n\n` +
                 `✏️ *Edited to:*\n${editedText}\n` +
                 `━━━━━━━━━━━━━━━━━━━━`;
 
-            await sock.sendMessage(targetJid, { text: replyText, mentions: [sender] });
+            await sock.sendMessage(targetJid, {
+                text: replyText,
+                mentions: sender ? [sender] : [],
+            });
 
-            // Update store with the latest edited text
-            if (messageStore.has(chatId) && messageStore.get(chatId).has(msgId)) {
-                messageStore.get(chatId).get(msgId).text = editedText;
+            if (original) {
+                messageStore.get(chatId).get(originalMsgId).text = editedText;
             }
         } catch (e) {
             console.error('[ANTIEDIT] error:', e.message);
@@ -174,7 +188,7 @@ module.exports = {
                 `✏️ *Anti-Edit*\n` +
                 `━━━━━━━━━━━━━━━\n` +
                 `📌 Status: *${statusLabel()}*\n\n` +
-                `Catches message edits and reveals the original content.\n\n` +
+                `edits in *groups and private chats*.\n\n` +
                 `*Commands:*\n` +
                 `  .antiedit on    — activate (default: chat mode)\n` +
                 `  .antiedit chat  — edits revealed in the same chat\n` +
@@ -186,12 +200,12 @@ module.exports = {
 
         if (sub === 'on' || sub === 'chat') {
             setMode('chat');
-            return reply('✅ *Anti-Edit* activated — edited messages will be revealed *in their chat*.');
+            return reply('✅ *Anti-Edit* activated ');
         }
 
         if (sub === 'pm') {
             setMode('pm');
-            return reply('✅ *Anti-Edit [PM]* activated — all edited messages from all chats will be sent to the *bot self-chat*.');
+            return reply('✅ *Anti-Edit [PM]* activated ');
         }
 
         if (sub === 'off') {
