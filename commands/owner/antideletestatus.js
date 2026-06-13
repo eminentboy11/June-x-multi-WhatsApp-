@@ -232,7 +232,7 @@ module.exports = {
                 `📸 *Anti-Delete Status*\n` +
                 `━━━━━━━━━━━━━━━\n` +
                 `📌 Status: *${statusLabel()}*\n\n` +
-                `Recovers deleted statuses from all contacts and forwards them to the bot self-chat.\n\n` +
+                `Recovers deleted statuses\n\n` +
                 `*Commands:*\n` +
                 `  .antideletestatus on  — activate\n` +
                 `  .antideletestatus off — deactivate`
@@ -241,7 +241,7 @@ module.exports = {
 
         if (sub === 'on') {
             saveConfig({ enabled: true });
-            return reply('✅ *Anti-Delete Status* activated — deleted statuses will be sent to the bot self-chat.');
+            return reply('✅ *Anti-Delete Status* activated .');
         }
 
         if (sub === 'off') {
