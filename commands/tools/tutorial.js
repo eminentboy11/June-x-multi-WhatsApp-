@@ -28,7 +28,7 @@ module.exports = {
             await sendButtons(sock, chatId, {
                 title: '📚 BOT TUTORIALS',
                 text,
-                footer: `> Powered by ${config.botName}`,
+                footer: `Powered by ${config.botName}`,
                 buttons: [
                     {
                         name: 'cta_url',
