@@ -1,5 +1,5 @@
 /**
- * Bot Mode Settings — read/write data/botmode.json
+ * Bot Mode Settings — backed by database/botmode.json
  * Modes: 'public' | 'private' | 'group' | 'pm'
  *
  *   public  — everyone can use commands in groups and DMs
@@ -7,32 +7,16 @@
  *   group   — commands only work in groups (not in DMs)
  *   pm      — commands only work in DMs / private chats (not in groups)
  */
-const fs   = require('fs');
-const path = require('path');
+const db = require('../database');
 
-const FILE = path.join(__dirname, '../data/botmode.json');
-
-const VALID_MODES = ['public', 'private', 'group', 'pm'];
-
-function load() {
-  try {
-    return JSON.parse(fs.readFileSync(FILE, 'utf8'));
-  } catch {
-    return { mode: 'public' };
-  }
-}
-
-function save(data) {
-  try { fs.writeFileSync(FILE, JSON.stringify(data, null, 2)); } catch {}
-}
+const VALID_MODES = db.VALID_BOT_MODES;
 
 function getMode() {
-  return load().mode || 'public';
+  return db.getBotMode();
 }
 
 function setMode(mode) {
-  if (!VALID_MODES.includes(mode)) throw new Error(`Invalid mode: ${mode}`);
-  save({ mode });
+  db.setBotMode(mode);
 }
 
 function getModeLabel() {
@@ -45,4 +29,4 @@ function getModeLabel() {
   return labels[getMode()] || '🌐 Public';
 }
 
-module.exports = { load, save, getMode, setMode, getModeLabel, VALID_MODES };
+module.exports = { getMode, setMode, getModeLabel, VALID_MODES };
