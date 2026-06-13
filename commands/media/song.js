@@ -13,19 +13,9 @@ module.exports = {
             const chatId = extra.from;
             const searchQuery = args.join(' ').trim();
 
-            // Detect which command was used
-            const usedCommand = msg.message?.conversation?.trim().split(' ')[0]?.replace(/./, '').toLowerCase()
-                || msg.message?.extendedTextMessage?.text?.trim().split(' ')[0]?.replace(/./, '').toLowerCase()
-                || 'play';
-
-            // song → audio, play/yta → document
-            const sendAsAudio = usedCommand === 'song';
-
             if (!searchQuery) {
                 return await sock.sendMessage(chatId, {
-                    text: sendAsAudio
-                        ? '🎵 Please provide a song name or YouTube URL.\nExample: .song Blinding Lights'
-                        : '🎵 Please provide a song name or YouTube URL.\nExample: .play Blinding Lights'
+                    text: '🎵 Please provide a song name or YouTube URL.'
                 }, { quoted: msg });
             }
 
@@ -73,6 +63,7 @@ module.exports = {
             }
 
             // --- Audio download ---
+            // Tries each API in order, stops at first success
             const apiFns = [
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
                 () => APIs.getEliteProTechDownloadByUrl(videoUrl),
@@ -98,35 +89,26 @@ module.exports = {
                 }, { quoted: msg });
             }
 
+            // Use title from API if yts didn't find one
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
-            if (sendAsAudio) {
-                // .song → playable audio
-                await sock.sendMessage(chatId, {
-                    audio: { url: audioData.download },
-                    mimetype: 'audio/mpeg',
-                    ptt: false
-                }, { quoted: msg });
-
-            } else {
-                // .play / .yta → document (downloadable)
-                await sock.sendMessage(chatId, {
-                    document: { url: audioData.download },
-                    mimetype: 'audio/mpeg',
-                    fileName: `${safeTitle}.mp3`
-                }, { quoted: msg });
-            }
-
+            // --- Send as DOCUMENT ---
             await sock.sendMessage(chatId, {
-                react: { text: '✅', key: msg.key }
-            });
+                document: { url: audioData.download },
+                mimetype: 'audio/mpeg',
+                fileName: `${safeTitle}.mp3`
+            }, { quoted: msg });
+
+            // --- Send as playable AUDIO ---
+            await sock.sendMessage(chatId, {
+                audio: { url: audioData.download },
+                mimetype: 'audio/mpeg',
+                ptt: false
+            }, { quoted: msg });
 
         } catch (error) {
             console.error('Error in play/song command:', error);
-            await sock.sendMessage(chatId, {
-                react: { text: '❌', key: msg.key }
-            });
             await sock.sendMessage(msg.key.remoteJid, {
                 text: '❌ Download failed. Please try again later.'
             }, { quoted: msg });
