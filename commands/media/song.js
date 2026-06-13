@@ -90,7 +90,7 @@ module.exports = {
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
-            // --- Send info card with YouTube button ---
+            // --- Send info card with buttons ---
             await sendButtons(sock, chatId, {
                 title: `🎵 SONG DOWNLOADER`,
                 text:
@@ -105,6 +105,13 @@ module.exports = {
                         buttonParamsJson: JSON.stringify({
                             display_text: '▶️ Tap to Open YouTube',
                             url: videoUrl
+                        })
+                    },
+                    {
+                        name: 'cta_url',
+                        buttonParamsJson: JSON.stringify({
+                            display_text: '🎧 Open on Spotify',
+                            url: `https://open.spotify.com/search/${encodeURIComponent(finalTitle)}`
                         })
                     }
                 ],
