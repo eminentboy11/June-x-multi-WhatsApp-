@@ -1,7 +1,6 @@
 const config = require('../../config');
 const { loadCommands } = require('../../utils/commandLoader');
 const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
-const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
 const fs = require('fs');
 const path = require('path');
@@ -155,29 +154,6 @@ function getThumbnail() {
   try { return fs.readFileSync(picked); } catch { return null; }
 }
 
-function extractButtonId(msg) {
-  return (
-    msg.message?.buttonsResponseMessage?.selectedButtonId ||
-    msg.message?.templateButtonReplyMessage?.selectedId ||
-    msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
-    null
-  );
-}
-
-function getButtons(repoUrl, youtubeUrl, prefix, dateNow) {
-  return [
-    {
-      name: 'cta_url',
-      buttonParamsJson: JSON.stringify({ display_text: '📑 Open Repo', url: repoUrl })
-    },
-    {
-      name: 'cta_url',
-      buttonParamsJson: JSON.stringify({ display_text: '▶️ YouTube', url: youtubeUrl })
-    },
-    { id: `${prefix}ping_${dateNow}`, text: '🏓 Ping' }
-  ];
-}
-
 module.exports = {
   name: 'menu',
   aliases: ['menulist', 'commands'],
@@ -206,7 +182,6 @@ module.exports = {
         text: applyFont('⏳ Loading menu instance...')
       }, { quoted: msg });
 
-      // Edits loading bubble in-place
       const markDone = () => sock.sendMessage(extra.from, {
         text: applyFont(`${config.botName} menu loaded...`),
         edit: loadingMsg.key
@@ -224,10 +199,7 @@ module.exports = {
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
-      const youtubeUrl = config.social?.youtube || 'https://youtube.com';
-      const prefix = config.prefix || '.';
       const chatId = extra.from;
-      const originalSender = msg.key?.participant || msg.key?.remoteJid;
       const fullMenu = applyFont(menulist + `\n> © Supreme`);
 
       if (menustyle === '1') {
@@ -253,42 +225,12 @@ module.exports = {
         await markDone();
 
       } else if (menustyle === '2') {
-        const menuTextClean = applyFont(menulist);
-        const dateNow = Date.now();
-        const pingButtonId = `${prefix}ping_${dateNow}`;
-
-        try {
-          await sendButtons(sock, chatId, {
-            text: menuTextClean,
-            footer: `Powered by Supreme`,
-            buttons: getButtons(plink, youtubeUrl, prefix, dateNow),
-          }, { quoted: msg });
-          await markDone();
-
-          const handlePingTap = async (event) => {
-            const messageData = event.messages[0];
-            if (!messageData?.message) return;
-            const selectedId = extractButtonId(messageData);
-            if (!selectedId) return;
-            if (selectedId !== pingButtonId) return;
-            if (messageData.key?.remoteJid !== chatId) return;
-            const responseSender = messageData.key?.participant || messageData.key?.remoteJid;
-            if (responseSender !== originalSender) return;
-            const pingCmd = commands.get('ping');
-            if (!pingCmd) return;
-            await pingCmd.execute(sock, messageData, [], {
-              from: chatId,
-              sender: responseSender,
-              reply: (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
-            });
-          };
-
-          sock.ev.on('messages.upsert', handlePingTap);
-        } catch (e) {
-          console.error('Style 2 error:', e);
-          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
-          await markDone();
-        }
+        // ── Simple text reply — no buttons ─────────────────────────────
+        await sock.sendMessage(chatId, {
+          text: fullMenu,
+          mentions: [extra.sender],
+        }, { quoted: msg });
+        await markDone();
 
       } else if (menustyle === '3') {
         await sock.sendMessage(chatId, {
