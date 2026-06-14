@@ -177,7 +177,7 @@ function getMediaType(msgObj) {
 module.exports = {
     name: "shazam",
     aliases: ["whatsong", "findsong", "identify", "musicid"],
-    category: "Search",
+    category: "media",
     description: "Identify a song from audio. Reply to audio/voice note or search by name.",
     usage: ".shazam — reply to audio  |  .shazam <song name> — text search",
 
