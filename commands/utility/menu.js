@@ -157,7 +157,7 @@ function getThumbnail() {
 module.exports = {
   name: 'menu',
   aliases: ['menulist', 'commands'],
-  category: 'general',
+  category: 'utility',
   description: 'Show all available commands',
   usage: '.menu',
 
