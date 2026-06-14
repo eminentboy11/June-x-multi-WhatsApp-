@@ -353,18 +353,16 @@ async function getLoginMethod() {
     }
 
     log('Choose Any WhatsApp Login method:', 'green')
-    log('1. Enter Session ID', 'green')
-    log('2. Enter Phone Number', 'green')
+    log('1. Enter Session ID', 'yellow')
+    log('2. Enter Phone Number', 'yellow')
 
     let choice = await question(chalk.greenBright('\nYour choice (1 or 2): '))
     choice = choice.trim()
 
     if (choice === '1') {
         log(`\nEnter your session ID, if it doesn't work put it in .env file (Get it from https://www.cypherx.space)`, 'green')
-        log('Formats accepted:', 'green')
-        log('- JUNE-MD:~xxxxxx', 'green')
-        log('- Ultra-X:~xxxxx', 'green')
-        log('- June-Ultra:~xxxxx', 'green')
+        log('Session Formats accepted:', 'yellow')
+        log('June-X:~<base64> or Ultra-X:~<base64>', 'yellow')
         let sessionId = await question(chalk.greenBright('\nYour session ID: '))
         sessionId = sessionId.trim()
         if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
