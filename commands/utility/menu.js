@@ -183,7 +183,7 @@ module.exports = {
       }, { quoted: msg });
 
       const markDone = () => sock.sendMessage(extra.from, {
-        text: applyFont(`${config.botName} menu loaded...`),
+        text: applyFont(`_${config.botName} menu loaded..._`),
         edit: loadingMsg.key
       }).catch(() => {});
 
