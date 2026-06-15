@@ -9,8 +9,8 @@ module.exports = {
     usage: '.play <song name or URL>',
 
     async execute(sock, msg, args, extra) {
+        const chatId = extra.from;
         try {
-            const chatId = extra.from;
             const searchQuery = args.join(' ').trim();
 
             if (!searchQuery) {
@@ -63,7 +63,6 @@ module.exports = {
             }
 
             // --- Audio download ---
-            // All three now use officialhectormanuel under the hood
             const apiFns = [
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
                 () => APIs.getEliteProTechDownloadByUrl(videoUrl),
@@ -89,11 +88,8 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            // Prefer API title, fall back to yts title
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
-            // Use thumbnail from yts since officialhectormanuel may not return one
-            const finalThumbnail = thumbnail || audioData.thumbnail || '';
 
             // --- Send as DOCUMENT ---
             await sock.sendMessage(chatId, {
@@ -113,7 +109,7 @@ module.exports = {
 
         } catch (error) {
             console.error('Error in play/song command:', error);
-            await sock.sendMessage(msg.key.remoteJid, {
+            await sock.sendMessage(chatId, {
                 text: '❌ Download failed. Please try again later.'
             }, { quoted: msg });
             await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
