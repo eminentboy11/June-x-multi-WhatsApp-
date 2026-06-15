@@ -73,7 +73,7 @@ async function downloadAudio(videoUrl) {
         try {
             // Primary
             const primary = await axios.get(
-                `https://api.drexapp.space/downloader/ytplay?q=${encodeURIComponent(videoUrl)}`,
+                `https://api.drexapp.space/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
             if (primary.data?.status && primary.data?.result?.download_url) {
@@ -111,7 +111,6 @@ function getSongButtons(videoId, dateNow) {
     return [
         { id: `${prefix}audio_${videoId}_${dateNow}`,     text: '🎶 Audio' },
         { id: `${prefix}audiodoc_${videoId}_${dateNow}`,  text: '📄 Audio Document' },
-        { id: `${prefix}voicenote_${videoId}_${dateNow}`, text: '🎙️ Voice Note' },
     ];
 }
 
