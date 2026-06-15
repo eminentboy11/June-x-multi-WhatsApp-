@@ -76,10 +76,10 @@ async function downloadAudio(videoUrl) {
                 `https://api.drexapp.space/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (primary.data?.status && primary.data?.result?.download_url) {
+            if (primary.data?.status && primary.data?.result?.downloadURL) {
                 return {
                     status: true,
-                    result: primary.data.result.download_url,
+                    result: primary.data.result.downloadURL,
                     title: primary.data.result.title,
                     thumbnail: primary.data.result.thumbnail,
                 };
