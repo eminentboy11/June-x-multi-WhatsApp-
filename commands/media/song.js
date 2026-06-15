@@ -63,7 +63,7 @@ module.exports = {
             }
 
             // --- Audio download ---
-            // Tries each API in order, stops at first success
+            // All three now use officialhectormanuel under the hood
             const apiFns = [
                 () => APIs.getIzumiDownloadByUrl(videoUrl),
                 () => APIs.getEliteProTechDownloadByUrl(videoUrl),
@@ -74,7 +74,7 @@ module.exports = {
             for (const fn of apiFns) {
                 try {
                     const result = await fn();
-                    if (result && result.download) {
+                    if (result?.download) {
                         audioData = result;
                         break;
                     }
@@ -83,15 +83,17 @@ module.exports = {
                 }
             }
 
-            if (!audioData || !audioData.download) {
+            if (!audioData?.download) {
                 return await sock.sendMessage(chatId, {
                     text: '❌ Failed to fetch audio. Please try again later.'
                 }, { quoted: msg });
             }
 
-            // Use title from API if yts didn't find one
+            // Prefer API title, fall back to yts title
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
+            // Use thumbnail from yts since officialhectormanuel may not return one
+            const finalThumbnail = thumbnail || audioData.thumbnail || '';
 
             // --- Send as DOCUMENT ---
             await sock.sendMessage(chatId, {
@@ -107,11 +109,14 @@ module.exports = {
                 ptt: false
             }, { quoted: msg });
 
+            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+
         } catch (error) {
             console.error('Error in play/song command:', error);
             await sock.sendMessage(msg.key.remoteJid, {
                 text: '❌ Download failed. Please try again later.'
             }, { quoted: msg });
+            await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
         }
     }
 };
