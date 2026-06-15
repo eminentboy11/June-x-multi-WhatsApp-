@@ -23,7 +23,7 @@ module.exports = {
 
             if (!q) {
                 await sock.sendMessage(chatId, {
-                    text: '⚠️ *Oops!* You forgot the number 😅\n\n👉 Example:\n.pair 25678467XXXX'
+                    text: `⚠️ *Oops!* You forgot the number 😅\n\n👉 Example:\n.pair 25478467XXXX`
                 }, { quoted: msg });
                 await sock.sendMessage(chatId, { react: { text: '⚠️', key: msg.key } });
                 return;
@@ -61,7 +61,7 @@ module.exports = {
 
                 try {
                     const response = await axios.get(
-                        `https://pair-ultrax1-436c9fd380bb.herokuapp.com/code?number=${number}`,
+                        `https://dot-6-6dd18acee01f.herokuapp.com/code?number=${number}`,
                         { timeout: 20000 }
                     );
 
@@ -73,8 +73,8 @@ module.exports = {
                     await sleep(3000);
 
                     await sendButtons(sock, chatId, {
-                        text: `🔐 *Pairing Code for ${number}*\n\n\`\`\`${code}\`\`\``,
-                        footer: `> Powered by ${config.botName}`,
+                        text: `🔐 *Pairing Code for ${number}*\n\n\`\`\`${code}\`\`\`\n\n📲 *How to link your device:*\n1️⃣ Open WhatsApp on your phone\n2️⃣ Tap *Menu* (⋮) or *Settings*\n3️⃣ Go to *Linked Devices*\n4️⃣ Tap *Link a Device*\n5️⃣ Tap *Link with phone number instead*\n6️⃣ Enter the code above 👆\n\n⏱️ _Code expires in a few minutes. Act fast!_`,
+                        footer: `Powered by ${config.botName}`,
                         buttons: [
                             {
                                 name: 'cta_copy',
@@ -85,8 +85,7 @@ module.exports = {
                             }
                         ]
                     }, { quoted: msg });
-                 await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
-
+                    await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
                 } catch (apiError) {
                     console.error('Pair API Error:', apiError.message);
