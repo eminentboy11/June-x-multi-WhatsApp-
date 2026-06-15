@@ -1,32 +1,5 @@
 const yts = require('yt-search');
-const axios = require('axios');
-
-const tryRequest = async (getter, attempts = 3) => {
-    let lastError;
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-        try {
-            return await getter();
-        } catch (err) {
-            lastError = err;
-            if (attempt < attempts) await new Promise(r => setTimeout(r, 1000 * attempt));
-        }
-    }
-    throw lastError;
-};
-
-const getAudio = async (url) => {
-    const res = await tryRequest(() =>
-        axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(url)}`, { timeout: 60000 })
-    );
-    if (res?.data?.audio) {
-        return {
-            download: res.data.audio,
-            title: res.data.title,
-            thumbnail: res.data.thumbnail
-        };
-    }
-    throw new Error('No audio URL returned');
-};
+const APIs = require('../../utils/api');
 
 module.exports = {
     name: 'play',
@@ -36,8 +9,8 @@ module.exports = {
     usage: '.play <song name or URL>',
 
     async execute(sock, msg, args, extra) {
-        const chatId = extra.from;
         try {
+            const chatId = extra.from;
             const searchQuery = args.join(' ').trim();
 
             if (!searchQuery) {
@@ -78,7 +51,7 @@ module.exports = {
                     const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
                     if (ytId) {
                         const result = await yts({ videoId: ytId });
-                        if (result?.title) {
+                        if (result && result.title) {
                             title = result.title;
                             duration = result.timestamp || '';
                             views = result.views ? result.views.toLocaleString() : '';
@@ -90,11 +63,18 @@ module.exports = {
             }
 
             // --- Audio download ---
+            // Tries each API in order, stops at first success
+            const apiFns = [
+                () => APIs.getIzumiDownloadByUrl(videoUrl),
+                () => APIs.getEliteProTechDownloadByUrl(videoUrl),
+                () => APIs.getIzumiDownloadByQuery(searchQuery),
+            ];
+
             let audioData = null;
-            for (const query of [videoUrl, searchQuery]) {
+            for (const fn of apiFns) {
                 try {
-                    const result = await getAudio(query);
-                    if (result?.download) {
+                    const result = await fn();
+                    if (result && result.download) {
                         audioData = result;
                         break;
                     }
@@ -103,12 +83,13 @@ module.exports = {
                 }
             }
 
-            if (!audioData?.download) {
+            if (!audioData || !audioData.download) {
                 return await sock.sendMessage(chatId, {
                     text: '❌ Failed to fetch audio. Please try again later.'
                 }, { quoted: msg });
             }
 
+            // Use title from API if yts didn't find one
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
@@ -126,14 +107,11 @@ module.exports = {
                 ptt: false
             }, { quoted: msg });
 
-            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
-
         } catch (error) {
             console.error('Error in play/song command:', error);
-            await sock.sendMessage(chatId, {
+            await sock.sendMessage(msg.key.remoteJid, {
                 text: '❌ Download failed. Please try again later.'
             }, { quoted: msg });
-            await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
         }
     }
 };
