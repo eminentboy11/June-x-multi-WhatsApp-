@@ -1,14 +1,6 @@
 const yts = require('yt-search');
 const axios = require('axios');
 
-const DOWNLOAD_HEADERS = {
-    timeout: 60000,
-    headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*'
-    }
-};
-
 const tryRequest = async (getter, attempts = 3) => {
     let lastError;
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -24,7 +16,7 @@ const tryRequest = async (getter, attempts = 3) => {
 
 const getAudio = async (url) => {
     const res = await tryRequest(() =>
-        axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(url)}`, DOWNLOAD_HEADERS)
+        axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(url)}`, { timeout: 60000 })
     );
     if (res?.data?.audio) {
         return {
