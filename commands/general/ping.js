@@ -13,11 +13,12 @@ module.exports = {
         try {
             const chatId = extra.from;
             const botName = config.botName || 'June-Ultra';
+            const isDM = !chatId.endsWith('@g.us');
 
             const start = performance.now();
             const sentMsg = await sock.sendMessage(chatId, {
                 text: applyFont('🔸 pong!...')
-            });
+            }, isDM ? { quoted: msg } : {});
 
             const ping = (performance.now() - start).toFixed(3);
             const response = applyFont(`🔹 ${botName} Speed: ${ping} ms`);
