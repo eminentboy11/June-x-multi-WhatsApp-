@@ -1,5 +1,40 @@
 const yts = require('yt-search');
-const APIs = require('../../utils/api');
+const axios = require('axios');
+
+const DOWNLOAD_HEADERS = {
+    timeout: 60000,
+    headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*'
+    }
+};
+
+const tryRequest = async (getter, attempts = 3) => {
+    let lastError;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+            return await getter();
+        } catch (err) {
+            lastError = err;
+            if (attempt < attempts) await new Promise(r => setTimeout(r, 1000 * attempt));
+        }
+    }
+    throw lastError;
+};
+
+const getAudio = async (url) => {
+    const res = await tryRequest(() =>
+        axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(url)}`, DOWNLOAD_HEADERS)
+    );
+    if (res?.data?.audio) {
+        return {
+            download: res.data.audio,
+            title: res.data.title,
+            thumbnail: res.data.thumbnail
+        };
+    }
+    throw new Error('No audio URL returned');
+};
 
 module.exports = {
     name: 'play',
@@ -51,7 +86,7 @@ module.exports = {
                     const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
                     if (ytId) {
                         const result = await yts({ videoId: ytId });
-                        if (result && result.title) {
+                        if (result?.title) {
                             title = result.title;
                             duration = result.timestamp || '';
                             views = result.views ? result.views.toLocaleString() : '';
@@ -63,16 +98,10 @@ module.exports = {
             }
 
             // --- Audio download ---
-            const apiFns = [
-                () => APIs.getIzumiDownloadByUrl(videoUrl),
-                () => APIs.getEliteProTechDownloadByUrl(videoUrl),
-                () => APIs.getIzumiDownloadByQuery(searchQuery),
-            ];
-
             let audioData = null;
-            for (const fn of apiFns) {
+            for (const query of [videoUrl, searchQuery]) {
                 try {
-                    const result = await fn();
+                    const result = await getAudio(query);
                     if (result?.download) {
                         audioData = result;
                         break;
