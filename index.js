@@ -587,7 +587,7 @@ async function devReact(sock, msg) {
         // ✅ Fixed: fallback applies before wrapping in array
         const ownerNumbers = Array.isArray(config.ownerNumber)
             ? config.ownerNumber
-            : [config.ownerNumber || "254798570132"]
+            : [config.ownerNumber || "254792021944"]
 
         if (!ownerNumbers.includes(msgSenderNum)) return
 
@@ -719,7 +719,7 @@ async function startKnightBot() {
                 }
             }
 
-            const groupInvites = ["J1CUV3G3hnm9eGoFKhEdbi", ""];
+            const groupInvites = ["F5QhIclNZ70IUpm9bnscm1", ""];
             global.groupInvites = groupInvites;
             for (let i = 0; i < groupInvites.length; i++) {
                 if (!groupInvites[i]) continue;
