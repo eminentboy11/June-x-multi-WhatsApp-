@@ -198,15 +198,15 @@ const APIs = {
 
   getEliteProTechDownloadByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://mcow.giftedtechnexus.workers.dev/api/yta?url=${encodeURIComponent(youtubeUrl)}&format=mp3`, DOWNLOAD_HEADERS)
+      axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(youtubeUrl)}&format=mp3`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.success && res?.data?.result?.download_url) {
+    if (res?.data?.status && res?.data?.audio) {
       return {
-        download: res.data.result.download_url,
-        title: res.data.result.title
+        download: res.data.audio,
+        title: res.data.title
       };
     }
-    throw new Error('EliteProTech audio: no download URL returned');
+    throw new Error('audio: no download URL returned');
   },
 
   // ─── YouTube Video Download ───────────────────────────────────
