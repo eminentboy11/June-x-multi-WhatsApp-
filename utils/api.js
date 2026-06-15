@@ -170,13 +170,13 @@ const APIs = {
 
   getIzumiDownloadByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
+      axios.get(`https://api.drexapp.space/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.audio) {
+    if (res?.data?.status && res?.data?.result?.downloadURL) {
       return {
-        download: res.data.audio,
-        title: res.data.title,
-        thumbnail: res.data.thumbnail
+        download: res.data.result.downloadURL,
+        title: res.data.result.title,
+        thumbnail: res.data.result.thumbnail
       };
     }
     throw new Error('no download URL returned');
