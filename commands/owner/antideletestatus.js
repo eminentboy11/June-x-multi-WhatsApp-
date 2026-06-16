@@ -189,13 +189,16 @@ async function handleStatusDelete(sock, updates) {
         const selfJid = botSelfJid(sock);
         if (!selfJid) return;
 
-        const { WAMessageStubType } = require('@whiskeysockets/baileys');
+        for (const { key } of updates) {
+            // Status deletions may arrive with remoteJid = status@broadcast OR the
+            // sender's own JID depending on Baileys version — match either way.
+            const isStatusJid = key.remoteJid === STATUS_JID;
+            const storedById  = statusStore.get(key.id);
 
-        for (const { key, update } of updates) {
-            if (key.remoteJid !== STATUS_JID) continue;
-            if (update?.messageStubType !== WAMessageStubType.REVOKE) continue;
+            if (!isStatusJid && !storedById) continue;
 
-            const stored = statusStore.get(key.id);
+            // Look up the stored status by message ID
+            const stored = storedById || null;
             if (!stored) continue;
 
             await sendRecoveredStatus(sock, selfJid, stored);
