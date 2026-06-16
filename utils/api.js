@@ -198,11 +198,11 @@ const APIs = {
 
   getEliteProTechDownloadByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://apis.xcasper.space/api/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
+      axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.status) {
+    if (res?.data?.audio) {
       return {
-        download: res.data.url,
+        download: res.data.audio,
         title: res.data.title
       };
     }
