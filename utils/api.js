@@ -198,15 +198,15 @@ const APIs = {
 
   getEliteProTechDownloadByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
+      axios.get(`https://apis.xcasper.space/api/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.audio) {
+    if (res?.data?.status) {
       return {
-        download: res.data.audio,
+        download: res.data.url,
         title: res.data.title
       };
     }
-    throw new Error('EliteProTech audio: no download URL returned');
+    throw new Error('casper audio: no download URL returned');
   },
 
   // ─── YouTube Video Download ───────────────────────────────────
