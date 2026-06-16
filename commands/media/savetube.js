@@ -50,27 +50,15 @@ async function fetchYTInfo(url) {
     return data;
 }
 
-async function downloadToFile(url, filePath) {
-    const res = await axios({ method: 'get', url, responseType: 'stream', timeout: 600000 });
-    const writer = fs.createWriteStream(filePath);
-    res.data.pipe(writer);
-    await new Promise((resolve, reject) => {
-        writer.on('finish', resolve);
-        writer.on('error', reject);
-    });
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-        throw new Error('Download failed — file is empty');
-    }
+async function downloadToBuffer(url) {
+    const res = await axios({ method: 'get', url, responseType: 'arraybuffer', timeout: 600000 });
+    const buf = Buffer.from(res.data);
+    if (!buf || buf.length === 0) throw new Error('Download failed — buffer is empty');
+    return buf;
 }
 
 function cleanTitle(str) {
     return (str || 'video').replace(/[^\w\s.-]/gi, '').trim().substring(0, 80);
-}
-
-function getTempPath(name) {
-    const dir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir);
-    return path.join(dir, name);
 }
 
 function safeDelete(filePath) {
@@ -116,11 +104,9 @@ function getQualityButtons(qualities, dateNow) {
         }));
 }
 
-// ── Core download flow (called after URL is resolved) ─────────────────────────
+// ── Core download flow ────────────────────────────────────────────────────────
 
 async function startDownloadFlow(sock, msg, from, prefix, originalSender, url, quotedMsg) {
-    await sock.sendMessage(from, { text: '⏳ _Fetching video info..._' }, { quoted: quotedMsg });
-
     let info;
     try {
         info = await fetchYTInfo(url);
@@ -158,28 +144,25 @@ async function startDownloadFlow(sock, msg, from, prefix, originalSender, url, q
 
         const typeMatch = typeId.replace(prefix, '').match(/^yttype_(\w+)_/);
         if (!typeMatch) return;
-        const selectedType = typeMatch[1]; // audio | audiodoc | video | videodoc
+        const selectedType = typeMatch[1];
 
         sock.ev.off('messages.upsert', handleTypeSelect);
         await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
         // ── Audio / Audio Document ─────────────────────────────────────────────
         if (selectedType === 'audio' || selectedType === 'audiodoc') {
-            await sock.sendMessage(from, { text: '⏳ _Downloading audio..._' }, { quoted: typeMsg });
-
-            const filePath = getTempPath(`yt_audio_${dateNow}.mp3`);
             try {
-                await downloadToFile(audioUrl, filePath);
+                const buf   = await downloadToBuffer(audioUrl);
                 const label = cleanTitle(title);
 
                 if (selectedType === 'audio') {
                     await sock.sendMessage(from, {
-                        audio:    { url: filePath },
+                        audio:    buf,
                         mimetype: 'audio/mpeg',
                     }, { quoted: typeMsg });
                 } else {
                     await sock.sendMessage(from, {
-                        document: { url: filePath },
+                        document: buf,
                         mimetype: 'audio/mpeg',
                         fileName: `${label}.mp3`,
                         caption:  `> ${config.botName}`,
@@ -191,8 +174,6 @@ async function startDownloadFlow(sock, msg, from, prefix, originalSender, url, q
                 console.error('[saveyt] audio error:', err.message);
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                 await sock.sendMessage(from, { text: `🚫 Audio download failed: ${err.message}` }, { quoted: typeMsg });
-            } finally {
-                safeDelete(filePath);
             }
             return;
         }
@@ -235,24 +216,21 @@ async function startDownloadFlow(sock, msg, from, prefix, originalSender, url, q
                 }
 
                 sock.ev.off('messages.upsert', handleQualSelect);
-
                 await sock.sendMessage(from, { react: { text: '⏬', key: msg.key } });
-                await sock.sendMessage(from, { text: `⏳ _Downloading ${quality}p video..._` }, { quoted: qualMsg });
 
-                const filePath = getTempPath(`yt_video_${quality}_${qualDateNow}.mp4`);
                 try {
-                    await downloadToFile(videoUrl, filePath);
+                    const buf   = await downloadToBuffer(videoUrl);
                     const label = cleanTitle(title);
 
                     if (selectedType === 'video') {
                         await sock.sendMessage(from, {
-                            video:    { url: filePath },
+                            video:    buf,
                             mimetype: 'video/mp4',
                             caption:  `🎬 *${title}*\n📺 Quality: ${quality}p\n> ${config.botName}`,
                         }, { quoted: qualMsg });
                     } else {
                         await sock.sendMessage(from, {
-                            document: { url: filePath },
+                            document: buf,
                             mimetype: 'video/mp4',
                             fileName: `${label}_${quality}p.mp4`,
                             caption:  `🎬 *${title}*\n📺 Quality: ${quality}p\n> ${config.botName}`,
@@ -264,8 +242,6 @@ async function startDownloadFlow(sock, msg, from, prefix, originalSender, url, q
                     console.error('[saveyt] video error:', err.message);
                     await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                     await sock.sendMessage(from, { text: `🚫 Video download failed: ${err.message}` }, { quoted: qualMsg });
-                } finally {
-                    safeDelete(filePath);
                 }
             };
 
@@ -309,14 +285,12 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '🔍', key: msg.key } });
 
-        // ── Direct URL: skip search ───────────────────────────────────────────
+        // ── Direct URL ────────────────────────────────────────────────────────
         if (isYouTubeUrl(input)) {
             return await startDownloadFlow(sock, msg, from, prefix, originalSender, input, msg);
         }
 
         // ── Search query ──────────────────────────────────────────────────────
-        await sock.sendMessage(from, { text: `🔎 _Searching YouTube for:_ *${input}*...` }, { quoted: msg });
-
         let results;
         try {
             results = await searchYouTube(input);
