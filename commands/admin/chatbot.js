@@ -1,25 +1,30 @@
 const database = require(require('path').join(global.__CORE__, 'database'));
 const fs = require('fs');
 const path = require('path');
+const axios = require('axios');
 
 const SETTINGS_FILE = path.join(__dirname, '../../data/chatbot_settings.json');
 
-const AGENTS = {
-    gpt:        { label: 'GPT-4',                      emoji: '💡', type: 'text',      endpoint: '/ai/gpt4' },
-    gemini:     { label: 'Gemini',                     emoji: '✨', type: 'text',      endpoint: '/ai/gemini' },
-    claude:     { label: 'Claude',                     emoji: '🧠', type: 'text',      endpoint: '/ai/claudeai' },
-    deepseek:   { label: 'DeepSeek R1',                emoji: '🔍', type: 'text',      endpoint: '/ai/deepseek' },
-    grok:       { label: 'Grok (xAI)',                 emoji: '⚡', type: 'text',      endpoint: '/ai/grok' },
-    meta:       { label: 'Meta AI (LLaMA)',             emoji: '🦙', type: 'text',      endpoint: '/ai/metai' },
-    mistral:    { label: 'Mistral',                    emoji: '🌀', type: 'text',      endpoint: '/ai/mistral' },
-    perplexity: { label: 'Perplexity',                 emoji: '🔮', type: 'text',      endpoint: '/ai/perplexity' },
-    nemotron:   { label: 'Nemotron VL (NVIDIA)',        emoji: '🎨', type: 'nemotron',  endpoint: null },
-    vision:     { label: 'Vision (Gemini Image)',       emoji: '👁️',  type: 'vision',    endpoint: null },
-    meme:       { label: 'Meme (random)',               emoji: '😂', type: 'meme',      endpoint: null },
-    memesearch: { label: 'Meme Search',                emoji: '🔎', type: 'memesearch', endpoint: null },
-    random:     { label: 'Random — all AIs, no Keith', emoji: '🎲', type: 'random',    endpoint: null },
-    all:        { label: 'All AIs in order, no Keith', emoji: '🌐', type: 'all',       endpoint: null },
+// ── API helpers ───────────────────────────────────────────────────────────────
+
+const getTextReply = async (prompt) => {
+    // alternates between cohere and grok on each call
+    const useGrok = Math.random() < 0.5;
+    if (useGrok) {
+        const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query: prompt }, timeout: 60000 });
+        if (!data?.success || !data.reply) throw new Error('No reply from grok');
+        return data.reply;
+    } else {
+        const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt }, timeout: 60000 });
+        if (!data?.success || !data.reply) throw new Error('No reply from cohere');
+        return data.reply;
+    }
 };
+
+const getImageUrl = (prompt) =>
+    `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&enhance=true`;
+
+// ── Settings helpers ──────────────────────────────────────────────────────────
 
 function loadSettings() {
     try {
@@ -27,7 +32,7 @@ function loadSettings() {
             return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         }
     } catch {}
-    return { enabled: false, agent: 'random' };
+    return { pmEnabled: false };
 }
 
 function saveSettings(data) {
@@ -40,112 +45,131 @@ function saveSettings(data) {
     }
 }
 
-function loadDmSettings() {
-    return loadSettings();
+// ── Auto-reply handler (called from message listener) ─────────────────────────
+
+async function handleAutoReply(sock, msg, extra) {
+    const { from, isGroup } = extra;
+    const settings = loadSettings();
+
+    // check if chatbot is on for this context
+    const active = isGroup
+        ? database.getGroupSettings(from).chatbot
+        : settings.pmEnabled;
+
+    if (!active) return;
+
+    const text = msg.message?.conversation
+        || msg.message?.extendedTextMessage?.text
+        || '';
+
+    if (!text.trim()) return;
+
+    try {
+        // if message looks like an image request, send image
+        const imageKeywords = ['generate', 'draw', 'create image', 'make image', 'image of', 'picture of'];
+        const isImageRequest = imageKeywords.some(k => text.toLowerCase().includes(k));
+
+        if (isImageRequest) {
+            const url = getImageUrl(text);
+            await sock.sendMessage(from, {
+                image: { url },
+                caption: `🎨 *AI Image*\n\n_Prompt:_ ${text}`,
+            }, { quoted: msg });
+        } else {
+            const reply = await getTextReply(text);
+            await sock.sendMessage(from, { text: reply }, { quoted: msg });
+        }
+    } catch (err) {
+        console.error('[Chatbot] Auto-reply error:', err.message);
+    }
 }
+
+// ── Command ───────────────────────────────────────────────────────────────────
 
 module.exports = {
     name: 'chatbot',
     aliases: ['cb', 'bot'],
     category: 'admin',
-    description: 'Toggle AI chatbot for group or PM, and choose the AI agent',
-    usage: '.chatbot | .chatbot pm | .chatbot group | .chatbot agent <name>',
+    description: 'Toggle AI chatbot on/off for group or PM',
+    usage: '.chatbot on | .chatbot off',
 
     async execute(sock, msg, args, extra) {
         const { from, isGroup, isOwner, isAdmin, reply } = extra;
         const mode = (args[0] || '').toLowerCase();
-        const sub  = (args[1] || '').toLowerCase();
+        const settings = loadSettings();
 
-        const settings     = loadSettings();
-        const groupEnabled = isGroup ? database.getGroupSettings(from).chatbot : null;
-        const agentKey     = settings.agent || 'keith';
-        const currentAgent = AGENTS[agentKey] || AGENTS.keith;
-
+        // ── Status (no args) ─────────────────────────────────────────────────
         if (!mode) {
-            const agentList = Object.entries(AGENTS)
-                .map(([k, v]) => `  ${agentKey === k ? '▶' : '•'} ${v.emoji} *${k}* — ${v.label}`)
-                .join('\n');
-
+            const groupOn = isGroup ? database.getGroupSettings(from).chatbot : null;
+            const pmOn    = settings.pmEnabled;
             return reply(
                 `🤖 *Chatbot Status*\n\n` +
-                (isGroup ? `┃ 👥 Group: ${groupEnabled ? '✅ ON' : '❌ OFF'}\n` : '') +
-                `┃ 💬 PM: ${settings.enabled ? '✅ ON' : '❌ OFF'}\n` +
-                `┃ 🎯 Agent: ${currentAgent.emoji} *${agentKey}* — ${currentAgent.label}\n\n` +
+                (isGroup ? `┃ 👥 Group: ${groupOn ? '✅ ON' : '❌ OFF'}\n` : '') +
+                `┃ 💬 PM: ${pmOn ? '✅ ON' : '❌ OFF'}\n\n` +
                 `*Commands:*\n` +
-                `• *.chatbot group* — Toggle AI replies in this group\n` +
-                `• *.chatbot pm* — Toggle AI replies in DMs (owner only)\n` +
-                `• *.chatbot agent <name>* — Switch AI agent\n\n` +
-                `*Available Agents:*\n${agentList}`
+                `• *.chatbot on* — Turn on chatbot here\n` +
+                `• *.chatbot off* — Turn off chatbot here`
             );
         }
 
-        if (mode === 'group' || mode === 'grp') {
-            if (!isGroup) return reply('❌ Use this command inside a group chat.');
-            if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle the chatbot.');
-            const current = database.getGroupSettings(from).chatbot;
-            database.updateGroupSettings(from, { chatbot: !current });
-            const now = !current;
-            return reply(
-                `🤖 *Group Chatbot ${now ? 'Enabled ✅' : 'Disabled ❌'}*\n\n` +
-                (now
-                    ? `The bot will now auto-reply to every message in this group using ${currentAgent.emoji} *${currentAgent.label}*.\n\n_Use *.chatbot group* again to turn off._`
-                    : `The bot will no longer auto-reply to messages in this group.`)
-            );
-        }
-
-        if (mode === 'pm' || mode === 'dm' || mode === 'private') {
-            if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
-            settings.enabled = !settings.enabled;
-            saveSettings(settings);
-            const now = settings.enabled;
-            return reply(
-                `🤖 *PM Chatbot ${now ? 'Enabled ✅' : 'Disabled ❌'}*\n\n` +
-                (now
-                    ? `The bot will now auto-reply to all private messages using ${currentAgent.emoji} *${currentAgent.label}*.\n\n_Use *.chatbot pm* again to turn off._`
-                    : `The bot will no longer auto-reply to DMs.`)
-            );
-        }
-
-        if (mode === 'agent' || mode === 'ai' || mode === 'set') {
-            if (!sub) {
-                const agentList = Object.entries(AGENTS)
-                    .map(([k, v]) => `  ${agentKey === k ? '▶' : '•'} ${v.emoji} *${k}* — ${v.label}`)
-                    .join('\n');
+        // ── ON ───────────────────────────────────────────────────────────────
+        if (mode === 'on') {
+            if (isGroup) {
+                if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle the chatbot.');
+                const current = database.getGroupSettings(from).chatbot;
+                if (current) return reply('ℹ️ Chatbot is already *ON* in this group.');
+                database.updateGroupSettings(from, { chatbot: true });
                 return reply(
-                    `🎯 *Available AI Agents*\n\n${agentList}\n\n` +
-                    `Usage: *.chatbot agent <name>*\nExample: *.chatbot agent gpt*`
+                    `🤖 *Group Chatbot Enabled ✅*\n\n` +
+                    `The bot will now auto-reply to every message in this group.\n\n` +
+                    `_Use *.chatbot off* to turn off._`
+                );
+            } else {
+                if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
+                if (settings.pmEnabled) return reply('ℹ️ Chatbot is already *ON* in PM.');
+                settings.pmEnabled = true;
+                saveSettings(settings);
+                return reply(
+                    `🤖 *PM Chatbot Enabled ✅*\n\n` +
+                    `The bot will now auto-reply to all private messages.\n\n` +
+                    `_Use *.chatbot off* to turn off._`
                 );
             }
-
-            if (!AGENTS[sub]) {
-                return reply(
-                    `❌ Unknown agent: *${sub}*\n\n` +
-                    `Available: ${Object.keys(AGENTS).join(', ')}`
-                );
-            }
-
-            if (!isOwner && !isAdmin) return reply('❌ Only admins or the bot owner can change the AI agent.');
-            settings.agent = sub;
-            saveSettings(settings);
-            const chosen = AGENTS[sub];
-            return reply(
-                `✅ *AI Agent Changed*\n\n` +
-                `${chosen.emoji} *${chosen.label}* is now the active chatbot agent.\n\n` +
-                `All auto-replies will use this model.`
-            );
         }
 
+        // ── OFF ──────────────────────────────────────────────────────────────
+        if (mode === 'off') {
+            if (isGroup) {
+                if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle the chatbot.');
+                const current = database.getGroupSettings(from).chatbot;
+                if (!current) return reply('ℹ️ Chatbot is already *OFF* in this group.');
+                database.updateGroupSettings(from, { chatbot: false });
+                return reply(
+                    `🤖 *Group Chatbot Disabled ❌*\n\n` +
+                    `The bot will no longer auto-reply to messages in this group.`
+                );
+            } else {
+                if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
+                if (!settings.pmEnabled) return reply('ℹ️ Chatbot is already *OFF* in PM.');
+                settings.pmEnabled = false;
+                saveSettings(settings);
+                return reply(
+                    `🤖 *PM Chatbot Disabled ❌*\n\n` +
+                    `The bot will no longer auto-reply to DMs.`
+                );
+            }
+        }
+
+        // ── Unknown ──────────────────────────────────────────────────────────
         return reply(
             `❓ Unknown option: *${mode}*\n\n` +
             `Usage:\n` +
-            `• *.chatbot* — Show full status\n` +
-            `• *.chatbot group* — Toggle in groups\n` +
-            `• *.chatbot pm* — Toggle in DMs\n` +
-            `• *.chatbot agent <name>* — Switch AI agent`
+            `• *.chatbot* — Show status\n` +
+            `• *.chatbot on* — Turn on here\n` +
+            `• *.chatbot off* — Turn off here`
         );
     },
 
-    loadDmSettings,
+    handleAutoReply,
     loadSettings,
-    AGENTS,
 };
