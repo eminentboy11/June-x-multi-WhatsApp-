@@ -560,12 +560,14 @@ const handleMessage = async (sock, msg) => {
     if (isGroup) {
       const antispam     = commands.get('antispam');
       const antiviewonce = commands.get('antiviewonce');
+      const antibot      = commands.get('antibot');
       await Promise.allSettled([
         handleAntigroupmention(sock, msg, groupMetadata),
         handleAntigroupstatus(sock, msg, groupMetadata),
         handleAntiMedia(sock, msg, groupMetadata),
-        antispam?.handleAntispam     ? antispam.handleAntispam(sock, msg, groupMetadata)   : Promise.resolve(),
-        antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)       : Promise.resolve(),
+        antispam?.handleAntispam         ? antispam.handleAntispam(sock, msg, groupMetadata)         : Promise.resolve(),
+        antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)                : Promise.resolve(),
+        antibot?.handleMessage           ? antibot.handleMessage(sock, msg, groupMetadata)           : Promise.resolve(),
         handleAntibadword(sock, msg, groupMetadata),
       ]);
     }
