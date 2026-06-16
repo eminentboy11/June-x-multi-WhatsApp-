@@ -1,13 +1,10 @@
 /**
- * AI Commands
+ * AI Commands - Optimized (no reaction overhead)
  */
 
 const axios = require('axios');
 
-// ── Shared send helpers ───────────────────────────────────────────────────────
-
-const react = (sock, msg, emoji) =>
-    sock.sendMessage(msg.key.remoteJid, { react: { text: emoji, key: msg.key } });
+// ── Shared send helpers (no reactions) ──────────────────────────────────────
 
 const send = (sock, msg, text) =>
     sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg });
@@ -30,14 +27,11 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const prompt = args.join(' ').trim();
             if (!prompt) return extra.reply('❌ Please provide a prompt\n\nExample: .generate sunset over mountains');
-            await react(sock, msg, '🎨');
             try {
                 const url = imageUrl(prompt);
                 await sock.sendMessage(extra.from, { image: { url }, caption: `🎨 *AI Image*\n\n_Prompt:_ ${prompt}` }, { quoted: msg });
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[generate]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Failed to generate image. Please try again.');
             }
         },
@@ -52,14 +46,11 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const prompt = args.join(' ').trim();
             if (!prompt) return extra.reply('❌ Please provide a prompt\n\nExample: .dalle futuristic city at night');
-            await react(sock, msg, '🌟');
             try {
                 const url = imageUrl(prompt);
                 await sock.sendMessage(extra.from, { image: { url }, caption: `🌟 *Flux AI Image*\n\n_Prompt:_ ${prompt}` }, { quoted: msg });
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[dalle]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Flux image generation failed. Please try again.');
             }
         },
@@ -76,15 +67,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .chatgpt What is JavaScript?');
-            await react(sock, msg, '🤖');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/letmegpt', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🤖 *ChatGPT*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[chatgpt]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ ChatGPT service error. Please try again later.');
             }
         },
@@ -101,15 +89,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt2 What is artificial intelligence?');
-            await react(sock, msg, '🤖');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/letmegpt', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🤖 *GPT Response*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gpt2]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ GPT service error. Please try again later.');
             }
         },
@@ -126,15 +111,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .copilot How are you?');
-            await react(sock, msg, '🪟');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🪟 *Microsoft Copilot*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[copilot]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Copilot service error. Please try again later.');
             }
         },
@@ -151,15 +133,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .metaai Hello, how are you?');
-            await react(sock, msg, '💭');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/huggingface', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `💭 *Meta AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[metaai]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Meta AI service error. Please try again later.');
             }
         },
@@ -176,15 +155,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .llama What is deep learning?');
-            await react(sock, msg, '🦙');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/huggingface', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🦙 *Llama AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[llama]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Llama AI service error. Please try again later.');
             }
         },
@@ -201,15 +177,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .blackbox Explain recursion');
-            await react(sock, msg, '📦');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `📦 *Blackbox AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[blackbox]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Blackbox AI service error. Please try again later.');
             }
         },
@@ -226,15 +199,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide text to summarize\n\nExample: .summarize Paste your long text here');
-            await react(sock, msg, '📝');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt: `Summarize the following text concisely:\n\n${query}` }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `📝 *Summary*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[summarize]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Summarize service error. Please try again later.');
             }
         },
@@ -251,15 +221,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .mistral What is machine learning?');
-            await react(sock, msg, '🔍');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🔍 *Mistral AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[mistral]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Mistral AI service error. Please try again later.');
             }
         },
@@ -276,15 +243,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .think Analyze the ethics of AI in healthcare');
-            await react(sock, msg, '🧠');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🧠 *Deep Think*\n\n${data.reply}\n\n💭 _Deep analysis completed_`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[think]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Deep Think service error. Please try again later.');
             }
         },
@@ -301,15 +265,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .venice What is life?');
-            await react(sock, msg, '🌊');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/huggingface', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🌊 *Venice AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[venice]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Venice AI service error. Please try again later.');
             }
         },
@@ -326,15 +287,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .perplexity What is quantum computing?');
-            await react(sock, msg, '🔎');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🔎 *Perplexity AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[perplexity]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Perplexity AI service error. Please try again later.');
             }
         },
@@ -351,15 +309,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .bard Explain black holes');
-            await react(sock, msg, '✨');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/letmegpt', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `✨ *Google Bard*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[bard]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Bard service error. Please try again later.');
             }
         },
@@ -376,15 +331,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt4nano Tell me a joke');
-            await react(sock, msg, '🤖');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/letmegpt', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🤖 *GPT-4 Nano*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gpt4nano]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ GPT-4 Nano service error. Please try again later.');
             }
         },
@@ -401,15 +353,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .kelvinai How does the internet work?');
-            await react(sock, msg, '⚡');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/huggingface', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `⚡ *Kelvin AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[kelvinai]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Kelvin AI service error. Please try again later.');
             }
         },
@@ -426,15 +375,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .claude Explain recursion');
-            await react(sock, msg, '🧠');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🧠 *Claude AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[claude]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Claude service error. Please try again later.');
             }
         },
@@ -451,15 +397,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gemini Explain quantum physics');
-            await react(sock, msg, '♊');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `♊ *Google Gemini*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gemini]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Gemini service error. Please try again later.');
             }
         },
@@ -476,15 +419,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .glm Introduction to JavaScript');
-            await react(sock, msg, '💡');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `💡 *GLM AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[glm]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ GLM AI service error. Please try again later.');
             }
         },
@@ -501,15 +441,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .phi2 How are you?');
-            await react(sock, msg, '🔬');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/huggingface', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🔬 *PHI-2 AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[phi2]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ PHI-2 AI service error. Please try again later.');
             }
         },
@@ -526,15 +463,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .compound Latest Node.js version');
-            await react(sock, msg, '🌐');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🌐 *AI + Web Search*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[compound]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Compound AI service error. Please try again later.');
             }
         },
@@ -551,15 +485,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a topic\n\nExample: .ainews latest AI developments');
-            await react(sock, msg, '📰');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query: `Give me the latest news and updates about: ${query}` }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `📰 *News AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[ainews]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ News AI service error. Please try again later.');
             }
         },
@@ -576,15 +507,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt4o How does a black hole form?');
-            await react(sock, msg, '🤖');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/letmegpt', { params: { prompt: query }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🤖 *GPT-4o*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gpt4o]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ GPT-4o service error. Please try again later.');
             }
         },
@@ -601,15 +529,12 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a research question\n\nExample: .scite Effects of caffeine on sleep');
-            await react(sock, msg, '🔬');
             try {
                 const { data } = await axios.get('https://apis.xcasper.space/api/ai/cohere', { params: { prompt: `Answer this academic/research question in detail: ${query}` }, timeout: 60000 });
                 if (!data?.success || !data.reply) throw new Error('No reply');
                 await send(sock, msg, `🔬 *Research AI*\n\n${data.reply}`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[scite]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Research AI service error. Please try again later.');
             }
         },
@@ -626,14 +551,11 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const text = args.join(' ').trim();
             if (!text) return extra.reply('❌ Please provide text\n\nExample: .tts Hello, how are you?');
-            await react(sock, msg, '🔊');
             try {
                 const audioUrl = `https://text.pollinations.ai/${encodeURIComponent(text)}?model=openai-audio&voice=nova`;
                 await sock.sendMessage(extra.from, { audio: { url: audioUrl }, mimetype: 'audio/mpeg' }, { quoted: msg });
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[tts]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ TTS service error. Please try again later.');
             }
         },
@@ -650,16 +572,13 @@ module.exports = [
         async execute(sock, msg, args, extra) {
             const url = args[0]?.trim();
             if (!url || !url.startsWith('http')) return extra.reply('❌ Please provide an audio URL\n\nExample: .whisper https://example.com/audio.mp3');
-            await react(sock, msg, '🎙️');
             try {
                 const { data } = await axios.get('https://api.drexapp.space/ai/whisper', { params: { url }, timeout: 60000 });
                 const text = data?.result?.text;
                 if (!text) throw new Error('No transcription returned');
                 await send(sock, msg, `🎙️ *Whisper Transcription*\n\n${text}\n\n_Language: ${data.result.language || 'auto'}_`);
-                await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[whisper]', err.message);
-                await react(sock, msg, '❌');
                 extra.reply('❌ Whisper service error. Please try again later.');
             }
         },
