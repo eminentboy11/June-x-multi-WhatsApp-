@@ -8,7 +8,6 @@ const SETTINGS_FILE = path.join(__dirname, '../../data/chatbot_settings.json');
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 const getTextReply = async (prompt) => {
-    // alternates between cohere and grok on each call
     const useGrok = Math.random() < 0.5;
     if (useGrok) {
         const { data } = await axios.get('https://apis.xcasper.space/api/ai/grok', { params: { query: prompt }, timeout: 60000 });
@@ -32,7 +31,7 @@ function loadSettings() {
             return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
         }
     } catch {}
-    return { pmEnabled: false };
+    return { pmEnabled: false, gcEnabled: false };
 }
 
 function saveSettings(data) {
@@ -45,16 +44,15 @@ function saveSettings(data) {
     }
 }
 
-// ── Auto-reply handler (called from message listener) ─────────────────────────
+// ── Auto-reply handler (called from handler.js) ───────────────────────────────
 
 async function handleAutoReply(sock, msg, extra) {
     const { from, isGroup } = extra;
     const settings = loadSettings();
 
-    // check if chatbot is on for this context
     const active = isGroup
-        ? database.getGroupSettings(from).chatbot
-        : settings.pmEnabled;
+        ? (settings.gcEnabled === true || database.getGroupSettings(from).chatbot === true)
+        : settings.pmEnabled === true;
 
     if (!active) return;
 
@@ -65,7 +63,10 @@ async function handleAutoReply(sock, msg, extra) {
     if (!text.trim()) return;
 
     try {
-        // if message looks like an image request, send image
+        await sock.sendPresenceUpdate('composing', from);
+    } catch (_) {}
+
+    try {
         const imageKeywords = ['generate', 'draw', 'create image', 'make image', 'image of', 'picture of'];
         const isImageRequest = imageKeywords.some(k => text.toLowerCase().includes(k));
 
@@ -90,8 +91,8 @@ module.exports = {
     name: 'chatbot',
     aliases: ['cb', 'bot'],
     category: 'admin',
-    description: 'Toggle AI chatbot on/off for group or PM',
-    usage: '.chatbot on/off | .chatbot pm/dm | .chatbot group/gc',
+    description: 'Toggle AI chatbot for PM or group chats',
+    usage: '.chatbot | .chatbot pm/dm | .chatbot group/gc | .chatbot off',
 
     async execute(sock, msg, args, extra) {
         const { from, isGroup, isOwner, isAdmin, reply } = extra;
@@ -105,63 +106,14 @@ module.exports = {
             const gcOn    = settings.gcEnabled;
             return reply(
                 `🤖 *Chatbot Status*\n\n` +
-                (isGroup ? `┃ 👥 Group (this chat): ${groupOn ? '✅ ON' : '❌ OFF'}\n` : '') +
-                `┃ 💬 PM/DM (all private): ${pmOn ? '✅ ON' : '❌ OFF'}\n` +
-                `┃ 👥 GC/Group (all groups): ${gcOn ? '✅ ON' : '❌ OFF'}\n\n` +
+                (isGroup ? `┃ 👥 This group: ${groupOn ? '✅ ON' : '❌ OFF'}\n` : '') +
+                `┃ 💬 PM/DM: ${pmOn ? '✅ ON' : '❌ OFF'}\n` +
+                `┃ 👥 All GCs: ${gcOn ? '✅ ON' : '❌ OFF'}\n\n` +
                 `*Commands:*\n` +
-                `• *.chatbot on* — Turn on chatbot here\n` +
-                `• *.chatbot off* — Turn off chatbot here\n` +
                 `• *.chatbot pm* or *.chatbot dm* — Toggle PM chatbot\n` +
-                `• *.chatbot group* or *.chatbot gc* — Toggle all-group chatbot`
+                `• *.chatbot group* or *.chatbot gc* — Toggle all-group chatbot\n` +
+                `• *.chatbot off* — Turn OFF both PM and GC chatbot`
             );
-        }
-
-        // ── ON (context-aware) ───────────────────────────────────────────────
-        if (mode === 'on') {
-            if (isGroup) {
-                if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle the chatbot.');
-                const current = database.getGroupSettings(from).chatbot;
-                if (current) return reply('ℹ️ Chatbot is already *ON* in this group.');
-                database.updateGroupSettings(from, { chatbot: true });
-                return reply(
-                    `🤖 *Group Chatbot Enabled ✅*\n\n` +
-                    `The bot will now auto-reply to every message in this group.\n\n` +
-                    `_Use *.chatbot off* to turn off._`
-                );
-            } else {
-                if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
-                if (settings.pmEnabled) return reply('ℹ️ Chatbot is already *ON* in PM.');
-                settings.pmEnabled = true;
-                saveSettings(settings);
-                return reply(
-                    `🤖 *PM Chatbot Enabled ✅*\n\n` +
-                    `The bot will now auto-reply to all private messages.\n\n` +
-                    `_Use *.chatbot off* to turn off._`
-                );
-            }
-        }
-
-        // ── OFF (context-aware) ──────────────────────────────────────────────
-        if (mode === 'off') {
-            if (isGroup) {
-                if (!isAdmin && !isOwner) return reply('❌ Only group admins can toggle the chatbot.');
-                const current = database.getGroupSettings(from).chatbot;
-                if (!current) return reply('ℹ️ Chatbot is already *OFF* in this group.');
-                database.updateGroupSettings(from, { chatbot: false });
-                return reply(
-                    `🤖 *Group Chatbot Disabled ❌*\n\n` +
-                    `The bot will no longer auto-reply to messages in this group.`
-                );
-            } else {
-                if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
-                if (!settings.pmEnabled) return reply('ℹ️ Chatbot is already *OFF* in PM.');
-                settings.pmEnabled = false;
-                saveSettings(settings);
-                return reply(
-                    `🤖 *PM Chatbot Disabled ❌*\n\n` +
-                    `The bot will no longer auto-reply to DMs.`
-                );
-            }
         }
 
         // ── PM / DM toggle ───────────────────────────────────────────────────
@@ -179,7 +131,7 @@ module.exports = {
 
         // ── GROUP / GC toggle (all groups globally) ──────────────────────────
         if (mode === 'group' || mode === 'gc') {
-            if (!isOwner) return reply('❌ Only the bot owner can toggle the global group chatbot.');
+            if (!isOwner) return reply('❌ Only the bot owner can toggle the group chatbot.');
             const newState = !settings.gcEnabled;
             settings.gcEnabled = newState;
             saveSettings(settings);
@@ -190,15 +142,27 @@ module.exports = {
             );
         }
 
+        // ── OFF — kills both PM and GC ───────────────────────────────────────
+        if (mode === 'off') {
+            if (!isOwner && !isAdmin) return reply('❌ Only the bot owner or group admin can use this.');
+            settings.pmEnabled = false;
+            settings.gcEnabled = false;
+            saveSettings(settings);
+            return reply(
+                `🤖 *Chatbot Disabled ❌*\n\n` +
+                `Both PM and Group chatbot have been turned off.\n\n` +
+                `_Use *.chatbot pm* or *.chatbot group* to turn on individually._`
+            );
+        }
+
         // ── Unknown ──────────────────────────────────────────────────────────
         return reply(
             `❓ Unknown option: *${mode}*\n\n` +
             `Usage:\n` +
             `• *.chatbot* — Show status\n` +
-            `• *.chatbot on* — Turn on chatbot here\n` +
-            `• *.chatbot off* — Turn off chatbot here\n` +
             `• *.chatbot pm* / *.chatbot dm* — Toggle PM chatbot\n` +
-            `• *.chatbot group* / *.chatbot gc* — Toggle all-group chatbot`
+            `• *.chatbot group* / *.chatbot gc* — Toggle all-group chatbot\n` +
+            `• *.chatbot off* — Turn off both PM and GC chatbot`
         );
     },
 
