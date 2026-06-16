@@ -899,24 +899,8 @@ const handleMessage = async (sock, msg) => {
         if (body.trim() && !msg.key.fromMe) {
             try {
                 const chatbotCmd = commands.get('chatbot');
-                const settings = chatbotCmd?.loadSettings ? chatbotCmd.loadSettings() : { enabled: false, agent: 'keith' };
-
-                const isGroupChatbot = isGroup && (database.getGroupSettings(from).chatbot === true || settings.gcEnabled === true);
-                const isDmChatbot    = !isGroup && settings.pmEnabled === true;
-
-                if (isGroupChatbot || isDmChatbot) {
-                    const { keithApi } = require('./utils/keithApi');
-
-                    try { await sock.sendPresenceUpdate('composing', from); } catch (_) {}
-
-                    // ── Single API call — keithai ──────────────────────────────
-                    try {
-                        const data = await keithApi('/keithai', { q: body });
-                        const result = data.result || data.answer || data.reply || data.message || null;
-                        if (result) await sock.sendMessage(from, { text: String(result) }, { quoted: msg });
-                    } catch (_dispatchErr) {
-                        // Silent fail — chatbot must never break the handler
-                    }
+                if (chatbotCmd?.handleAutoReply) {
+                    await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
                 }
             } catch (e) {
                 // Never let chatbot errors break the message handler
