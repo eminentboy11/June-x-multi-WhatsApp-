@@ -18,7 +18,7 @@ module.exports = {
     description: 'Tag all members in the group',
     usage: '.all [message]  |  @all [message]',
     groupOnly: true,
-    adminOnly: true,
+    adminOnly: false,
     botAdminNeeded: false,
 
     async execute(sock, msg, args, extra) {
