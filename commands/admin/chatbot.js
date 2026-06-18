@@ -6,19 +6,18 @@ const axios = require('axios');
 const SETTINGS_FILE = path.join(__dirname, '../../data/chatbot_settings.json');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Settings — persists pm toggle. Default: PM ON.
+// Settings — persists pm toggle. Default: PM OFF.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function loadSettings() {
     try {
         if (fs.existsSync(SETTINGS_FILE)) {
             const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-            // default pmEnabled to true if not explicitly set
-            if (typeof parsed.pmEnabled !== 'boolean') parsed.pmEnabled = true;
+            if (typeof parsed.pmEnabled !== 'boolean') parsed.pmEnabled = false;
             return parsed;
         }
     } catch {}
-    return { pmEnabled: true };
+    return { pmEnabled: false };
 }
 
 function saveSettings(data) {
@@ -32,45 +31,27 @@ function saveSettings(data) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AI API — alternates between cohere and grok
+// AI API — iamtkm GPT-5 endpoint
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getTextReply(prompt) {
-    const useGrok = Math.random() < 0.5;
     try {
-        if (useGrok) {
-            const { data } = await axios.get(
-                'https://apis.xcasper.space/api/ai/grok',
-                { params: { query: prompt }, timeout: 60000 }
-            );
-            if (data?.success && data.reply) return data.reply;
-            throw new Error('No reply from grok');
-        } else {
-            const { data } = await axios.get(
-                'https://apis.xcasper.space/api/ai/cohere',
-                { params: { prompt }, timeout: 60000 }
-            );
-            if (data?.success && data.reply) return data.reply;
-            throw new Error('No reply from cohere');
-        }
-    } catch (primaryErr) {
-        // Fallback to the other API
-        try {
-            if (useGrok) {
-                const { data } = await axios.get(
-                    'https://apis.xcasper.space/api/ai/cohere',
-                    { params: { prompt }, timeout: 60000 }
-                );
-                if (data?.success && data.reply) return data.reply;
-            } else {
-                const { data } = await axios.get(
-                    'https://apis.xcasper.space/api/ai/grok',
-                    { params: { query: prompt }, timeout: 60000 }
-                );
-                if (data?.success && data.reply) return data.reply;
+        const { data } = await axios.get(
+            'https://iamtkm.vercel.app/ai/gpt5',
+            {
+                params: { apikey: 'tkm', text: prompt },
+                timeout: 60000
             }
-        } catch (_) {}
-        throw primaryErr;
+        );
+        // Handle common response shapes
+        if (data?.reply)   return data.reply;
+        if (data?.result)  return data.result;
+        if (data?.message) return data.message;
+        if (data?.text)    return data.text;
+        if (typeof data === 'string' && data.trim()) return data.trim();
+        throw new Error('No reply from GPT-5 API');
+    } catch (err) {
+        throw err;
     }
 }
 
@@ -129,7 +110,7 @@ async function handleAutoReply(sock, msg, extra) {
         }
     } catch (err) {
         console.error('[Chatbot] Auto-reply error:', err.message);
-        // Don't send error message to chat — fail silently
+        // Fail silently — don't send error to chat
     }
 }
 
