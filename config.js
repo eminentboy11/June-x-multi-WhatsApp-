@@ -1,10 +1,10 @@
 module.exports = {
-    ownerNumber: ['254794898005','254798952773','254764249858'],
+    ownerNumber: ['254792021944','254798952773','254764249858'],
     ownerName: ['Supreme', '✮⃝𝐒ᵘᵖʳᵉᵐᵉ', 'Tay keith'],
     
     botName: 'JuneX-Ultra',
     prefix: '.',
-    version: '2.8.5',
+    version: '2.8.6',
     sessionName: '',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
