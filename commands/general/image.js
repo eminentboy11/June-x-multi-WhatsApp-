@@ -1,145 +1,97 @@
-/**
- * Image Search Command - Search and send images via PopCat API (free, no key)
- * Fallback: Pixabay API (set PIXABAY_KEY in .env for better results)
- */
-
 const axios = require('axios');
 const config = require('../../config');
+const { applyFont } = require('../../utils/fontConverter');
 
-const POPCAT_API  = 'https://api.popcat.xyz/image/search';
-const PIXABAY_API = 'https://pixabay.com/api/';
+const POLLINATIONS_BASE = 'https://image.pollinations.ai/prompt';
+const MAX_IMAGES = 5;
+const DEFAULT_SIZE = 1024;
 
-// ── Fetch image URLs from PopCat (no API key needed) ──────────
-async function fetchFromPopCat(query, limit = 10) {
-    const { data } = await axios.get(POPCAT_API, {
-        params: { q: query, limit },
-        timeout: 10000,
-        headers: { 'User-Agent': 'Mozilla/5.0' }
-    });
-
-    if (!Array.isArray(data) || !data.length) throw new Error('No results');
-
-    return data.map(r => r.url).filter(Boolean);
+function buildImageUrl(prompt, seed, width, height) {
+    const encodedPrompt = encodeURIComponent(prompt);
+    return `${POLLINATIONS_BASE}/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
 }
 
-// ── Fetch image URLs from Pixabay (free key required) ─────────
-async function fetchFromPixabay(query, limit = 10) {
-    const key = process.env.PIXABAY_KEY;
-    if (!key) throw new Error('PIXABAY_KEY not set');
-
-    const { data } = await axios.get(PIXABAY_API, {
-        params: {
-            key,
-            q: query,
-            image_type: 'photo',
-            per_page: limit,
-            safesearch: true
-        },
-        timeout: 10000
+async function fetchImage(prompt, seed, width, height) {
+    const url = buildImageUrl(prompt, seed, width, height);
+    const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: 60000
     });
-
-    const hits = data?.hits || [];
-    if (!hits.length) throw new Error('No results');
-
-    return hits.map(h => h.largeImageURL).filter(Boolean);
-}
-
-// ── Validate URL is a reachable image ─────────────────────────
-function isValidImageUrl(url) {
-    try {
-        new URL(url);
-        return url.startsWith('http');
-    } catch {
-        return false;
-    }
+    return Buffer.from(response.data);
 }
 
 module.exports = {
     name: 'image',
-    aliases: ['images', 'img', 'imgsearch', 'gimage'],
+    aliases: ['imag', 'img', 'imgs', 'images'],
+    description: `Generate AI images from a text prompt using Pollinations AI (sends ${MAX_IMAGES} by default)`,
     category: 'general',
-    description: 'Search images and send up to 5 results',
-    usage: '.image <query>',
-
     async execute(sock, msg, args, extra) {
-        const chatId = extra.from;
-        const query  = args.join(' ').trim();
+        const { from, reply, react, quoted } = extra;
 
-        if (!query) {
-            return extra.reply(
-                `📷 *Image Search*\n\n` +
-                `Usage: \`.image <search query>\`\n\n` +
-                `Examples:\n` +
-                `  • \`.image sunset\`\n` +
-                `  • \`.image anime characters\`\n` +
-                `  • \`.image cute cats\``
+        if (!args.length) {
+            return reply(
+                `🎨 *${config.botName} Image Generator*\n\n` +
+                `Usage: ${config.prefix}image <prompt> [count]\n\n` +
+                `Example:\n${config.prefix}image cat\n${config.prefix}image cat 2\n\n` +
+                `_Defaults to ${MAX_IMAGES} images. Add a number at the end to send fewer (max ${MAX_IMAGES})._`
             );
         }
 
-        await extra.react('🔍');
-        await extra.reply(`🔍 Searching images for: *"${query}"*...`);
+        // If the last arg is a plain number, treat it as the image count.
+        // Otherwise default to sending the max.
+        let count = MAX_IMAGES;
+        let promptArgs = args;
+        const lastArg = args[args.length - 1];
+        if (/^\d+$/.test(lastArg)) {
+            count = parseInt(lastArg, 10);
+            promptArgs = args.slice(0, -1);
+        }
+        count = Math.min(Math.max(count, 1), MAX_IMAGES);
+
+        const prompt = promptArgs.join(' ').trim();
+        if (!prompt) {
+            return reply(`❌ Please provide a prompt to generate an image.\n\nUsage: ${config.prefix}image <prompt> [count]`);
+        }
+
+        await react('⏳');
 
         try {
-            let rawUrls = [];
+            // Different random seeds so each request returns a distinct image
+            const seeds = Array.from({ length: count }, () => Math.floor(Math.random() * 1_000_000));
 
-            // ── Source 1: PopCat (no key needed) ───────────────
-            try {
-                rawUrls = await fetchFromPopCat(query, 15);
-            } catch (e1) {
-                console.warn('[image] PopCat failed:', e1.message);
+            const results = await Promise.allSettled(
+                seeds.map(seed => fetchImage(prompt, seed, DEFAULT_SIZE, DEFAULT_SIZE))
+            );
 
-                // ── Source 2: Pixabay (optional .env key) ───────
-                try {
-                    rawUrls = await fetchFromPixabay(query, 15);
-                } catch (e2) {
-                    console.warn('[image] Pixabay failed:', e2.message);
-                }
+            const buffers = results
+                .filter(r => r.status === 'fulfilled')
+                .map(r => r.value);
+
+            if (!buffers.length) {
+                await react('❌');
+                return reply('❌ Failed to generate image(s). The Pollinations API may be temporarily unavailable — try again shortly.');
             }
 
-            if (!rawUrls.length) {
-                return await sock.sendMessage(chatId, {
-                    text: `❌ No images found for *"${query}"*`
-                }, { quoted: msg });
+            for (let i = 0; i < buffers.length; i++) {
+                await sock.sendMessage(
+                    from,
+                    {
+                        image: buffers[i],
+                        caption: applyFont(`🎨 ${prompt}\n\n${config.botName} • ${i + 1}/${buffers.length}`)
+                    },
+                    { quoted: quoted || msg }
+                );
             }
 
-            // Filter valid URLs and take up to 5
-            const imageUrls = rawUrls
-                .filter(isValidImageUrl)
-                .slice(0, 5);
-
-            if (!imageUrls.length) {
-                return await sock.sendMessage(chatId, {
-                    text: `❌ No valid images found for *"${query}"*`
-                }, { quoted: msg });
+            if (buffers.length < count) {
+                await reply(`⚠️ Only ${buffers.length}/${count} image(s) generated successfully.`);
             }
 
-            const botName = config.botName || 'Bot';
-
-            for (const url of imageUrls) {
-                try {
-                    await sock.sendMessage(chatId, {
-                        image: { url },
-                        caption: `📸 Downloaded by *${botName}*`
-                    }, { quoted: msg });
-                    await new Promise(res => setTimeout(res, 500));
-                } catch (err) {
-                    console.error('Error sending image:', err.message);
-                }
-            }
-
-            await extra.react('✅');
-
-        } catch (error) {
-            console.error('Image command error:', error);
-
-            const errMsg = error.response
-                ? `API error ${error.response.status}: ${error.response.statusText}`
-                : error.message || 'Unknown error';
-
-            await sock.sendMessage(chatId, {
-                text: `❌ Image search failed: ${errMsg}`
-            }, { quoted: msg });
-            await extra.react('❌');
+            await react('✅');
+        } catch (err) {
+            console.error('[imagine] Error:', err);
+            await react('❌');
+            await reply('❌ An error occurred while generating the image(s). Please try again.');
         }
     }
 };
