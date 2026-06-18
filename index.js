@@ -490,7 +490,6 @@ async function checkSessionIntegrityAndClean() {
     const folderExists = fs.existsSync(sessionDir)
     const validSession = sessionExists()
     if (folderExists && !validSession) {
-        log('[ DETECTED ] incomplete session files. Cleaning up...', 'red')
         clearSessionFiles()
         log('Cleanup done. Waiting 3 seconds...', 'yellow')
         await delay(3000)
