@@ -22,12 +22,16 @@ module.exports = {
       const participants = groupMetadata.participants || [];
       const mentions = participants.map((p) => p.id || p.lid).filter(Boolean);
       
+      // Delete the command message
+      await sock.sendMessage(extra.from, {
+        delete: msg.key
+      });
+
       // Check if message is a reply to media
       const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
       let targetMessage = msg;
       
       if (ctxInfo?.quotedMessage) {
-        // Build target message for download
         targetMessage = {
           key: {
             remoteJid: extra.from,
@@ -38,14 +42,12 @@ module.exports = {
         };
       }
       
-      // Check what type of media we're dealing with
       const mediaMessage = 
         targetMessage.message?.imageMessage ||
         targetMessage.message?.videoMessage ||
         targetMessage.message?.stickerMessage;
       
       if (mediaMessage) {
-        // Download and resend media with mentions
         try {
           const mediaBuffer = await downloadMediaMessage(
             targetMessage,
@@ -60,45 +62,38 @@ module.exports = {
               image: mediaBuffer,
               caption: text,
               mentions
-            }, { quoted: msg });
+            });
           } else if (targetMessage.message?.videoMessage) {
             const text = args.join(' ') || targetMessage.message.videoMessage.caption || '';
             await sock.sendMessage(extra.from, {
               video: mediaBuffer,
               caption: text,
               mentions
-            }, { quoted: msg });
+            });
           } else if (targetMessage.message?.stickerMessage) {
             await sock.sendMessage(extra.from, {
               sticker: mediaBuffer,
               mentions
-            }, { quoted: msg });
-            
-            // If there's text, send it separately
+            });
             const text = args.join(' ');
             if (text) {
-              await sock.sendMessage(extra.from, { text, mentions }, { quoted: msg });
+              await sock.sendMessage(extra.from, { text, mentions });
             }
           }
         } catch (mediaError) {
           console.error('Error downloading media for hidetag:', mediaError);
-          // Fallback to text with mentions
           const text = args.join(' ') || ' ';
-          await sock.sendMessage(extra.from, { text, mentions }, { quoted: msg });
+          await sock.sendMessage(extra.from, { text, mentions });
         }
       } else {
-        // Check if replying to a message - send exact message content
         if (ctxInfo?.quotedMessage) {
-          // Get the quoted message text
           const quotedText = ctxInfo.quotedMessage.conversation || 
                            ctxInfo.quotedMessage.extendedTextMessage?.text || 
                            args.join(' ') || ' ';
-          
-          await sock.sendMessage(extra.from, { text: quotedText, mentions }, { quoted: msg });
+          await sock.sendMessage(extra.from, { text: quotedText, mentions });
         } else {
-          // Plain text message
           const text = args.join(' ') || ' ';
-          await sock.sendMessage(extra.from, { text, mentions }, { quoted: msg });
+          await sock.sendMessage(extra.from, { text, mentions });
         }
       }
     } catch (error) {
