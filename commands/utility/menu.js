@@ -179,11 +179,11 @@ module.exports = {
 
       // ── Loading message ─────────────────────────────────────────────────
       const loadingMsg = await sock.sendMessage(extra.from, {
-        text: applyFont('⏳ Loading menu instance...')
+        text: applyFont('⏳ Loading....')
       }, { quoted: msg });
 
       const markDone = () => sock.sendMessage(extra.from, {
-        text: applyFont(`_${config.botName} menu loaded..._`),
+        text: applyFont(`_${config.botName} 🔥_`),
         edit: loadingMsg.key
       }).catch(() => {});
 
