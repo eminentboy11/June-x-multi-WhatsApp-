@@ -13,8 +13,8 @@ module.exports = {
   usage: '.tag <message> (or reply to media)',
   category: 'admin',
   groupOnly: true,
-  adminOnly: true,
-  botAdminNeeded: true,
+  adminOnly: false,
+  botAdminNeeded: false,
   
   async execute(sock, msg, args, extra) {
     try {
