@@ -95,7 +95,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu =  `┏━━❐◉ ${bot} ◉❐\n`;
+  let menu =  `┏━━❐ ◉ ${bot} ◉ ❐\n`;
   menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
   menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
   menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
@@ -156,7 +156,7 @@ function getThumbnail() {
 
 module.exports = {
   name: 'menu',
-  aliases: ['menulist', 'commands'],
+  aliases: ['menulist', 'fullmenu'],
   category: 'utility',
   description: 'Show all available commands',
   usage: '.menu',
@@ -183,7 +183,7 @@ module.exports = {
       }, { quoted: msg });
 
       const markDone = () => sock.sendMessage(extra.from, {
-        text: applyFont(`_Menu Loaded...._`),
+        text: applyFont(`_${config.botName} Menu Loaded.._`),
         edit: loadingMsg.key
       }).catch(() => {});
 
