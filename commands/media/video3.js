@@ -36,7 +36,7 @@ module.exports = {
             const apiUrl = `https://phantom-api.us.ci/api/download/ytmp4?url=${encodeURIComponent(videoUrl)}&quality=best`;
             const { data: apiRes } = await axios.get(apiUrl, { timeout: 30000 });
 
-            const downloadUrl = apiRes?.success || apiRes?.result?.download_url;
+            const downloadUrl = apiRes?.result?.download_url;
             if (!downloadUrl) throw new Error('API did not return a download URL');
 
             // ── Step 3: stream MP4 to temp file ──────────────────────────
