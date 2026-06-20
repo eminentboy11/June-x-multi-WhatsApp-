@@ -48,7 +48,7 @@ function buildMainButtons(repoUrl, dateNow) {
 module.exports = {
     name: 'github',
     aliases: ['repo', 'git', 'source', 'sc', 'script'],
-    category: 'general',
+    category: 'tools',
     description: 'Show bot GitHub repository and statistics',
     usage: '.github',
     ownerOnly: false,
