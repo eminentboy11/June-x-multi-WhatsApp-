@@ -37,7 +37,7 @@ module.exports = {
             const apiUrl = `https://phantom-api.us.ci/api/download/youtube2?url=${encodeURIComponent(videoUrl)}&format=mp3`;
             const { data: apiRes } = await axios.get(apiUrl, { timeout: 30000 });
 
-            const downloadUrl = apiRes?.url || apiRes?.download_url || apiRes?.link || apiRes?.data?.url || apiRes?.data?.download_url;
+            const downloadUrl = apiRes?.sucess || apiRes?.result?.download_url;
             if (!downloadUrl) throw new Error('API did not return a download URL');
 
             // ── Step 3: stream MP3 to temp file ───────────────────────────
