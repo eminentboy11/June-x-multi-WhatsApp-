@@ -398,8 +398,8 @@ module.exports = [
     // ── KELVIN AI ─────────────────────────────────────────────────────────────
 
     {
-        name: 'kelvinai',
-        aliases: [],
+        name: 'ai',
+        aliases: ['supremeai'],
         category: 'ai',
         description: 'Ask Kelvin AI a question',
         usage: '.kelvinai <question>',
