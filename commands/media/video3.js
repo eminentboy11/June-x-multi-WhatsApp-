@@ -17,24 +17,26 @@ module.exports = {
         const chatId = extra.from;
         const query  = args.join(' ').trim();
 
-        if (!query) return extra.reply(`Usage: ${config.prefix || '.'}video3 <youtube url or search>`);
+        if (!query) {
+            return extra.reply(`Usage: ${config.prefix || '.'}video3 <youtube url or search>`);
+        }
 
-        await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
+        await extra.react('⏳');
 
         let filePath;
 
         try {
-            // ── Step 1: get title via yt-search ──────────────────────────
+            // ── Step 1: resolve video via yt-search ──────────────────────
             const search = await yts(query);
-            const video  = search.videos[0];
-            if (!video) throw new Error('No results found');
+            const video  = search?.videos?.[0];
+            if (!video) throw new Error('No results found for that query');
 
-            const title    = video.title;
-            const videoUrl = video.url;
+            const { title, url: videoUrl } = video;
 
-            // ── Step 2: call API ──────────────────────────────────────────
-            const apiUrl = `https://phantom-api.us.ci/api/download/ytmp4?url=${encodeURIComponent(videoUrl)}&quality=best`;
-            const { data: apiRes } = await axios.get(apiUrl, { timeout: 30000 });
+            // ── Step 2: fetch download URL from API ──────────────────────
+            const apiUrl = `https://api.drexapp.space/downloader/ytmp4v1?url=${encodeURIComponent(videoUrl)}&quality=best`;
+
+            const { data: apiRes } = await axios.get(apiUrl, { timeout: 30_000 });
 
             const downloadUrl = apiRes?.result?.download_url;
             if (!downloadUrl) throw new Error('API did not return a download URL');
@@ -42,42 +44,46 @@ module.exports = {
             // ── Step 3: stream MP4 to temp file ──────────────────────────
             filePath = path.join(os.tmpdir(), `video3-${Date.now()}.mp4`);
 
-            const stream = await axios({
-                method:       'get',
-                url:          downloadUrl,
+            const { data: stream } = await axios.get(downloadUrl, {
                 responseType: 'stream',
-                timeout:      180000,
+                timeout:      180_000,
                 maxRedirects: 5,
             });
 
-            const writer = fs.createWriteStream(filePath);
-            stream.data.pipe(writer);
             await new Promise((resolve, reject) => {
+                const writer = fs.createWriteStream(filePath);
+                stream.pipe(writer);
                 writer.on('finish', resolve);
                 writer.on('error', reject);
+                stream.on('error', reject);
             });
 
-            if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-                throw new Error('Download failed — file is empty');
-            }
+            const stat = fs.statSync(filePath);
+            if (!stat || stat.size === 0) throw new Error('Download failed — file is empty');
 
+            // ── Step 4: send as document ──────────────────────────────────
             const safeTitle = title.replace(/[<>:"/\\|?*]/g, '').trim().slice(0, 80);
 
-            // ── Step 4: send as clean document ────────────────────────────
-            await sock.sendMessage(chatId, {
-                document: fs.readFileSync(filePath),
-                mimetype: 'video/mp4',
-                fileName: `${safeTitle}.mp4`,
-            }, { quoted: msg });
+            await sock.sendMessage(
+                chatId,
+                {
+                    document: fs.readFileSync(filePath),
+                    mimetype: 'video/mp4',
+                    fileName: `${safeTitle}.mp4`,
+                },
+                { quoted: msg }
+            );
 
-            await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
+            await extra.react('✅');
 
         } catch (err) {
-            console.error('[Video3] error:', err.message);
-            await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
+            console.error('[video3]', err.message);
+            await extra.react('❌');
             await extra.reply(`❌ ${err.message}`);
         } finally {
-            if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            try {
+                if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+            } catch { /* ignore cleanup errors */ }
         }
-    }
+    },
 };
