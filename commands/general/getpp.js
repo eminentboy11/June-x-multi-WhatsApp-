@@ -1,5 +1,5 @@
 // commands/getpp.js
-const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/helpers/jidHelper');
+const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
 
 module.exports = {
   name: 'getpp',
