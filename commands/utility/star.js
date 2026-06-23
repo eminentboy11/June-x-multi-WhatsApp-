@@ -1,4 +1,4 @@
-const { applyFont } = require('../lib/fontConverter');
+const { applyFont } = require('../utils/fontConverter');
 
 module.exports = {
   name: 'star',
