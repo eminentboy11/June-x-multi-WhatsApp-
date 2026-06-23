@@ -73,8 +73,8 @@ module.exports = [
     },
 
     {
-        name: 'image',
-        aliases: ['imagesearch', 'img', 'gimage'],
+        name: 'image2',
+        aliases: ['imagesearch2', 'img2', 'gimage'],
         category: 'general',
         description: 'Search Google Images and get top result',
         usage: '.image <query>',
