@@ -2,6 +2,8 @@ const axios  = require('axios');
 const fs     = require('fs');
 const path   = require('path');
 const os     = require('os');
+const config = require('../../config');
+
 
 module.exports = {
     name: 'xvideo',
