@@ -27,8 +27,8 @@ module.exports = {
             const apiSearchUrl = `https://ravenn.site/search/xvideos?q=${encodeURIComponent(query)}`;
             const { data: searchRes } = await axios.get(apiSearchUrl, { timeout: 30000 });
 
-            const videoUrl = searchRes?.result?.url?;
-            if (!video) throw new Error('No results found');
+            const videoUrl = searchRes?.result?.url?.[0];
+            if (!videoUrl) throw new Error('No results found');
 
 
             const apiDownloadUrl = `https://ravenn.site/download/xvideos?url=${encodeURIComponent(videoUrl)}`;
