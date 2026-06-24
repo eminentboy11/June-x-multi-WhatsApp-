@@ -3,7 +3,17 @@
  * Covers all 41 endpoints
  */
 
-const { keithApi } = require('../../utils/keithApi');
+const axios = require('axios');
+
+const BASE = 'https://ravenn.site';
+
+async function keithApi(endpoint, params = {}) {
+    const url = `${BASE}${endpoint}`;
+    const { data } = await axios.get(url, { params, timeout: 30000 });
+    if (data && data.status === false) throw new Error(data.message || 'API returned error');
+    return data;
+}
+
 const {
     formatStandings,
     formatScorers,
