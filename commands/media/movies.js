@@ -1,25 +1,36 @@
 /**
- * Movie / Series Commands
- * Metadata  : OMDb API  (omdbapi.com)
- * Downloads : YTS API   (yts.mx)
+ * Movie Commands — Powered by Keith API (ravenn.site)
+ * Covers all 13 movie endpoints
+ *
+ * Commands:
+ *  .iboxtv [page]           — Trending TV shows
+ *  .tvdetail <url>          — TV show details + download link
+ *  .tvsearch <query> [page] — Search TV shows
+ *  .iboxmovies [page]       — Trending movies
+ *  .moviedetail <url>       — Movie details + download link
+ *  .moviesearch <query>     — Search movies (MovieBox)
+ *  .iboxanime [page]        — Trending anime
+ *  .animedetail <url>       — Anime details + download link
+ *  .animesearch <query> [page] — Search anime
+ *  .dramabox <bookId> [ep]  — DramaBox episode stream link
+ *  .actor <name>            — Search actors (IMDb)
+ *  .moviebox <query>        — MovieBox search with URLs
+ *  .trailer <moviebox_url>  — Get trailer for a MovieBox title
  */
 
-// ── Config ────────────────────────────────────────────────────────────────────
+const axios = require('axios');
 
-const OMDB_KEY = '5e186f64';
-const OMDB     = 'http://www.omdbapi.com';
-const YTS      = 'https://yts.mx/api/v2';
+const BASE = 'https://ravenn.site';
 
-const TRACKERS = [
-    'udp://tracker.opentrackr.org:1337/announce',
-    'udp://open.tracker.cl:1337/announce',
-    'udp://tracker.torrent.eu.org:451/announce',
-    'udp://open.stealth.si:80/announce',
-].map(t => `&tr=${encodeURIComponent(t)}`).join('');
+async function keithApi(endpoint, params = {}) {
+    const url = `${BASE}${endpoint}`;
+    const { data } = await axios.get(url, { params, timeout: 30000 });
+    if (!data) throw new Error('No response from API');
+    if (data.status === false) throw new Error(data.error || data.message || 'API error');
+    return data.result !== undefined ? data.result : data;
+}
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const fetchJSON = async (url) => (await fetch(url)).json();
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 const react = (sock, msg, emoji) =>
     sock.sendMessage(msg.key.remoteJid, { react: { text: emoji, key: msg.key } });
@@ -27,522 +38,507 @@ const react = (sock, msg, emoji) =>
 const send = (sock, msg, text) =>
     sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg });
 
-const sendImage = (sock, msg, url, caption) =>
-    sock.sendMessage(msg.key.remoteJid, { image: { url }, caption }, { quoted: msg });
-
-const magnet = (hash, title) =>
-    `magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(title)}${TRACKERS}`;
-
-const isValidPoster = (url) =>
-    url && url !== 'N/A' && url.startsWith('http');
-
-// ── Auto ID resolver ──────────────────────────────────────────────────────────
-// Accepts either a raw IMDB ID (tt...) or a title string
-// Returns { id, title, type, year, poster } or null
-
-async function resolveID(input) {
-    // already an IMDB ID
-    if (/^tt\d+$/i.test(input)) {
-        const data = await fetchJSON(
-            `${OMDB}/?i=${input}&apikey=${OMDB_KEY}`
-        );
-        if (data.Response === 'False') return null;
-        return {
-            id:     data.imdbID,
-            title:  data.Title,
-            type:   data.Type,
-            year:   data.Year,
-            poster: data.Poster,
-        };
+async function sendLong(sock, msg, header, body, footer = '┗━━━━━━━━━━━━━━━━') {
+    const LIMIT = 3500;
+    const lines = body.split('\n');
+    const chunks = [];
+    let cur = '';
+    for (const line of lines) {
+        if ((cur + line + '\n').length > LIMIT) { chunks.push(cur); cur = ''; }
+        cur += line + '\n';
     }
+    if (cur.trim()) chunks.push(cur);
+    if (!chunks.length) chunks.push('_No data available_');
 
-    // title string — search and take top result
-    const data = await fetchJSON(
-        `${OMDB}/?s=${encodeURIComponent(input)}&apikey=${OMDB_KEY}`
-    );
-    if (data.Response === 'False' || !data.Search?.length) return null;
-
-    const top = data.Search[0];
-    return {
-        id:     top.imdbID,
-        title:  top.Title,
-        type:   top.Type,
-        year:   top.Year,
-        poster: top.Poster,
-    };
+    for (let i = 0; i < chunks.length; i++) {
+        const part = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : '';
+        const isLast = i === chunks.length - 1;
+        const text =
+            (i === 0 ? `${header}${part}\n\n` : `${header}${part} cont...\n\n`) +
+            chunks[i] +
+            (isLast ? `\n${footer}` : '');
+        await sock.sendMessage(msg.key.remoteJid, { text }, { quoted: i === 0 ? msg : undefined });
+    }
 }
 
-// ── Commands ──────────────────────────────────────────────────────────────────
+// Fix doubled rating strings like "7.87.8" → "7.8"
+function fixRating(r) {
+    if (!r) return 'N/A';
+    const s = String(r);
+    const half = s.slice(0, Math.floor(s.length / 2));
+    return (half === s.slice(Math.floor(s.length / 2))) ? half : s;
+}
+
+// ── Formatters ──────────────────────────────────────────────────────────────────
+
+function fmtIboxListing(result, label) {
+    const trending = (result.trending || []).slice(0, 5);
+    const items    = (result.items    || []).slice(0, 8);
+    const page     = result.page || 1;
+    const total    = result.totalPages || '?';
+
+    let body = '';
+
+    if (trending.length) {
+        body += `🔥 *Trending*\n`;
+        body += trending.map((t, i) =>
+            `${i + 1}. *${t.title}*\n   🔗 ${t.url}`
+        ).join('\n') + '\n\n';
+    }
+
+    if (items.length) {
+        body += `🆕 *Latest*\n`;
+        body += items.map((t, i) => {
+            let line = `${i + 1}. *${t.title}*`;
+            if (t.episode) line += `\n   📺 ${t.episode.replace(/\s+/g, ' ').trim()}`;
+            line += `\n   🔗 ${t.url}`;
+            return line;
+        }).join('\n');
+    }
+
+    body += `\n\n📄 Page ${page} of ${total}`;
+    return body;
+}
+
+function fmtDetail(result) {
+    let body = '';
+    if (result.title)         body += `🎬 *${result.title}*\n`;
+    if (result.episodeTitle)  body += `📺 ${result.episodeTitle}\n`;
+    if (result.year)          body += `📅 Year: ${result.year}\n`;
+    if (result.rating)        body += `⭐ Rating: ${result.rating}/10\n`;
+    if (result.overview)      body += `\n📝 ${result.overview.slice(0, 400).trim()}\n`;
+    if (result.downloadUrl)   body += `\n📥 *Download:* ${result.downloadUrl}\n`;
+    if (result.telegramChannel) body += `📢 Telegram: ${result.telegramChannel}\n`;
+    if (result.url)           body += `🔗 Source: ${result.url}\n`;
+    return body || '_No details found_';
+}
+
+function fmtSearch(items, label) {
+    const arr = Array.isArray(items) ? items : [];
+    if (!arr.length) return `_No ${label} found_`;
+    return arr.slice(0, 10).map((t, i) => {
+        let line = `${i + 1}. *${t.title || t.name || 'Untitled'}*`;
+        if (t.episode) line += ` — ${t.episode.replace(/\s+/g, ' ').trim()}`;
+        if (t.url)     line += `\n   🔗 ${t.url}`;
+        return line;
+    }).join('\n');
+}
+
+function fmtMovieBoxSearch(result) {
+    const arr = Array.isArray(result.results) ? result.results : [];
+    if (!arr.length) return '_No results found_';
+    return arr.slice(0, 10).map((t, i) => {
+        let line = `${i + 1}. *${t.title}*`;
+        if (t.type)   line += ` [${t.type}]`;
+        if (t.rating) line += ` ⭐ ${fixRating(t.rating)}`;
+        if (t.url)    line += `\n   🔗 ${t.url}`;
+        return line;
+    }).join('\n');
+}
+
+function fmtActor(arr) {
+    if (!arr.length) return '_No actors found_';
+    return arr.slice(0, 5).map((a, i) => {
+        let line = `${i + 1}. *${a.name}*`;
+        if (a.knownFor) line += `\n   🎭 ${a.knownFor}`;
+        if (a.detailUrl) line += `\n   🔗 ${a.detailUrl}`;
+        return line;
+    }).join('\n\n');
+}
+
+function fmtTrailer(result) {
+    let body = '';
+    if (result.title)       body += `🎬 *${result.title}*\n`;
+    if (result.description) body += `\n📝 ${result.description.slice(0, 300).trim()}\n`;
+    if (result.thumbnail)   body += `\n🖼️ Thumbnail: ${result.thumbnail}\n`;
+    if (result.trailerUrl)  body += `\n▶️ *Trailer:* ${result.trailerUrl}\n`;
+    if (result.url)         body += `🔗 Source: ${result.url}\n`;
+    return body || '_No trailer info found_';
+}
+
+// ── Command definitions ────────────────────────────────────────────────────────
 
 module.exports = [
 
+    // ── iboxtv: trending TV shows ──────────────────────────────────────────────
     {
-        name: 'movie',
-        aliases: ['searchmovie', 'findmovie', 'omdb'],
-        category: 'media',
-        description: 'Search for a movie or series by title',
-        usage: '.movie <title>',
-
-        async execute(sock, msg, args, extra) {
-            const query = args.join(' ').trim();
-            if (!query) return extra.reply(
-                '❌ *Please provide a title*\n\n' +
-                '*Usage:* .movie <title>\n' +
-                '*Example:* .movie Avengers Endgame'
-            );
-
-            await react(sock, msg, '🎬');
-            await extra.reply('⏳ *Searching...*');
-
-            try {
-                const data = await fetchJSON(
-                    `${OMDB}/?s=${encodeURIComponent(query)}&apikey=${OMDB_KEY}`
-                );
-
-                if (data.Response === 'False') {
-                    await react(sock, msg, '❌');
-                    return extra.reply(
-                        `❌ No results found for *"${query}"*\n\n` +
-                        `_${data.Error || 'Try a different title'}_`
-                    );
-                }
-
-                const results = data.Search.slice(0, 6);
-                const total   = data.totalResults || results.length;
-
-                let text =
-                    `🎬 *Search Results*\n` +
-                    `🔍 Query: *${query}*\n` +
-                    `📊 Found: *${total}* results\n\n`;
-
-                results.forEach((item, i) => {
-                    const icon =
-                        item.Type === 'series'  ? '📺' :
-                        item.Type === 'episode' ? '🎞️' : '🎬';
-                    text +=
-                        `*${i + 1}. ${item.Title}* (${item.Year})\n` +
-                        `   ${icon} ${item.Type?.toUpperCase()}\n` +
-                        `   🆔 \`${item.imdbID}\`\n\n`;
-                });
-
-                text +=
-                    `━━━━━━━━━━━━━━━━━━\n` +
-                    `_All commands below accept a *title* or *IMDB ID*_\n\n` +
-                    `*.minfo <title/id>*   — full details\n` +
-                    `*.mdl <title/id>*     — movie download\n` +
-                    `*.series <title/id>*  — series seasons\n` +
-                    `*.trending*           — latest movies`;
-
-                await send(sock, msg, text);
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[movie]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ Search failed. Please try again later.');
-            }
-        },
-    },
-
-    {
-        name: 'minfo',
-        aliases: ['movieinfo', 'filminfo'],
-        category: 'media',
-        description: 'Get full details by title or IMDB ID',
-        usage: '.minfo <title or imdbID>',
-
-        async execute(sock, msg, args, extra) {
-            const input = args.join(' ').trim();
-            if (!input) return extra.reply(
-                '❌ *Please provide a title or IMDB ID*\n\n' +
-                '*Usage:* .minfo <title or imdbID>\n' +
-                '*Example:* .minfo Inception\n' +
-                '*Example:* .minfo tt1375666'
-            );
-
-            await react(sock, msg, '🎬');
-
-            try {
-                const resolved = await resolveID(input);
-                if (!resolved) {
-                    await react(sock, msg, '❌');
-                    return extra.reply(`❌ Nothing found for *"${input}"*`);
-                }
-
-                const m = await fetchJSON(
-                    `${OMDB}/?i=${resolved.id}&plot=full&apikey=${OMDB_KEY}`
-                );
-
-                if (m.Response === 'False') {
-                    await react(sock, msg, '❌');
-                    return extra.reply(`❌ ${m.Error}`);
-                }
-
-                const icon = m.Type === 'series' ? '📺' : '🎬';
-
-                let text =
-                    `${icon} *${m.Title}* (${m.Year})\n\n` +
-                    `📖 *Plot:*\n${m.Plot || 'No plot available.'}\n\n` +
-                    `⭐ *IMDB Rating:* ${m.imdbRating}/10 (${m.imdbVotes} votes)\n` +
-                    `🍅 *Rotten Tomatoes:* ${m.Ratings?.find(r => r.Source === 'Rotten Tomatoes')?.Value || 'N/A'}\n` +
-                    `🎭 *Genre:* ${m.Genre || 'N/A'}\n` +
-                    `⏱️ *Runtime:* ${m.Runtime || 'N/A'}\n` +
-                    `🌍 *Language:* ${m.Language || 'N/A'}\n` +
-                    `📅 *Released:* ${m.Released || 'N/A'}\n` +
-                    `🎥 *Director:* ${m.Director || 'N/A'}\n` +
-                    `✍️ *Writer:* ${m.Writer || 'N/A'}\n` +
-                    `👥 *Cast:* ${m.Actors || 'N/A'}\n` +
-                    `🏆 *Awards:* ${m.Awards || 'N/A'}\n` +
-                    `🔞 *Rated:* ${m.Rated || 'N/A'}\n` +
-                    `🆔 *IMDB ID:* \`${m.imdbID}\`\n\n`;
-
-                if (m.Type === 'series') {
-                    text +=
-                        `📦 *Total Seasons:* ${m.totalSeasons || 'N/A'}\n\n` +
-                        `━━━━━━━━━━━━━━━━━━\n` +
-                        `_Use_ *.series ${m.Title}* _to browse seasons_`;
-                } else {
-                    text +=
-                        `━━━━━━━━━━━━━━━━━━\n` +
-                        `_Use_ *.mdl ${m.Title}* _to get download links_`;
-                }
-
-                if (isValidPoster(m.Poster)) {
-                    await sendImage(sock, msg, m.Poster, text);
-                } else {
-                    await send(sock, msg, text);
-                }
-
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[minfo]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ Failed to fetch details. Please try again later.');
-            }
-        },
-    },
-
-    {
-        name: 'mdl',
-        aliases: ['moviedl', 'mdownload'],
-        category: 'media',
-        description: 'Get movie download links by title or IMDB ID',
-        usage: '.mdl <title or imdbID>',
-
-        async execute(sock, msg, args, extra) {
-            const input = args.join(' ').trim();
-            if (!input) return extra.reply(
-                '❌ *Please provide a title or IMDB ID*\n\n' +
-                '*Usage:* .mdl <title or imdbID>\n' +
-                '*Example:* .mdl Interstellar\n' +
-                '*Example:* .mdl tt0816692'
-            );
-
-            await react(sock, msg, '📥');
-            await extra.reply('⏳ *Fetching download links...*');
-
-            try {
-                // Step 1 — resolve ID
-                const resolved = await resolveID(input);
-                if (!resolved) {
-                    await react(sock, msg, '❌');
-                    return extra.reply(`❌ Nothing found for *"${input}"*`);
-                }
-
-                if (resolved.type === 'series') {
-                    await react(sock, msg, '❌');
-                    return extra.reply(
-                        `❌ *${resolved.title}* is a series, not a movie.\n\n` +
-                        `_Use_ *.series ${resolved.title}* _to browse episodes_`
-                    );
-                }
-
-                // Step 2 — get full OMDb metadata
-                const meta = await fetchJSON(
-                    `${OMDB}/?i=${resolved.id}&apikey=${OMDB_KEY}`
-                );
-
-                // Step 3 — get YTS download links using IMDB ID
-                const yts = await fetchJSON(
-                    `${YTS}/list_movies.json?query_term=${resolved.id}&with_images=true`
-                );
-
-                const poster = isValidPoster(meta.Poster) ? meta.Poster : null;
-
-                let text =
-                    `📥 *${meta.Title}* (${meta.Year})\n` +
-                    `⭐ ${meta.imdbRating}/10  🎭 ${meta.Genre || 'N/A'}\n` +
-                    `⏱️ ${meta.Runtime || 'N/A'}  🌍 ${meta.Language || 'N/A'}\n` +
-                    `🆔 IMDB: \`${meta.imdbID}\`\n\n` +
-                    `━━━━━━━━━━━━━━━━━━\n` +
-                    `📥 *Download Links:*\n\n`;
-
-                if (yts.status === 'ok' && yts.data?.movies?.length) {
-                    const movie = yts.data.movies[0];
-                    movie.torrents?.forEach((t) => {
-                        const mag = magnet(t.hash, movie.title_long);
-                        text +=
-                            `🔗 *${t.quality}* (${t.type?.toUpperCase() || 'WEB'}) — ${t.size}\n` +
-                            `📄 Torrent: ${t.url}\n` +
-                            `🧲 Magnet:\n${mag}\n\n`;
-                    });
-                } else {
-                    text +=
-                        `❌ *No YTS download links found.*\n\n` +
-                        `• Movie may not be on YTS yet\n` +
-                        `• Try searching manually:\n` +
-                        `https://yts.mx/movies/${meta.Title.toLowerCase().replace(/ /g, '-')}-${meta.Year}\n\n`;
-                }
-
-                text += `━━━━━━━━━━━━━━━━━━\n_Metadata by OMDb · Downloads by YTS_`;
-
-                if (poster) {
-                    await sendImage(sock, msg, poster, text);
-                } else {
-                    await send(sock, msg, text);
-                }
-
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[mdl]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ Failed to fetch download links. Please try again later.');
-            }
-        },
-    },
-
-    {
-        name: 'series',
-        aliases: ['tvshow', 'sinfo'],
-        category: 'media',
-        description: 'Browse series seasons and episodes by title or IMDB ID',
-        usage: '.series <title or imdbID> [season]',
-
-        async execute(sock, msg, args, extra) {
-            if (!args.length) return extra.reply(
-                '❌ *Please provide a title or IMDB ID*\n\n' +
-                '*Usage:* .series <title or imdbID> [season]\n' +
-                '*Example:* .series Breaking Bad\n' +
-                '*Example:* .series Breaking Bad 2\n' +
-                '*Example:* .series tt0903747 3'
-            );
-
+        name:        'iboxtv',
+        aliases:     ['tvtrending', 'tvshows'],
+        description: 'Trending TV shows from iBox',
+        category:    'media',
+        usage:       '.iboxtv [page]',
+        execute: async (sock, msg, args) => {
             await react(sock, msg, '📺');
-            await extra.reply('⏳ *Fetching series info...*');
-
+            const page = parseInt(args[0]) || 1;
             try {
-                // last arg is a season number if it's a pure digit
-                const lastArg   = args[args.length - 1];
-                const hasSeason = /^\d+$/.test(lastArg);
-                const season    = hasSeason ? lastArg : null;
-                const input     = hasSeason
-                    ? args.slice(0, -1).join(' ').trim()
-                    : args.join(' ').trim();
-
-                // resolve ID from title or raw IMDB ID
-                const resolved = await resolveID(input);
-                if (!resolved) {
-                    await react(sock, msg, '❌');
-                    return extra.reply(`❌ Nothing found for *"${input}"*`);
-                }
-
-                if (resolved.type !== 'series') {
-                    await react(sock, msg, '❌');
-                    return extra.reply(
-                        `❌ *${resolved.title}* is a *${resolved.type}*, not a series.\n\n` +
-                        `_Use_ *.minfo ${resolved.title}* _for details_`
-                    );
-                }
-
-                if (season) {
-                    // ── Season episodes ───────────────────────────────────────
-                    const data = await fetchJSON(
-                        `${OMDB}/?i=${resolved.id}&Season=${season}&apikey=${OMDB_KEY}`
-                    );
-
-                    if (data.Response === 'False') {
-                        await react(sock, msg, '❌');
-                        return extra.reply(
-                            `❌ Season *${season}* not found for *${resolved.title}*\n\n` +
-                            `_${data.Error || 'Check the season number'}_`
-                        );
-                    }
-
-                    let text =
-                        `📺 *${data.Title}* — Season *${season}*\n` +
-                        `🎬 *${data.Episodes?.length || 0}* Episodes\n\n`;
-
-                    data.Episodes?.forEach((ep) => {
-                        const rating = ep.imdbRating !== 'N/A' ? `⭐ ${ep.imdbRating}` : '';
-                        text +=
-                            `*E${String(ep.Episode).padStart(2, '0')}* — ${ep.Title} ${rating}\n` +
-                            `   📅 ${ep.Released || 'N/A'}  🆔 \`${ep.imdbID}\`\n\n`;
-                    });
-
-                    text += `_Use_ *.epinfo <imdbID>* _on any episode for full details_`;
-
-                    await send(sock, msg, text);
-                } else {
-                    // ── Series overview ───────────────────────────────────────
-                    const s = await fetchJSON(
-                        `${OMDB}/?i=${resolved.id}&plot=short&apikey=${OMDB_KEY}`
-                    );
-
-                    if (s.Response === 'False') {
-                        await react(sock, msg, '❌');
-                        return extra.reply(`❌ ${s.Error}`);
-                    }
-
-                    const totalSeasons = parseInt(s.totalSeasons) || 0;
-                    const poster       = isValidPoster(s.Poster) ? s.Poster : null;
-
-                    let text =
-                        `📺 *${s.Title}* (${s.Year})\n\n` +
-                        `📖 *Plot:*\n${s.Plot || 'No plot available.'}\n\n` +
-                        `⭐ *IMDB Rating:* ${s.imdbRating}/10\n` +
-                        `🎭 *Genre:* ${s.Genre || 'N/A'}\n` +
-                        `📦 *Total Seasons:* ${s.totalSeasons || 'N/A'}\n` +
-                        `📅 *First Air Date:* ${s.Released || 'N/A'}\n` +
-                        `📡 *Status:* ${s.Year?.includes('–') ? 'Ongoing' : 'Ended'}\n` +
-                        `👥 *Cast:* ${s.Actors || 'N/A'}\n` +
-                        `🆔 *IMDB ID:* \`${s.imdbID}\`\n\n` +
-                        `━━━━━━━━━━━━━━━━━━\n` +
-                        `📋 *Seasons:*\n\n`;
-
-                    for (let i = 1; i <= Math.min(totalSeasons, 20); i++) {
-                        text += `📦 *Season ${i}* → *.series ${s.Title} ${i}*\n`;
-                    }
-
-                    text += `\n━━━━━━━━━━━━━━━━━━\n_Powered by OMDb API_`;
-
-                    if (poster) {
-                        await sendImage(sock, msg, poster, text);
-                    } else {
-                        await send(sock, msg, text);
-                    }
-                }
-
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[series]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply('❌ Failed to fetch series info. Please try again later.');
-            }
-        },
-    },
-
-    {
-        name: 'epinfo',
-        aliases: ['episodeinfo', 'einfo'],
-        category: 'media',
-        description: 'Get full episode details by IMDB episode ID',
-        usage: '.epinfo <imdbID>',
-
-        async execute(sock, msg, args, extra) {
-            const id = args[0]?.trim();
-            if (!id) return extra.reply(
-                '❌ *Please provide an episode IMDB ID*\n\n' +
-                '*Usage:* .epinfo <imdbID>\n' +
-                '*Example:* .epinfo tt1232456\n\n' +
-                '_Get episode IDs from_ *.series <title> <season>*'
-            );
-
-            await react(sock, msg, '🎞️');
-            await extra.reply('⏳ *Fetching episode details...*');
-
-            try {
-                const ep = await fetchJSON(
-                    `${OMDB}/?i=${id}&plot=full&apikey=${OMDB_KEY}`
+                const result = await keithApi('/iboxtv', { page });
+                const body   = fmtIboxListing(result, 'TV Shows');
+                await sendLong(sock, msg,
+                    `┏━━━ 📺 *iBox TV Trending* ━━━`,
+                    body
                 );
-
-                if (ep.Response === 'False') {
-                    await react(sock, msg, '❌');
-                    return extra.reply(`❌ ${ep.Error}`);
-                }
-
-                const poster = isValidPoster(ep.Poster) ? ep.Poster : null;
-
-                const text =
-                    `🎞️ *${ep.Title}*\n\n` +
-                    `📖 *Plot:*\n${ep.Plot || 'No plot available.'}\n\n` +
-                    `⭐ *IMDB Rating:* ${ep.imdbRating}/10 (${ep.imdbVotes} votes)\n` +
-                    `📅 *Released:* ${ep.Released || 'N/A'}\n` +
-                    `⏱️ *Runtime:* ${ep.Runtime || 'N/A'}\n` +
-                    `🎥 *Director:* ${ep.Director || 'N/A'}\n` +
-                    `👥 *Cast:* ${ep.Actors || 'N/A'}\n` +
-                    `🔞 *Rated:* ${ep.Rated || 'N/A'}\n\n` +
-                    `━━━━━━━━━━━━━━━━━━\n` +
-                    `_Powered by OMDb API_`;
-
-                if (poster) {
-                    await sendImage(sock, msg, poster, text);
-                } else {
-                    await send(sock, msg, text);
-                }
-
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[epinfo]', err.message);
+            } catch (e) {
                 await react(sock, msg, '❌');
-                extra.reply('❌ Failed to fetch episode. Please try again later.');
+                await send(sock, msg, `❌ ${e.message}`);
             }
         },
     },
 
+    // ── tvdetail: iboxtv show detail ───────────────────────────────────────────
     {
-        name: 'trending',
-        aliases: ['latestmovies', 'topmovies'],
-        category: 'media',
-        description: 'Get latest or top rated movies from YTS',
-        usage: '.trending | .trending rating | .trending <genre>',
-
-        async execute(sock, msg, args, extra) {
-            const input   = args[0]?.toLowerCase();
-            const genres  = ['action','comedy','drama','horror','sci-fi','thriller','romance','animation','crime','documentary'];
-            const isGenre = genres.includes(input);
-            const sortBy  = input === 'rating' ? 'rating' : 'date_added';
-            const genre   = isGenre ? input : '';
-
-            await react(sock, msg, '🔥');
-            await extra.reply('⏳ *Fetching trending movies...*');
-
+        name:        'tvdetail',
+        aliases:     ['iboxtvdetail', 'showdetail'],
+        description: 'Get details and download link for a TV show',
+        category:    'media',
+        usage:       '.tvdetail <iboxtv_url>',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .tvdetail <iboxtv_url>');
+            await react(sock, msg, '🔍');
+            const url = args.join(' ').trim();
             try {
-                let url = `${YTS}/list_movies.json?limit=8&sort_by=${sortBy}&with_images=true`;
-                if (genre) url += `&genre=${genre}`;
+                const result = await keithApi('/iboxtv/detail', { url });
+                const body   = fmtDetail(result);
 
-                const data = await fetchJSON(url);
+                // Send thumbnail if available
+                if (result.image) {
+                    await sock.sendMessage(msg.key.remoteJid, {
+                        image: { url: result.image },
+                        caption: `┏━━━ 📺 *TV Show Detail* ━━━\n\n${body}\n┗━━━━━━━━━━━━━━━━`,
+                    }, { quoted: msg });
+                } else {
+                    await sendLong(sock, msg, `┏━━━ 📺 *TV Show Detail* ━━━`, body);
+                }
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
 
-                if (data.status !== 'ok' || !data.data?.movies?.length) {
-                    await react(sock, msg, '❌');
-                    return extra.reply('❌ Failed to fetch trending movies.');
+    // ── tvsearch: search iboxtv ────────────────────────────────────────────────
+    {
+        name:        'tvsearch',
+        aliases:     ['iboxsearch', 'searchtv'],
+        description: 'Search TV shows on iBox',
+        category:    'media',
+        usage:       '.tvsearch <query> [page]',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .tvsearch <query>');
+            await react(sock, msg, '🔍');
+            const lastArg = args[args.length - 1];
+            const hasPage = !isNaN(lastArg) && args.length > 1;
+            const page    = hasPage ? parseInt(lastArg) : 1;
+            const q       = hasPage ? args.slice(0, -1).join(' ') : args.join(' ');
+            try {
+                const result = await keithApi('/iboxtv/search', { q, page });
+                const items  = result.results || result.items || result || [];
+                const body   = fmtSearch(Array.isArray(items) ? items : [], 'TV shows');
+                await sendLong(sock, msg,
+                    `┏━━━ 🔍 *TV Search: "${q}"* ━━━`,
+                    body
+                );
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── iboxmovies: trending movies ────────────────────────────────────────────
+    {
+        name:        'iboxmovies',
+        aliases:     ['movietrending', 'latestmovies'],
+        description: 'Trending movies from iBox',
+        category:    'media',
+        usage:       '.iboxmovies [page]',
+        execute: async (sock, msg, args) => {
+            await react(sock, msg, '🎬');
+            const page = parseInt(args[0]) || 1;
+            try {
+                const result = await keithApi('/iboxmovies', { page });
+                const body   = fmtIboxListing(result, 'Movies');
+                await sendLong(sock, msg,
+                    `┏━━━ 🎬 *iBox Movies Trending* ━━━`,
+                    body
+                );
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── moviedetail: iboxmovies detail ────────────────────────────────────────
+    {
+        name:        'moviedetail',
+        aliases:     ['iboxmoviedetail'],
+        description: 'Get details and download link for a movie',
+        category:    'media',
+        usage:       '.moviedetail <iboxmovies_url>',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .moviedetail <iboxmovies_url>');
+            await react(sock, msg, '🔍');
+            const url = args.join(' ').trim();
+            try {
+                const result = await keithApi('/iboxmovies/detail', { url });
+                const body   = fmtDetail(result);
+
+                if (result.image) {
+                    await sock.sendMessage(msg.key.remoteJid, {
+                        image: { url: result.image },
+                        caption: `┏━━━ 🎬 *Movie Detail* ━━━\n\n${body}\n┗━━━━━━━━━━━━━━━━`,
+                    }, { quoted: msg });
+                } else {
+                    await sendLong(sock, msg, `┏━━━ 🎬 *Movie Detail* ━━━`, body);
+                }
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── moviesearch: search iboxmovies ────────────────────────────────────────
+    {
+        name:        'moviesearch',
+        aliases:     ['iboxmoviesearch', 'searchmovie'],
+        description: 'Search movies on iBox',
+        category:    'media',
+        usage:       '.moviesearch <query> [page]',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .moviesearch <query>');
+            await react(sock, msg, '🔍');
+            const lastArg = args[args.length - 1];
+            const hasPage = !isNaN(lastArg) && args.length > 1;
+            const page    = hasPage ? parseInt(lastArg) : 1;
+            const q       = hasPage ? args.slice(0, -1).join(' ') : args.join(' ');
+            try {
+                const result = await keithApi('/iboxmovies/search', { q, page });
+                const items  = result.results || result.items || result || [];
+                const body   = fmtSearch(Array.isArray(items) ? items : [], 'movies');
+                await sendLong(sock, msg,
+                    `┏━━━ 🔍 *Movie Search: "${q}"* ━━━`,
+                    body
+                );
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── iboxanime: trending anime ──────────────────────────────────────────────
+    {
+        name:        'iboxanime',
+        aliases:     ['animetrending', 'latestanime'],
+        description: 'Trending anime from iBox',
+        category:    'media',
+        usage:       '.iboxanime [page]',
+        execute: async (sock, msg, args) => {
+            await react(sock, msg, '🎌');
+            const page = parseInt(args[0]) || 1;
+            try {
+                const result = await keithApi('/iboxanime', { page });
+                const body   = fmtIboxListing(result, 'Anime');
+                await sendLong(sock, msg,
+                    `┏━━━ 🎌 *iBox Anime Trending* ━━━`,
+                    body
+                );
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── animedetail: iboxanime detail ──────────────────────────────────────────
+    {
+        name:        'animedetail',
+        aliases:     ['iboxanimedetail'],
+        description: 'Get details and download link for an anime',
+        category:    'media',
+        usage:       '.animedetail <iboxanime_url>',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .animedetail <iboxanime_url>');
+            await react(sock, msg, '🔍');
+            const url = args.join(' ').trim();
+            try {
+                const result = await keithApi('/iboxanime/detail', { url });
+                const body   = fmtDetail(result);
+
+                if (result.image) {
+                    await sock.sendMessage(msg.key.remoteJid, {
+                        image: { url: result.image },
+                        caption: `┏━━━ 🎌 *Anime Detail* ━━━\n\n${body}\n┗━━━━━━━━━━━━━━━━`,
+                    }, { quoted: msg });
+                } else {
+                    await sendLong(sock, msg, `┏━━━ 🎌 *Anime Detail* ━━━`, body);
+                }
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── animesearch: search iboxanime ──────────────────────────────────────────
+    {
+        name:        'animesearch',
+        aliases:     ['iboxanimesearch', 'searchanime'],
+        description: 'Search anime on iBox',
+        category:    'media',
+        usage:       '.animesearch <query> [page]',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .animesearch <query>');
+            await react(sock, msg, '🔍');
+            const lastArg = args[args.length - 1];
+            const hasPage = !isNaN(lastArg) && args.length > 1;
+            const page    = hasPage ? parseInt(lastArg) : 1;
+            const q       = hasPage ? args.slice(0, -1).join(' ') : args.join(' ');
+            try {
+                const result = await keithApi('/iboxanime/search', { q, page });
+                const items  = result.results || result.items || result || [];
+                const body   = fmtSearch(Array.isArray(items) ? items : [], 'anime');
+                await sendLong(sock, msg,
+                    `┏━━━ 🔍 *Anime Search: "${q}"* ━━━`,
+                    body
+                );
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── dramabox: DramaBox episode stream link ─────────────────────────────────
+    {
+        name:        'dramabox',
+        aliases:     ['drama', 'dramastream'],
+        description: 'Get DramaBox episode stream/download link',
+        category:    'media',
+        usage:       '.dramabox <bookId> [episode]',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg,
+                '❌ Usage: .dramabox <bookId> [episode]\n\nExample: .dramabox 41000105764 1'
+            );
+            await react(sock, msg, '🎭');
+            const bookId  = args[0];
+            const episode = parseInt(args[1]) || 1;
+            try {
+                const result = await keithApi('/dramabox/stream', { bookId, episode });
+                let body = `🎭 *DramaBox Stream*\n\n`;
+                body += `📚 Book ID: \`${bookId}\`\n`;
+                body += `📺 Episode: ${episode}\n`;
+
+                if (typeof result === 'string') {
+                    body += `\n▶️ *Stream Link:*\n${result}`;
+                } else if (result.url || result.streamUrl || result.link) {
+                    const link = result.url || result.streamUrl || result.link;
+                    body += `\n▶️ *Stream Link:*\n${link}`;
+                    if (result.title)   body += `\n\n🎬 ${result.title}`;
+                    if (result.quality) body += `\n📹 Quality: ${result.quality}`;
+                } else {
+                    body += `\n📦 Response:\n${JSON.stringify(result, null, 2).slice(0, 800)}`;
                 }
 
-                const label = genre
-                    ? `🎬 Trending ${genre.charAt(0).toUpperCase() + genre.slice(1)}`
-                    : input === 'rating'
-                    ? '⭐ Top Rated Movies'
-                    : '🔥 Latest Movies on YTS';
-
-                let text = `${label}\n\n`;
-
-                data.data.movies.forEach((m, i) => {
-                    const qualities = m.torrents?.map(t => t.quality).join(' / ') || 'N/A';
-                    text +=
-                        `*${i + 1}. ${m.title}* (${m.year})\n` +
-                        `   ⭐ ${m.rating}/10  📦 ${qualities}\n` +
-                        `   🆔 \`${m.imdb_code}\`\n\n`;
-                });
-
-                text +=
-                    `━━━━━━━━━━━━━━━━━━\n` +
-                    `_Use_ *.minfo <title>* _for details_\n` +
-                    `_Use_ *.mdl <title>* _for download links_`;
-
-                await send(sock, msg, text);
-                await react(sock, msg, '✅');
-            } catch (err) {
-                console.error('[trending]', err.message);
+                await send(sock, msg, `┏━━━ 🎭 *DramaBox* ━━━\n\n${body}\n\n┗━━━━━━━━━━━━━━━━`);
+            } catch (e) {
                 await react(sock, msg, '❌');
-                extra.reply('❌ Failed. Please try again later.');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── actor: search actors on IMDb ───────────────────────────────────────────
+    {
+        name:        'actor',
+        aliases:     ['actorsearch', 'findactor'],
+        description: 'Search actors on IMDb',
+        category:    'media',
+        usage:       '.actor <name>',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .actor <name>');
+            await react(sock, msg, '🎭');
+            const q = args.join(' ');
+            try {
+                const result = await keithApi('/actor/search', { q });
+                const arr    = Array.isArray(result) ? result : [];
+                const body   = fmtActor(arr);
+
+                // Send with first actor's image if available
+                const first  = arr.find(a => a.image);
+                if (first?.image) {
+                    await sock.sendMessage(msg.key.remoteJid, {
+                        image: { url: first.image },
+                        caption: `┏━━━ 🎭 *Actor Search: "${q}"* ━━━\n\n${body}\n\n┗━━━━━━━━━━━━━━━━`,
+                    }, { quoted: msg });
+                } else {
+                    await sendLong(sock, msg,
+                        `┏━━━ 🎭 *Actor Search: "${q}"* ━━━`,
+                        body
+                    );
+                }
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── moviebox: MovieBox search ──────────────────────────────────────────────
+    {
+        name:        'moviebox',
+        aliases:     ['mbsearch', 'mbmovie'],
+        description: 'Search movies on MovieBox (returns URLs usable with .trailer)',
+        category:    'media',
+        usage:       '.moviebox <query>',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg, '❌ Usage: .moviebox <query>');
+            await react(sock, msg, '🎬');
+            const q = args.join(' ');
+            try {
+                const result = await keithApi('/moviebox/search', { q });
+                const body   = fmtMovieBoxSearch(result);
+                await sendLong(sock, msg,
+                    `┏━━━ 🎬 *MovieBox: "${q}"* ━━━`,
+                    body,
+                    `\n💡 Use .trailer <url> to get trailer\n┗━━━━━━━━━━━━━━━━`
+                );
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
+            }
+        },
+    },
+
+    // ── trailer: get movie trailer via MovieBox URL ────────────────────────────
+    {
+        name:        'trailer',
+        aliases:     ['movietrailer', 'gettrailer'],
+        description: 'Get movie trailer from a MovieBox URL',
+        category:    'media',
+        usage:       '.trailer <moviebox_url>',
+        execute: async (sock, msg, args) => {
+            if (!args[0]) return send(sock, msg,
+                '❌ Usage: .trailer <moviebox_url>\n\nGet URL from .moviebox <query>'
+            );
+            await react(sock, msg, '▶️');
+            const q = args.join(' ').trim();
+            try {
+                const result = await keithApi('/movie/trailer', { q });
+                const body   = fmtTrailer(result);
+
+                if (result.thumbnail) {
+                    await sock.sendMessage(msg.key.remoteJid, {
+                        image: { url: result.thumbnail },
+                        caption: `┏━━━ ▶️ *Movie Trailer* ━━━\n\n${body}\n┗━━━━━━━━━━━━━━━━`,
+                    }, { quoted: msg });
+                } else {
+                    await sendLong(sock, msg, `┏━━━ ▶️ *Movie Trailer* ━━━`, body);
+                }
+            } catch (e) {
+                await react(sock, msg, '❌');
+                await send(sock, msg, `❌ ${e.message}`);
             }
         },
     },
