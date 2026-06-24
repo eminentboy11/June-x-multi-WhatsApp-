@@ -456,14 +456,23 @@ const handleMessage = async (sock, msg) => {
 
     // Store view-once messages so reactions can reveal them
     try {
-      const voWrapper = msg.message?.viewOnceMessageV2 || msg.message?.viewOnceMessage;
+      const voWrapper = msg.message?.viewOnceMessageV2
+                     || msg.message?.viewOnceMessageV2Extension
+                     || msg.message?.viewOnceMessage;
       if (voWrapper?.message) {
-        const inner = voWrapper.message;
+        const inner  = voWrapper.message;
         const voType = inner.imageMessage ? 'image' : inner.videoMessage ? 'video' : null;
         if (voType) {
+          // Build a synthetic WAMessage where the media sits at the TOP level of
+          // .message — that's what downloadMediaMessage() expects internally
+          const syntheticMsg = {
+            key:     msg.key,
+            message: inner,           // { imageMessage: {...} }  NOT the viewOnce wrapper
+            messageTimestamp: msg.messageTimestamp,
+          };
           viewOnceStore.set(msg.key.id, {
             type:    voType,
-            rawMsg:  msg,
+            rawMsg:  syntheticMsg,
             from:    msg.key.remoteJid,
             sender:  msg.key.participant || msg.key.remoteJid,
             caption: inner.imageMessage?.caption || inner.videoMessage?.caption || '',
@@ -488,20 +497,46 @@ const handleMessage = async (sock, msg) => {
         try {
           const stored = viewOnceStore.get(reactedId);
           if (stored) {
-            const dmJid     = reactorJid.replace(/@.+$/, '') + '@s.whatsapp.net';
-            const senderNum = stored.sender.replace(/@.+$/, '');
-            const fromLabel = stored.from.endsWith('@g.us') ? 'group' : 'DM';
+            const reactorNum = reactorJid.replace(/@.+$/, '');
+            const dmJid      = reactorNum + '@s.whatsapp.net';
+            const senderNum  = stored.sender.replace(/@.+$/, '');
+            const fromLabel  = stored.from.endsWith('@g.us') ? 'group' : 'DM';
 
-            await sock.sendMessage(dmJid, {
-              text: `👁 *View-Once Revealed*\n📍 Sent by: @${senderNum}\n📌 From: ${fromLabel}\n🔓 Opened via: ${emoji}`,
-              mentions: [stored.sender],
-            });
+            // Bot's own inbox JID (strip device suffix :0, :1 etc.)
+            const botJid = (sock.user?.id || '').replace(/:\d+@/, '@');
 
+            const msgType  = 'reactionMessage'; // message type that triggered this
+            const caption  = stored.caption ? `\n📝 Caption: ${stored.caption}` : '';
+            const infoText =
+              `👁 *View-Once Revealed*\n` +
+              `📌 Message Type: \`${msgType}\`\n` +
+              `📍 Sent by: @${senderNum}\n` +
+              `📍 From: ${fromLabel}\n` +
+              `👤 Reactor: @${reactorNum}\n` +
+              `🔓 Reacted with: ${emoji}` +
+              caption;
+
+            // Download once, send to two destinations
             const mediaBuf = await downloadMediaMessage(stored.rawMsg, 'buffer', {});
-            if (stored.type === 'image') {
-              await sock.sendMessage(dmJid, { image: mediaBuf, caption: stored.caption });
-            } else if (stored.type === 'video') {
-              await sock.sendMessage(dmJid, { video: mediaBuf, caption: stored.caption });
+
+            const sendTo = async (jid) => {
+              await sock.sendMessage(jid, {
+                text: infoText,
+                mentions: [stored.sender, reactorJid],
+              });
+              if (stored.type === 'image') {
+                await sock.sendMessage(jid, { image: mediaBuf, caption: stored.caption });
+              } else if (stored.type === 'video') {
+                await sock.sendMessage(jid, { video: mediaBuf, caption: stored.caption });
+              }
+            };
+
+            // Send to reactor's personal DM
+            await sendTo(dmJid);
+
+            // Also send to bot's own inbox if different from reactor
+            if (botJid && botJid !== dmJid) {
+              await sendTo(botJid);
             }
           }
         } catch (e) {
