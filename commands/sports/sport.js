@@ -242,15 +242,17 @@ function fmtFifaStandings(result) {
     // Rich /fifastandings shape: result.table[0].data.tables[]
     const tables = result.table?.[0]?.data?.tables;
     if (Array.isArray(tables) && tables.length) {
-        const colHdr = `${'Pos'.padStart(3)}  ${'Team'.padEnd(22)} ${'P'.padStart(2)} ${'W'.padStart(2)} ${'D'.padStart(2)} ${'L'.padStart(2)} ${'GD'.padStart(4)}  Pts`;
-        const divider = '─'.repeat(50);
+        // Single continuous table — one header, groups separated by a label row
+        const colHdr  = `  #  Team                    P  W  D  L   GD  Pts`;
+        const divider = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        const lines   = [`\`${colHdr}\``, divider];
 
-        return tables.map(grp => {
-            const grpName = (grp.leagueName || 'Group').replace('Grp.', 'Group');
-            const rows    = grp.table?.all || [];
-            if (!rows.length) return null;
-
-            const rowLines = rows.map(r => {
+        for (const grp of tables) {
+            const rows = grp.table?.all || [];
+            if (!rows.length) continue;
+            const grpName = (grp.leagueName || 'Group').replace('Grp.', 'Group').trim();
+            lines.push(`▸ *${grpName}*`);
+            for (const r of rows) {
                 const pos  = String(r.idx   ?? '').padStart(3);
                 const team = (r.name || '?').padEnd(22).slice(0, 22);
                 const p    = String(r.played ?? 0).padStart(2);
@@ -260,11 +262,11 @@ function fmtFifaStandings(result) {
                 const gd   = String(r.goalConDiff ?? 0).padStart(4);
                 const pts  = String(r.pts    ?? 0).padStart(3);
                 const qual = r.qualColor === '#2AD572' ? '🟢' : r.qualColor === '#FFD908' ? '🟡' : '⚪';
-                return `${qual}${pos}. ${team} ${p} ${w} ${d} ${l} ${gd} *${pts}*`;
-            }).join('\n');
+                lines.push(`${qual}${pos}. ${team} ${p} ${w} ${d} ${l} ${gd} *${pts}*`);
+            }
+        }
 
-            return `🏷️ *${grpName}*\n\`${colHdr}\`\n${divider}\n${rowLines}`;
-        }).filter(Boolean).join('\n\n');
+        return lines.join('\n');
     }
 
     // Fallback: flat standings from /fifa/standings (single group)
