@@ -238,16 +238,47 @@ function fmtNews(result) {
 
 function fmtFifaStandings(result) {
     if (!result) return '_No FIFA data available_';
-    const groups = result.groups || result.table || result.standings;
-    if (Array.isArray(groups) && groups.length) return fmtStandings({ standings: groups });
-    const details = result.details || result;
-    let s = `🌍 *FIFA World Cup 2026*\n\n`;
-    if (details.name)           s += `🏆 Competition: ${details.name}\n`;
-    if (details.selectedSeason) s += `📅 Season: ${details.selectedSeason}\n`;
-    if (details.country)        s += `🌍 Country: ${details.country}\n`;
-    const seasons = result.allAvailableSeasons;
-    if (seasons?.length)        s += `\n📋 Available seasons: ${seasons.slice(0, 5).join(', ')}\n`;
-    return s;
+
+    // Rich /fifastandings shape: result.table[0].data.tables[]
+    const tables = result.table?.[0]?.data?.tables;
+    if (Array.isArray(tables) && tables.length) {
+        const colHdr = `${'Pos'.padStart(3)}  ${'Team'.padEnd(22)} ${'P'.padStart(2)} ${'W'.padStart(2)} ${'D'.padStart(2)} ${'L'.padStart(2)} ${'GD'.padStart(4)}  Pts`;
+        const divider = '─'.repeat(50);
+
+        return tables.map(grp => {
+            const grpName = (grp.leagueName || 'Group').replace('Grp.', 'Group');
+            const rows    = grp.table?.all || [];
+            if (!rows.length) return null;
+
+            const rowLines = rows.map(r => {
+                const pos  = String(r.idx   ?? '').padStart(3);
+                const team = (r.name || '?').padEnd(22).slice(0, 22);
+                const p    = String(r.played ?? 0).padStart(2);
+                const w    = String(r.wins   ?? 0).padStart(2);
+                const d    = String(r.draws  ?? 0).padStart(2);
+                const l    = String(r.losses ?? 0).padStart(2);
+                const gd   = String(r.goalConDiff ?? 0).padStart(4);
+                const pts  = String(r.pts    ?? 0).padStart(3);
+                const qual = r.qualColor === '#2AD572' ? '🟢' : r.qualColor === '#FFD908' ? '🟡' : '⚪';
+                return `${qual}${pos}. ${team} ${p} ${w} ${d} ${l} ${gd} *${pts}*`;
+            }).join('\n');
+
+            return `🏷️ *${grpName}*\n\`${colHdr}\`\n${divider}\n${rowLines}`;
+        }).filter(Boolean).join('\n\n');
+    }
+
+    // Fallback: flat standings from /fifa/standings (single group)
+    const flat = result.standings || (Array.isArray(result) ? result : []);
+    if (flat.length) {
+        return flat.map(r => {
+            const pos  = String(r.position || '').padStart(2);
+            const team = (r.team || '?').padEnd(22);
+            const pts  = r.points ?? 0;
+            return `${pos}. ${team} P${r.played ?? 0} W${r.won ?? 0} D${r.draw ?? 0} L${r.lost ?? 0} GD${r.goalDifference ?? 0} | *${pts}pts*`;
+        }).join('\n');
+    }
+
+    return '_No standings data available_';
 }
 
 function fmtBet(result) {
@@ -509,7 +540,7 @@ module.exports = [
             await leagueHandler(sock, msg, args, extra, '🌍 FIFA World Cup', {
                 upcoming:  { endpoint: '/fifa/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
                 matches:   { endpoint: '/fifa/matches',         format: fmtMatches,   title: 'Matches'          },
-                standings: { endpoint: '/fifa/standings',       format: fmtStandings, title: 'Standings'        },
+                standings: { endpoint: '/fifastandings',        format: fmtFifaStandings, title: 'All Group Standings' },
                 scorers:   { endpoint: '/fifa/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
             });
         },
