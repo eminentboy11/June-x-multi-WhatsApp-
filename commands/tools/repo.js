@@ -10,6 +10,7 @@ const GITHUB_USER = 'Vinpink2';
 const GITHUB_REPO = 'June-Ultra';
 const REPO_URL    = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
 const API_URL     = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}`;
+const MENU_IMAGE  = path.join(__dirname, '../../utils/menu2.jpg');
 
 function extractButtonResponseId(msg) {
     return (
@@ -107,11 +108,17 @@ module.exports = {
                 );
             }
 
-            // ── Send buttons ──────────────────────────────────────────────────
+            // ── Send image + info + buttons (fused) ───────────────────────────
+            const imageBuffer = fs.existsSync(MENU_IMAGE) ? fs.readFileSync(MENU_IMAGE) : null;
+
             await sendButtons(sock, chatId, {
                 text,
                 footer,
                 buttons: buildMainButtons(repoUrl, dateNow),
+                ...(imageBuffer && {
+                    image: imageBuffer,
+                    mimetype: 'image/jpeg',
+                }),
             }, { quoted: msg });
 
             // ── Listen for Download ZIP tap ───────────────────────────────────
