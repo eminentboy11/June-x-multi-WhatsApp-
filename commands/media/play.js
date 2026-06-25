@@ -73,15 +73,14 @@ async function downloadAudio(videoUrl) {
         try {
             // Primary
             const primary = await axios.get(
-                `https://api.drexapp.space/downloader/ytmp3?url=${encodeURIComponent(videoUrl)}`,
+                `https://phantom-api.us.ci/api/download/youtube2?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
-            if (primary.data?.status && primary.data?.result?.downloadURL) {
+            if (primary.data?.success && primary.data?.result?.download_url) {
                 return {
                     status: true,
-                    result: primary.data.result.downloadURL,
+                    result: primary.data.result.download_url,
                     title: primary.data.result.title,
-                    thumbnail: primary.data.result.thumbnail,
                 };
             }
             throw new Error('Primary API failed');
