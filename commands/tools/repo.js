@@ -108,17 +108,16 @@ module.exports = {
                 );
             }
 
-            // ── Send image + info + buttons (fused) ───────────────────────────
-            const imageBuffer = fs.existsSync(MENU_IMAGE) ? fs.readFileSync(MENU_IMAGE) : null;
+            // ── Send image fused with info + buttons ──────────────────────────
+            const jpegThumbnail = fs.existsSync(MENU_IMAGE)
+                ? fs.readFileSync(MENU_IMAGE)
+                : undefined;
 
             await sendButtons(sock, chatId, {
                 text,
                 footer,
                 buttons: buildMainButtons(repoUrl, dateNow),
-                ...(imageBuffer && {
-                    image: imageBuffer,
-                    mimetype: 'image/jpeg',
-                }),
+                ...(jpegThumbnail && { jpegThumbnail }),
             }, { quoted: msg });
 
             // ── Listen for Download ZIP tap ───────────────────────────────────
