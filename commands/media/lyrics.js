@@ -8,7 +8,7 @@ module.exports = [
   {
     name: 'lyrics',
     aliases: ['lyric', 'songlyrics'],
-    category: 'music',
+    category: 'media',
     desc: 'Search for song lyrics',
     usage: '.lyrics <song name>',
 
