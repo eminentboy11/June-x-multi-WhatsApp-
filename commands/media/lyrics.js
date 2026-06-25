@@ -13,28 +13,34 @@ module.exports = [
 
     async handler({ sock, msg, args, extra }) {
       const query = args.join(' ').trim();
+      const jid = msg.key.remoteJid;
+
+      const react = (emoji) => sock.sendMessage(jid, {
+        react: { text: emoji, key: msg.key }
+      });
 
       if (!query) {
         return extra.reply(applyFont('❌ Please provide a song name.\nExample: .lyrics faded', 'bold'));
       }
 
-      await extra.react('🔍');
+      await react('🔍');
 
       let data;
       try {
         const res = await axios.get(`https://ravenn.site/search/lyrics?query=${encodeURIComponent(query)}`);
         data = res.data;
       } catch {
+        await react('❌');
         return extra.reply(applyFont('❌ Failed to reach the lyrics API. Try again later.', 'bold'));
       }
 
       if (!data?.status || !Array.isArray(data.result) || data.result.length === 0) {
+        await react('❌');
         return extra.reply(applyFont(`❌ No lyrics found for: ${query}`, 'bold'));
       }
 
-      const song = data.result[0];
-      await extra.react('✅');
-      await sendLyrics(sock, msg, extra.from, song);
+      await react('✅');
+      await sendLyrics(sock, msg, jid, data.result[0]);
     }
   }
 ];
