@@ -10,7 +10,6 @@ const GITHUB_USER = 'Vinpink2';
 const GITHUB_REPO = 'June-Ultra';
 const REPO_URL    = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}`;
 const API_URL     = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}`;
-const MENU_IMAGE  = path.join(__dirname, '../../utils/menu2.jpg');
 
 function extractButtonResponseId(msg) {
     return (
@@ -76,20 +75,19 @@ module.exports = {
                 defaultBranch = repo.default_branch || 'main';
 
                 text = applyFont(
-                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
-                    `➥ Repository  ➜ ${repo.name}\n` +
-                    `➥ Owner       ➜ ${repo.owner.login}\n` +
-                    `➥ Description ➜ ${repo.description || 'N/A'}\n` +
-                    `➥ Language    ➜ ${repo.language || 'N/A'}\n` +
-                    `➥ License     ➜ ${repo.license?.name || 'N/A'}\n` +
-                    `➥ Branch      ➜ ${defaultBranch}\n` +
-                    `➥ Visibility  ➜ ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
-                    `┃ Statistics\n` +
-                    `➥ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
-                    `➥ Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
-                    `➥ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
-                    `➥ Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
-                    `➥ Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
+                    `┏━━『 🐙 GITHUB REPOSITORY 』━━\n\n` +
+                    `📁 Repository  ➜ ${repo.name}\n` +
+                    `👤 Owner       ➜ ${repo.owner.login}\n` +
+                    `📝 Description ➜ ${repo.description || 'N/A'}\n` +
+                    `🔗 URL         ➜ ${repo.html_url}\n` +
+                    `🌿 Branch      ➜ ${defaultBranch}\n` +
+                    `${repo.private ? '🔒' : '🔓'} Visibility  ➜ ${repo.private ? 'Private' : 'Public'}\n\n` +
+                    `┃ 📊 Statistics\n` +
+                    `⭐ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
+                    `🍴 Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
+                    `👁️ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
+                    `💾 Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
+                    `🐛 Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
 
@@ -97,27 +95,22 @@ module.exports = {
                 console.error('[GitHub] API error:', apiError.message);
 
                 text = applyFont(
-                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
-                    `➥ Bot Name    ➜ ${config.botName}\n` +
-                    `➥ Repository  ➜ ${GITHUB_REPO}\n` +
-                    `➥ Owner       ➜ ${GITHUB_USER}\n` +
-                    `➥ URL         ➜ ${REPO_URL}\n\n` +
+                    `┏━━『 🐙 GITHUB REPOSITORY 』━━\n\n` +
+                    `🤖 Bot Name    ➜ ${config.botName}\n` +
+                    `📁 Repository  ➜ ${GITHUB_REPO}\n` +
+                    `👤 Owner       ➜ ${GITHUB_USER}\n` +
+                    `🔗 URL         ➜ ${REPO_URL}\n\n` +
                     `⚠️ Could not fetch live stats.\n` +
                     `   Visit the repo for latest info.\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
             }
 
-            // ── Send image fused with info + buttons ──────────────────────────
-            const jpegThumbnail = fs.existsSync(MENU_IMAGE)
-                ? fs.readFileSync(MENU_IMAGE)
-                : undefined;
-
+            // ── Send info + buttons ───────────────────────────────────────────
             await sendButtons(sock, chatId, {
                 text,
                 footer,
                 buttons: buildMainButtons(repoUrl, dateNow),
-                ...(jpegThumbnail && { jpegThumbnail }),
             }, { quoted: msg });
 
             // ── Listen for Download ZIP tap ───────────────────────────────────
@@ -163,20 +156,11 @@ module.exports = {
                         throw new Error('ZIP download failed — file is empty');
                     }
 
-                    const fileSizeMB = (fs.statSync(filePath).size / 1048576).toFixed(2);
-
+                    // ── Send ZIP with no caption ──────────────────────────────
                     await sock.sendMessage(chatId, {
                         document: fs.readFileSync(filePath),
                         mimetype: 'application/zip',
                         fileName: `${GITHUB_REPO}.zip`,
-                        caption: applyFont(
-                            `┏━━『 ZIP DOWNLOADED 』━━\n\n` +
-                            `➥ Repository ➜ ${GITHUB_REPO}\n` +
-                            `➥ Branch     ➜ ${defaultBranch}\n` +
-                            `➥ Size       ➜ ${fileSizeMB} MB\n\n` +
-                            `┗━━━━━━━━━━━━━━━━\n\n` +
-                            `> ${config.botName}`
-                        ),
                     }, { quoted: messageData });
 
                     await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
@@ -186,9 +170,9 @@ module.exports = {
                     await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
                     await sock.sendMessage(chatId, {
                         text: applyFont(
-                            `┏━━『 ERROR 』━━\n\n` +
-                            `➥ Failed  ➜ ZIP Download\n` +
-                            `➥ Reason  ➜ ${err.message}\n\n` +
+                            `┏━━『 ❌ ERROR 』━━\n\n` +
+                            `💔 Failed  ➜ ZIP Download\n` +
+                            `⚠️ Reason  ➜ ${err.message}\n\n` +
                             `  Try copying the link instead.\n\n` +
                             `┗━━━━━━━━━━━━━━━━`
                         ),
