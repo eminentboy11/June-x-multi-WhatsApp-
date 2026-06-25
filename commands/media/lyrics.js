@@ -1,73 +1,67 @@
-// commands/lyrics.js
+/**
+ * Lyrics Finder — ravenn.site API
+ */
 
-const { applyFont } = require('../../utils/fontConverter');
 const axios = require('axios');
+const config = require('../../config');
 
-module.exports = [
-  {
-    name: 'lyrics',
-    aliases: ['lyric', 'songlyrics'],
-    category: 'media',
-    desc: 'Search for song lyrics',
-    usage: '.lyrics <song name>',
+module.exports = {
+  name: 'lyrics',
+  aliases: ['lyric', 'lirik'],
+  category: 'media',
+  description: 'Get lyrics of a song',
+  usage: '<song name>',
 
-    async handler({ sock, msg, args, extra }) {
-      const query = args.join(' ').trim();
-      const jid = msg.key.remoteJid;
+  async execute(sock, msg, args) {
+    const jid = msg.key.remoteJid;
 
-      const react = (emoji) => sock.sendMessage(jid, {
-        react: { text: emoji, key: msg.key }
+    if (args.length === 0) {
+      return await sock.sendMessage(jid, {
+        text: `❌ Please provide a song name!\n\nExample: ${config.prefix}lyrics Despacito`
       });
+    }
 
-      if (!query) {
-        return extra.reply(applyFont('❌ Please provide a song name.\nExample: .lyrics faded', 'bold'));
+    const query = args.join(' ');
+
+    try {
+      const res = await axios.get(
+        `https://ravenn.site/search/lyrics?query=${encodeURIComponent(query)}`,
+        { timeout: 15000 }
+      );
+
+      if (!res.data?.status || !Array.isArray(res.data?.result) || res.data.result.length === 0) {
+        return await sock.sendMessage(jid, {
+          text: '❌ Could not find lyrics for that song. Try a different song name or spelling.'
+        });
       }
 
-      await react('🔍');
+      const r = res.data.result[0];
+      let lyrics = r.lyrics || 'No lyrics found.';
 
-      let data;
-      try {
-        const res = await axios.get(`https://ravenn.site/search/lyrics?query=${encodeURIComponent(query)}`);
-        data = res.data;
-      } catch {
-        await react('❌');
-        return extra.reply(applyFont('❌ Failed to reach the lyrics API. Try again later.', 'bold'));
+      if (lyrics.length > 4000) {
+        lyrics = lyrics.substring(0, 4000) + '...\n\n_Lyrics truncated — showing first part only_';
       }
 
-      if (!data?.status || !Array.isArray(data.result) || data.result.length === 0) {
-        await react('❌');
-        return extra.reply(applyFont(`❌ No lyrics found for: ${query}`, 'bold'));
+      const caption =
+        `🎵 *${r.song || 'Unknown Title'}*\n` +
+        `👤 *Artist:* ${r.artist || 'Unknown Artist'}\n\n` +
+        `📝 *Lyrics:*\n${lyrics}\n\n` +
+        `_Fetched by ${config.botName}_`;
+
+      if (r.thumbnail) {
+        await sock.sendMessage(jid, {
+          image: { url: r.thumbnail },
+          caption
+        }, { quoted: msg });
+      } else {
+        await sock.sendMessage(jid, { text: caption }, { quoted: msg });
       }
 
-      await react('✅');
-      await sendLyrics(sock, msg, jid, data.result[0]);
+    } catch (error) {
+      console.error('Lyrics command error:', error);
+      await sock.sendMessage(jid, {
+        text: '❌ An error occurred while fetching lyrics!'
+      });
     }
   }
-];
-
-// ─── Helper: send formatted lyrics ───────────────────────────────────────────
-async function sendLyrics(sock, msg, jid, song) {
-  const MAX_CHARS = 3800;
-  let lyrics = song.lyrics || 'No lyrics available.';
-
-  if (lyrics.length > MAX_CHARS) {
-    lyrics = lyrics.slice(0, MAX_CHARS) + '\n\n... *(lyrics trimmed)*';
-  }
-
-  const caption =
-    applyFont(`🎵 ${song.song}`, 'bold') + '\n' +
-    applyFont(`👤 ${song.artist}`, 'italic') + '\n' +
-    '─'.repeat(28) + '\n\n' +
-    lyrics + '\n\n' +
-    applyFont('🎼 JuneX • Lyrics', 'sans');
-
-  try {
-    await sock.sendMessage(jid, {
-      image: { url: song.thumbnail },
-      caption,
-      mimetype: 'image/jpeg'
-    }, { quoted: msg });
-  } catch {
-    await sock.sendMessage(jid, { text: caption }, { quoted: msg });
-  }
-}
+};
