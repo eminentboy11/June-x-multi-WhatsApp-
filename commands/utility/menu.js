@@ -1,6 +1,7 @@
 const config = require('../../config');
 const { loadCommands } = require('../../utils/commandLoader');
 const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
+const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
 const fs = require('fs');
 const path = require('path');
@@ -233,8 +234,14 @@ module.exports = {
         await markDone();
 
       } else if (menustyle === '3') {
-        await sock.sendMessage(chatId, {
+        // ── Text + contextInfo + cta_url (Open Repo) + ping button ─────
+        const prefix  = config.prefix || '.';
+        const repoUrl = config.social?.github || 'https://github.com';
+
+        await sendButtons(sock, chatId, {
+          image: tylorkids ? { buffer: tylorkids, mimetype: 'image/jpeg' } : undefined,
           text: fullMenu,
+          footer: `> © ${botname}`,
           mentions: [extra.sender],
           contextInfo: {
             externalAdReply: {
@@ -242,12 +249,26 @@ module.exports = {
               title: botname,
               body: ownername,
               thumbnail: tylorkids,
-              sourceUrl: plink,
+              sourceUrl: repoUrl,
               mediaType: 1,
               renderLargerThumbnail: true,
             },
           },
+          buttons: [
+            {
+              name: 'cta_url',
+              buttonParamsJson: JSON.stringify({
+                display_text: '🔗 Open Repo',
+                url: repoUrl,
+              }),
+            },
+            {
+              id:   `${prefix}ping`,
+              text: '🏓 Ping',
+            },
+          ],
         }, { quoted: msg });
+
         await markDone();
 
       } else if (menustyle === '4') {
