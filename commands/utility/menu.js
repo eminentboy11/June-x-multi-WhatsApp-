@@ -84,7 +84,7 @@ const CATEGORY_LABELS = {
 
 function buildMenuText(categories, extra, totalCount, speed) {
   const prefix = config.prefix;
-  const bot = config.botName || 'June Ultra';
+  const bot = config.botName || 'JuneX Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
   const hostName = detectPlatform();
   const uptimeFormatted = formatUptime();
@@ -241,7 +241,7 @@ module.exports = {
         await sendButtons(sock, chatId, {
           image: tylorkids ? { buffer: tylorkids, mimetype: 'image/jpeg' } : undefined,
           text: fullMenu,
-          footer: `© supreme`,
+          footer: `© by supreme`,
           mentions: [extra.sender],
           contextInfo: {
             externalAdReply: {
