@@ -75,19 +75,20 @@ module.exports = {
                 defaultBranch = repo.default_branch || 'main';
 
                 text = applyFont(
-                    `┏━━『 🐙 GITHUB REPOSITORY 』━━\n\n` +
-                    `📁 Repository  ➜ ${repo.name}\n` +
-                    `👤 Owner       ➜ ${repo.owner.login}\n` +
-                    `📝 Description ➜ ${repo.description || 'N/A'}\n` +
-                    `🔗 URL         ➜ ${repo.html_url}\n` +
-                    `🌿 Branch      ➜ ${defaultBranch}\n` +
-                    `${repo.private ? '🔒' : '🔓'} Visibility  ➜ ${repo.private ? 'Private' : 'Public'}\n\n` +
-                    `┃ 📊 Statistics\n` +
-                    `⭐ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
-                    `🍴 Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
-                    `👁️ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
-                    `💾 Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
-                    `🐛 Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
+                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
+                    `➥ Repository  ➜ ${repo.name}\n` +
+                    `➥ Owner       ➜ ${repo.owner.login}\n` +
+                    `➥ Description ➜ ${repo.description || 'N/A'}\n` +
+                    `➥ Language    ➜ ${repo.language || 'N/A'}\n` +
+                    `➥ License     ➜ ${repo.license?.name || 'N/A'}\n` +
+                    `➥ Branch      ➜ ${defaultBranch}\n` +
+                    `➥ Visibility  ➜ ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
+                    `┃ Statistics\n` +
+                    `➥ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
+                    `➥ Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
+                    `➥ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
+                    `➥ Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
+                    `➥ Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
 
@@ -95,19 +96,26 @@ module.exports = {
                 console.error('[GitHub] API error:', apiError.message);
 
                 text = applyFont(
-                    `┏━━『 🐙 GITHUB REPOSITORY 』━━\n\n` +
-                    `🤖 Bot Name    ➜ ${config.botName}\n` +
-                    `📁 Repository  ➜ ${GITHUB_REPO}\n` +
-                    `👤 Owner       ➜ ${GITHUB_USER}\n` +
-                    `🔗 URL         ➜ ${REPO_URL}\n\n` +
+                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
+                    `➥ Bot Name    ➜ ${config.botName}\n` +
+                    `➥ Repository  ➜ ${GITHUB_REPO}\n` +
+                    `➥ Owner       ➜ ${GITHUB_USER}\n` +
+                    `➥ URL         ➜ ${REPO_URL}\n\n` +
                     `⚠️ Could not fetch live stats.\n` +
                     `   Visit the repo for latest info.\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
             }
 
-            // ── Send info + buttons ───────────────────────────────────────────
+            // ── Load menu image ───────────────────────────────────────────────
+            const menuImagePath = path.join(__dirname, '../../utils/menu1.jpg');
+            const menuImage     = fs.existsSync(menuImagePath)
+                ? fs.readFileSync(menuImagePath)
+                : null;
+
+            // ── Send buttons ──────────────────────────────────────────────────
             await sendButtons(sock, chatId, {
+                image:   menuImage ? { buffer: menuImage, mimetype: 'image/jpeg' } : undefined,
                 text,
                 footer,
                 buttons: buildMainButtons(repoUrl, dateNow),
@@ -156,11 +164,20 @@ module.exports = {
                         throw new Error('ZIP download failed — file is empty');
                     }
 
-                    // ── Send ZIP with no caption ──────────────────────────────
+                    const fileSizeMB = (fs.statSync(filePath).size / 1048576).toFixed(2);
+
                     await sock.sendMessage(chatId, {
                         document: fs.readFileSync(filePath),
                         mimetype: 'application/zip',
                         fileName: `${GITHUB_REPO}.zip`,
+                        caption: applyFont(
+                            `┏━━『 ZIP DOWNLOADED 』━━\n\n` +
+                            `➥ Repository ➜ ${GITHUB_REPO}\n` +
+                            `➥ Branch     ➜ ${defaultBranch}\n` +
+                            `➥ Size       ➜ ${fileSizeMB} MB\n\n` +
+                            `┗━━━━━━━━━━━━━━━━\n\n` +
+                            `> ${config.botName}`
+                        ),
                     }, { quoted: messageData });
 
                     await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
@@ -170,9 +187,9 @@ module.exports = {
                     await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
                     await sock.sendMessage(chatId, {
                         text: applyFont(
-                            `┏━━『 ❌ ERROR 』━━\n\n` +
-                            `💔 Failed  ➜ ZIP Download\n` +
-                            `⚠️ Reason  ➜ ${err.message}\n\n` +
+                            `┏━━『 ERROR 』━━\n\n` +
+                            `➥ Failed  ➜ ZIP Download\n` +
+                            `➥ Reason  ➜ ${err.message}\n\n` +
                             `  Try copying the link instead.\n\n` +
                             `┗━━━━━━━━━━━━━━━━`
                         ),
