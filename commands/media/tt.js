@@ -18,7 +18,13 @@ module.exports = {
       }, { quoted: msg });
     }
 
+    const react = (emoji) => sock.sendMessage(from, {
+      react: { text: emoji, key: msg.key }
+    });
+
     try {
+      await react('⏳');
+
       let videoUrl = null;
       let audioUrl = null;
 
@@ -47,10 +53,13 @@ module.exports = {
       }
 
       if (!videoUrl) {
+        await react('❌');
         return sock.sendMessage(from, {
           text: `◆ Failed to fetch video.\n◇ The link may be private or unsupported.`
         }, { quoted: msg });
       }
+
+      await react('📥');
 
       const videoRes = await axios.get(videoUrl, { responseType: 'arraybuffer' });
       const videoBuffer = Buffer.from(videoRes.data);
@@ -75,8 +84,11 @@ module.exports = {
         } catch (_) {}
       }
 
+      await react('✅');
+
     } catch (err) {
       console.error('[tt2]', err.message);
+      await react('❌');
       await sock.sendMessage(from, {
         text: `◆ Error: ${err.message}`
       }, { quoted: msg });
