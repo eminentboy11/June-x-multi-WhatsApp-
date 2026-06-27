@@ -25,7 +25,7 @@ function getTikTokButtons(videoId, dateNow, tiktokUrl) {
     const prefix = config.prefix || '.';
     return [
         { id: `${prefix}ttvideo_${videoId}_${dateNow}`, text: '🎬 Video (No Watermark)' },
-        { id: tiktokUrl, text: '🔗 Open on TikTok', type: 'cta_url', url: tiktokUrl },
+        { type: 'cta_url', text: '🔗 Open on TikTok', url: tiktokUrl },
     ];
 }
 
