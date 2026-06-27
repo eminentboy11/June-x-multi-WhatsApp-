@@ -21,20 +21,12 @@ function getResponseSender(msg) {
     return msg.key?.participant || msg.key?.remoteJid;
 }
 
-function getTikTokButtons(videoId, dateNow) {
+function getTikTokButtons(videoId, dateNow, tiktokUrl) {
     const prefix = config.prefix || '.';
     return [
-        { id: `${prefix}ttvideo_${videoId}_${dateNow}`,    text: '🎬 Video (No Watermark)' },
-        { id: `${prefix}ttvideodoc_${videoId}_${dateNow}`, text: '📄 Video as Document'     },
+        { id: `${prefix}ttvideo_${videoId}_${dateNow}`, text: '🎬 Video (No Watermark)' },
+        { id: tiktokUrl, text: '🔗 Open on TikTok', type: 'cta_url', url: tiktokUrl },
     ];
-}
-
-function cleanFileName(title, fallback = 'tiktok') {
-    return (title || fallback)
-        .replace(/[^\w\s.-]/gi, '')
-        .trim()
-        .substring(0, 100)
-        || fallback;
 }
 
 const tiktokPattern = /https?:\/\/(?:(?:www|vm|vt|m)\.)?tiktok\.com\/\S+/i;
@@ -52,12 +44,10 @@ module.exports = {
         const from = extra.from;
 
         try {
-            // ── Duplicate guard ───────────────────────────────────────────────
             if (processedMessages.has(msg.key.id)) return;
             processedMessages.add(msg.key.id);
             setTimeout(() => processedMessages.delete(msg.key.id), 5 * 60 * 1000);
 
-            // ── Validate input ────────────────────────────────────────────────
             const url = args.join(' ').trim();
 
             if (!url) {
@@ -74,7 +64,6 @@ module.exports = {
 
             await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
 
-            // ── Fetch video metadata ──────────────────────────────────────────
             const apiResponse = await axios.get('https://www.tikwm.com/api/', {
                 params: { url, hd: 1 },
                 timeout: 15000,
@@ -85,6 +74,7 @@ module.exports = {
 
             if (code !== 0 || !data) {
                 console.error('[tiktok] API error:', apiMsg);
+                await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                 return await sock.sendMessage(from, {
                     text: `❌ Failed to fetch video: ${apiMsg || 'Unknown error'}. Try again later.`
                 }, { quoted: msg });
@@ -94,9 +84,9 @@ module.exports = {
             const videoId        = data.id || dateNow.toString();
             const originalSender = msg.key?.participant || msg.key?.remoteJid;
 
-            // ── Send format selection buttons ─────────────────────────────────
             await sendButtons(sock, from, {
                 title: '📥 TIKTOK DOWNLOADER',
+                image: { url: data.cover || data.origin_cover || data.dynamic_cover },
                 text:
                     `⿻ *Author:* @${data.author?.unique_id || 'unknown'}\n` +
                     `⿻ *Caption:* ${(data.title || 'N/A').substring(0, 80)}\n` +
@@ -106,12 +96,11 @@ module.exports = {
                     `⿻ *Shares:* ${(data.share_count ?? 0).toLocaleString()}\n\n` +
                     `*Select download format:*`,
                 footer: `Made by ${config.botName}`,
-                buttons: getTikTokButtons(videoId, dateNow),
+                buttons: getTikTokButtons(videoId, dateNow, url),
             }, { quoted: msg });
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-            // ── Listen for button response ────────────────────────────────────
             const handleResponse = async (event) => {
                 const messageData = event.messages[0];
                 if (!messageData?.message) return;
@@ -128,39 +117,13 @@ module.exports = {
                 await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
                 try {
-                    const prefix = config.prefix || '.';
-                    const buttonType = selectedButtonId
-                        .replace(prefix, '')
-                        .split('_')[0];
-
                     const videoUrl = data.hdplay || data.play || data.wmplay;
-
                     if (!videoUrl) throw new Error('No download URL found in API response.');
 
-                    const cleanTitle = cleanFileName(data.title, data.author?.unique_id || 'tiktok');
-
-                    const caption =
-                        `🎵 *${data.title || 'TikTok Video'}*\n` +
-                        `👤 @${data.author?.unique_id || 'unknown'}\n` +
-                        `> ${config.botName}`;
-
-                    // ── 🎬 Video (no watermark) ───────────────────────────────
-                    if (buttonType === 'ttvideo') {
-                        await sock.sendMessage(from, {
-                            video: { url: videoUrl },
-                            mimetype: 'video/mp4',
-                            caption,
-                        }, { quoted: messageData });
-
-                    // ── 📄 Video as Document ──────────────────────────────────
-                    } else if (buttonType === 'ttvideodoc') {
-                        await sock.sendMessage(from, {
-                            document: { url: videoUrl },
-                            mimetype: 'video/mp4',
-                            fileName: `${cleanTitle}.mp4`,
-                            caption,
-                        }, { quoted: messageData });
-                    }
+                    await sock.sendMessage(from, {
+                        video: { url: videoUrl },
+                        mimetype: 'video/mp4',
+                    }, { quoted: messageData });
 
                     await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
@@ -177,6 +140,7 @@ module.exports = {
 
         } catch (error) {
             console.error('[tiktok] command error:', error.message || error);
+            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
             await sock.sendMessage(from, {
                 text: '❌ An unexpected error occurred. Please try again.'
             }, { quoted: msg });
