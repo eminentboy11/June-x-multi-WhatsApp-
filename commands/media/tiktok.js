@@ -25,63 +25,17 @@ function getTikTokButtons(videoId, dateNow, tiktokUrl) {
     const prefix = config.prefix || '.';
     return [
         { id: `${prefix}ttvideo_${videoId}_${dateNow}`, text: '🎬 Video (No Watermark)' },
-        { type: 'cta_url', text: '🔗 Open on TikTok', url: tiktokUrl },
+        {
+            name: 'cta_url',
+            buttonParamsJson: JSON.stringify({
+                display_text: '🔗 Open on TikTok',
+                url: tiktokUrl,
+            }),
+        },
     ];
 }
 
 const tiktokPattern = /https?:\/\/(?:(?:www|vm|vt|m)\.)?tiktok\.com\/\S+/i;
-
-// ── Fetch with fallback ───────────────────────────────────────────────────────
-
-async function fetchTikTokData(url) {
-    // Primary: tikwm
-    try {
-        const { data } = await axios.get('https://www.tikwm.com/api/', {
-            params: { url, hd: 1 },
-            timeout: 15000,
-            headers: { 'User-Agent': 'Mozilla/5.0' }
-        });
-
-        if (data?.code === 0 && data?.data?.play) {
-            const d = data.data;
-            return {
-                videoUrl:  d.hdplay || d.play,
-                cover:     d.cover || d.origin_cover || d.dynamic_cover,
-                author:    d.author?.unique_id || 'unknown',
-                title:     d.title || '',
-                duration:  d.duration ?? 'N/A',
-                likes:     (d.digg_count ?? 0).toLocaleString(),
-                comments:  (d.comment_count ?? 0).toLocaleString(),
-                shares:    (d.share_count ?? 0).toLocaleString(),
-                id:        d.id || null,
-            };
-        }
-    } catch (_) {}
-
-    // Fallback: tiklydown
-    try {
-        const { data } = await axios.get(
-            `https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(url)}`,
-            { timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' } }
-        );
-
-        if (data?.video?.noWatermark) {
-            return {
-                videoUrl: data.video.noWatermark,
-                cover:    data.video.cover || null,
-                author:   data.author?.name || 'unknown',
-                title:    data.title || '',
-                duration: data.duration ?? 'N/A',
-                likes:    (data.stats?.likeCount ?? 0).toLocaleString(),
-                comments: (data.stats?.commentCount ?? 0).toLocaleString(),
-                shares:   (data.stats?.shareCount ?? 0).toLocaleString(),
-                id:       null,
-            };
-        }
-    } catch (_) {}
-
-    return null;
-}
 
 // ── Module ────────────────────────────────────────────────────────────────────
 
@@ -116,12 +70,18 @@ module.exports = {
 
             await sock.sendMessage(from, { react: { text: '⏳', key: msg.key } });
 
-            const data = await fetchTikTokData(url);
+            const apiResponse = await axios.get('https://www.tikwm.com/api/', {
+                params: { url, hd: 1 },
+                timeout: 15000,
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            });
 
-            if (!data) {
-                await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+            const { code, msg: apiMsg, data } = apiResponse.data;
+
+            if (code !== 0 || !data) {
+                console.error('[tiktok] API error:', apiMsg);
                 return await sock.sendMessage(from, {
-                    text: `❌ Failed to fetch video. The link may be private or unsupported.`
+                    text: `❌ Failed to fetch video: ${apiMsg || 'Unknown error'}. Try again later.`
                 }, { quoted: msg });
             }
 
@@ -131,14 +91,13 @@ module.exports = {
 
             await sendButtons(sock, from, {
                 title: '📥 TIKTOK DOWNLOADER',
-                image: data.cover ? { url: data.cover } : undefined,
                 text:
-                    `⿻ *Author:* @${data.author}\n` +
+                    `⿻ *Author:* @${data.author?.unique_id || 'unknown'}\n` +
                     `⿻ *Caption:* ${(data.title || 'N/A').substring(0, 80)}\n` +
-                    `⿻ *Duration:* ${data.duration}s\n` +
-                    `⿻ *Likes:* ${data.likes}\n` +
-                    `⿻ *Comments:* ${data.comments}\n` +
-                    `⿻ *Shares:* ${data.shares}\n\n` +
+                    `⿻ *Duration:* ${data.duration ?? 'N/A'}s\n` +
+                    `⿻ *Likes:* ${(data.digg_count ?? 0).toLocaleString()}\n` +
+                    `⿻ *Comments:* ${(data.comment_count ?? 0).toLocaleString()}\n` +
+                    `⿻ *Shares:* ${(data.share_count ?? 0).toLocaleString()}\n\n` +
                     `*Select download format:*`,
                 footer: `Made by ${config.botName}`,
                 buttons: getTikTokButtons(videoId, dateNow, url),
@@ -146,6 +105,8 @@ module.exports = {
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
+            // cta_url button opens TikTok natively — no listener needed for it.
+            // Listener only handles the Video download button.
             const handleResponse = async (event) => {
                 const messageData = event.messages[0];
                 if (!messageData?.message) return;
@@ -159,13 +120,16 @@ module.exports = {
                 const responseSender = getResponseSender(messageData);
                 if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
+                sock.ev.off('messages.upsert', handleResponse);
+
                 await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
                 try {
-                    if (!data.videoUrl) throw new Error('No download URL found.');
+                    const videoUrl = data.hdplay || data.play || data.wmplay;
+                    if (!videoUrl) throw new Error('No download URL found in API response.');
 
                     await sock.sendMessage(from, {
-                        video: { url: data.videoUrl },
+                        video: { url: videoUrl },
                         mimetype: 'video/mp4',
                     }, { quoted: messageData });
 
@@ -182,9 +146,11 @@ module.exports = {
 
             sock.ev.on('messages.upsert', handleResponse);
 
+            // Auto cleanup after 5 minutes
+            setTimeout(() => sock.ev.off('messages.upsert', handleResponse), 5 * 60 * 1000);
+
         } catch (error) {
             console.error('[tiktok] command error:', error.message || error);
-            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
             await sock.sendMessage(from, {
                 text: '❌ An unexpected error occurred. Please try again.'
             }, { quoted: msg });
