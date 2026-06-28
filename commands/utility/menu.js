@@ -241,7 +241,7 @@ module.exports = {
         await sendButtons(sock, chatId, {
           image: tylorkids ? { buffer: tylorkids, mimetype: 'image/jpeg' } : undefined,
           text: fullMenu,
-          footer: `© by supreme`,
+          footer: '© JuneX ultra',
           mentions: [extra.sender],
           contextInfo: {
             externalAdReply: {
