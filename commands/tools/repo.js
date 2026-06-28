@@ -47,7 +47,7 @@ function buildMainButtons(repoUrl, dateNow) {
 
 module.exports = {
     name: 'github',
-    aliases: ['repo', 'git', 'source', 'sc', 'script'],
+    aliases: ['repo', 'git', 'source', 'rp', 'script'],
     category: 'tools',
     description: 'Show bot GitHub repository and statistics',
     usage: '.github',
@@ -58,7 +58,7 @@ module.exports = {
             const chatId         = extra.from;
             const prefix         = config.prefix || '.';
             const originalSender = msg.key?.participant || msg.key?.remoteJid;
-            const footer         = `> Powered by ${config.botName}`;
+            const footer         = `Powered by ${config.botName}`;
             const dateNow        = Date.now();
 
             let text;
@@ -76,19 +76,19 @@ module.exports = {
 
                 text = applyFont(
                     `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
-                    `➥ Repository  ➜ ${repo.name}\n` +
-                    `➥ Owner       ➜ ${repo.owner.login}\n` +
-                    `➥ Description ➜ ${repo.description || 'N/A'}\n` +
-                    `➥ Language    ➜ ${repo.language || 'N/A'}\n` +
-                    `➥ License     ➜ ${repo.license?.name || 'N/A'}\n` +
-                    `➥ Branch      ➜ ${defaultBranch}\n` +
-                    `➥ Visibility  ➜ ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
+                    `📁 Repository:  ${repo.name}\n` +
+                    `👤 Owner:       ${repo.owner.login}\n` +
+                    `📝 Description: ${repo.description || 'N/A'}\n` +
+                    `💻 Language:    ${repo.language || 'N/A'}\n` +
+                    `📜 License:     ${repo.license?.name || 'N/A'}\n` +
+                    `🌿 Branch:      ${defaultBranch}\n` +
+                    `🔐 Visibility:  ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
                     `┃ Statistics\n` +
-                    `➥ Stars       ➜ ${repo.stargazers_count.toLocaleString()}\n` +
-                    `➥ Forks       ➜ ${repo.forks_count.toLocaleString()}\n` +
-                    `➥ Watchers    ➜ ${repo.watchers_count.toLocaleString()}\n` +
-                    `➥ Size        ➜ ${(repo.size / 1024).toFixed(2)} MB\n` +
-                    `➥ Issues      ➜ ${repo.open_issues_count.toLocaleString()}\n\n` +
+                    `⭐ Stars:       ${repo.stargazers_count.toLocaleString()}\n` +
+                    `🍴 Forks:       ${repo.forks_count.toLocaleString()}\n` +
+                    `👁️ Watchers:    ${repo.watchers_count.toLocaleString()}\n` +
+                    `💾 Size:        ${(repo.size / 1024).toFixed(2)} MB\n` +
+                    `🐛 Issues:      ${repo.open_issues_count.toLocaleString()}\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
 
@@ -97,23 +97,21 @@ module.exports = {
 
                 text = applyFont(
                     `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
-                    `➥ Bot Name    ➜ ${config.botName}\n` +
-                    `➥ Repository  ➜ ${GITHUB_REPO}\n` +
-                    `➥ Owner       ➜ ${GITHUB_USER}\n` +
-                    `➥ URL         ➜ ${REPO_URL}\n\n` +
+                    `🤖 Bot Name:   ${config.botName}\n` +
+                    `📁 Repository: ${GITHUB_REPO}\n` +
+                    `👤 Owner:      ${GITHUB_USER}\n` +
+                    `🔗 URL:        ${REPO_URL}\n\n` +
                     `⚠️ Could not fetch live stats.\n` +
                     `   Visit the repo for latest info.\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
             }
 
-            // ── Load menu image ───────────────────────────────────────────────
             const menuImagePath = path.join(__dirname, '../../utils/menu1.jpg');
             const menuImage     = fs.existsSync(menuImagePath)
                 ? fs.readFileSync(menuImagePath)
                 : null;
 
-            // ── Send buttons ──────────────────────────────────────────────────
             await sendButtons(sock, chatId, {
                 image:   menuImage ? { buffer: menuImage, mimetype: 'image/jpeg' } : undefined,
                 text,
@@ -121,7 +119,6 @@ module.exports = {
                 buttons: buildMainButtons(repoUrl, dateNow),
             }, { quoted: msg });
 
-            // ── Listen for Download ZIP tap ───────────────────────────────────
             const handleZipTap = async (event) => {
                 const messageData = event.messages[0];
                 if (!messageData?.message) return;
@@ -172,9 +169,9 @@ module.exports = {
                         fileName: `${GITHUB_REPO}.zip`,
                         caption: applyFont(
                             `┏━━『 ZIP DOWNLOADED 』━━\n\n` +
-                            `➥ Repository ➜ ${GITHUB_REPO}\n` +
-                            `➥ Branch     ➜ ${defaultBranch}\n` +
-                            `➥ Size       ➜ ${fileSizeMB} MB\n\n` +
+                            `📁 Repository: ${GITHUB_REPO}\n` +
+                            `🌿 Branch:     ${defaultBranch}\n` +
+                            `💾 Size:       ${fileSizeMB} MB\n\n` +
                             `┗━━━━━━━━━━━━━━━━\n\n` +
                             `> ${config.botName}`
                         ),
@@ -188,8 +185,8 @@ module.exports = {
                     await sock.sendMessage(chatId, {
                         text: applyFont(
                             `┏━━『 ERROR 』━━\n\n` +
-                            `➥ Failed  ➜ ZIP Download\n` +
-                            `➥ Reason  ➜ ${err.message}\n\n` +
+                            `❌ Failed: ZIP Download\n` +
+                            `⚠️ Reason: ${err.message}\n\n` +
                             `  Try copying the link instead.\n\n` +
                             `┗━━━━━━━━━━━━━━━━`
                         ),
@@ -200,8 +197,6 @@ module.exports = {
             };
 
             sock.ev.on('messages.upsert', handleZipTap);
-
-            // Auto cleanup after 5 minutes
             setTimeout(() => sock.ev.off('messages.upsert', handleZipTap), 5 * 60 * 1000);
 
         } catch (error) {
