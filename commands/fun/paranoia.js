@@ -1,4 +1,4 @@
-const { keithApi } = require('../../utils/keithApi');
+const axios = require('axios');
 
 module.exports = {
   name: 'paranoia',
@@ -10,8 +10,11 @@ module.exports = {
   async execute(sock, msg, args, extra) {
     await extra.react('😱');
     try {
-      const data = await keithApi('/fun/paranoia');
-      await extra.reply(`😱 *Paranoia*\n\n${data.result || JSON.stringify(data)}`);
+      const { data } = await axios.get('https://api.truthordarebot.xyz/v1/paranoia');
+
+      const question = data.question || data.result || JSON.stringify(data);
+
+      await extra.reply(`😱 *Paranoia*\n\n_${question}_`);
     } catch (e) {
       await extra.reply(`❌ Error: ${e.message}`);
     }
