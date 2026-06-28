@@ -1,69 +1,37 @@
 const axios = require('axios');
-const { applyFont } = require('../../utils/fontConverter');
-const config = require('../../config');
 
-module.exports = [
-  {
-    name: 'waifu',
-    aliases: ['randomwaifu', 'anime'],
-    category: 'anime',
-    description: 'Get a random SFW waifu image',
-    usage: `${config.prefix}waifu`,
+module.exports = {
+  name: 'waifu',
+  aliases: ['randomwaifu'],
+  category: 'anime',
+  description: 'Get a random SFW waifu image',
+  usage: '.waifu',
 
-    async handler(sock, msg, args) {
-      const jid = msg.key.remoteJid;
+  async execute(sock, msg, args, extra) {
+    await extra.react('✨');
+    try {
+      const res = await axios.get('https://api.shizo.top/sfw/waifu?apikey=shizo', { timeout: 10000 });
+      const data = res.data;
 
-      const react = async (emoji) => {
-        await sock.sendMessage(jid, {
-          react: { text: emoji, key: msg.key }
-        });
-      };
+      const imageUrl =
+        data?.url ||
+        data?.image ||
+        data?.image_url ||
+        null;
 
-      try {
-        await react('🌸');
-
-        const res = await axios.get('https://api.shizo.top/sfw/waifu?apikey=shizo', {
-          timeout: 10000
-        });
-
-        const data = res.data;
-
-        // Support common response shapes
-        const imageUrl =
-          data?.url ||
-          data?.image ||
-          data?.image_url ||
-          data?.data?.url ||
-          data?.data?.image ||
-          null;
-
-        if (!imageUrl) {
-          await react('❌');
-          return await sock.sendMessage(jid, {
-            text: applyFont('❌ Could not fetch waifu image. Try again!', 'sans')
-          }, { quoted: msg });
-        }
-
-        const caption =
-          `${applyFont('✨ Random Waifu', 'bold')}\n` +
-          `${applyFont('━━━━━━━━━━━━━━━', 'sans')}\n` +
-          `${applyFont(`🤖 ${config.botName}`, 'sans')}`;
-
-        await sock.sendMessage(jid, {
-          image: { url: imageUrl },
-          caption,
-          gifPlayback: false
-        }, { quoted: msg });
-
-        await react('✅');
-
-      } catch (err) {
-        console.error('[waifu] Error:', err.message);
-        await react('❌');
-        await sock.sendMessage(jid, {
-          text: applyFont('❌ Failed to fetch waifu image. Please try again later.', 'sans')
-        }, { quoted: msg });
+      if (!imageUrl) {
+        return await extra.reply('❌ Could not fetch waifu image. Try again!');
       }
+
+      await sock.sendMessage(msg.key.remoteJid, {
+        image: { url: imageUrl },
+        caption: '✨ *Random Waifu*'
+      }, { quoted: msg });
+
+      await extra.react('✅');
+    } catch (e) {
+      await extra.react('❌');
+      await extra.reply(`❌ Error: ${e.message}`);
     }
   }
-];
+};
