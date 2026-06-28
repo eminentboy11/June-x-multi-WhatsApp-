@@ -1,56 +1,52 @@
 const axios = require('axios');
-const config = require('../../config');
 
 const react = async (sock, msg, emoji) => {
-  await sock.sendMessage(msg.key.remoteJid, {
-    react: { text: emoji, key: msg.key }
-  });
+  try {
+    await sock.sendMessage(msg.key.remoteJid, {
+      react: { text: emoji, key: msg.key }
+    });
+  } catch (_) {}
 };
 
-const fetchAndSend = async (sock, msg, { apiUrl, label, emoji }) => {
+const fetchAndSend = async (sock, msg, apiUrl, label, emoji) => {
   const jid = msg.key.remoteJid;
 
-  try {
-    await react(sock, msg, emoji);
+  await react(sock, msg, emoji);
 
+  let imageUrl = null;
+
+  try {
     const res = await axios.get(apiUrl, { timeout: 10000 });
     const data = res.data;
-
-    const imageUrl =
+    imageUrl =
       data?.url ||
       data?.image ||
       data?.image_url ||
-      data?.data?.url ||
-      data?.data?.image ||
+      (data?.data && (data.data.url || data.data.image)) ||
       null;
-
-    if (!imageUrl) {
-      await react(sock, msg, '❌');
-      return await sock.sendMessage(jid, {
-        text: `❌ Could not fetch ${label} image. Try again!`
-      }, { quoted: msg });
-    }
-
-    const caption =
-      `${emoji} ${label}\n` +
-      `━━━━━━━━━━━━━━━\n` +
-      `🤖 ${config.botName}`;
-
-    await sock.sendMessage(jid, {
-      image: { url: imageUrl },
-      caption,
-      gifPlayback: false
-    }, { quoted: msg });
-
-    await react(sock, msg, '✅');
-
   } catch (err) {
-    console.error(`[${label.toLowerCase()}] Error:`, err.message);
+    console.error(`[${label}] fetch error:`, err.message);
     await react(sock, msg, '❌');
     await sock.sendMessage(jid, {
       text: `❌ Failed to fetch ${label} image. Please try again later.`
     }, { quoted: msg });
+    return;
   }
+
+  if (!imageUrl) {
+    await react(sock, msg, '❌');
+    await sock.sendMessage(jid, {
+      text: `❌ Could not fetch ${label} image. Try again!`
+    }, { quoted: msg });
+    return;
+  }
+
+  await sock.sendMessage(jid, {
+    image: { url: imageUrl },
+    caption: `${emoji} ${label}\n━━━━━━━━━━━━━━━`
+  }, { quoted: msg });
+
+  await react(sock, msg, '✅');
 };
 
 module.exports = [
@@ -58,14 +54,10 @@ module.exports = [
     name: 'neko',
     aliases: ['catgirl', 'nekogirl'],
     category: 'Fun',
-    description: 'Get a random SFW neko (cat girl) image',
-    usage: `${config.prefix}neko`,
+    description: 'Get a random SFW neko image',
+    usage: '.neko',
     async handler(sock, msg) {
-      await fetchAndSend(sock, msg, {
-        apiUrl: 'https://api.shizo.top/sfw/neko?apikey=shizo',
-        label: 'Random Neko',
-        emoji: '🐱'
-      });
+      await fetchAndSend(sock, msg, 'https://api.shizo.top/sfw/neko?apikey=shizo', 'Random Neko', '🐱');
     }
   },
   {
@@ -73,13 +65,9 @@ module.exports = [
     aliases: ['randomwaifu', 'anime'],
     category: 'Fun',
     description: 'Get a random SFW waifu image',
-    usage: `${config.prefix}waifu`,
+    usage: '.waifu',
     async handler(sock, msg) {
-      await fetchAndSend(sock, msg, {
-        apiUrl: 'https://api.shizo.top/sfw/waifu?apikey=shizo',
-        label: 'Random Waifu',
-        emoji: '✨'
-      });
+      await fetchAndSend(sock, msg, 'https://api.shizo.top/sfw/waifu?apikey=shizo', 'Random Waifu', '✨');
     }
   },
   {
@@ -87,13 +75,9 @@ module.exports = [
     aliases: ['animehappy'],
     category: 'Fun',
     description: 'Get a random SFW happy anime image',
-    usage: `${config.prefix}happy`,
+    usage: '.happy',
     async handler(sock, msg) {
-      await fetchAndSend(sock, msg, {
-        apiUrl: 'https://api.shizo.top/sfw/happy?apikey=shizo',
-        label: 'Happy Anime',
-        emoji: '😊'
-      });
+      await fetchAndSend(sock, msg, 'https://api.shizo.top/sfw/happy?apikey=shizo', 'Happy Anime', '😊');
     }
   },
   {
@@ -101,13 +85,9 @@ module.exports = [
     aliases: ['animesad'],
     category: 'Fun',
     description: 'Get a random SFW sad anime image',
-    usage: `${config.prefix}sad`,
+    usage: '.sad',
     async handler(sock, msg) {
-      await fetchAndSend(sock, msg, {
-        apiUrl: 'https://api.shizo.top/sfw/sad?apikey=shizo',
-        label: 'Sad Anime',
-        emoji: '😢'
-      });
+      await fetchAndSend(sock, msg, 'https://api.shizo.top/sfw/sad?apikey=shizo', 'Sad Anime', '😢');
     }
   },
   {
@@ -115,14 +95,9 @@ module.exports = [
     aliases: ['husband', 'animehusband', 'husbando'],
     category: 'Fun',
     description: 'Get a random SFW anime husby image',
-    usage: `${config.prefix}husby`,
+    usage: '.husby',
     async handler(sock, msg) {
-      await fetchAndSend(sock, msg, {
-        apiUrl: 'https://api.shizo.top/sfw/husbando?apikey=shizo',
-        label: 'Random Husby',
-        emoji: '💙'
-      });
+      await fetchAndSend(sock, msg, 'https://api.shizo.top/sfw/husbando?apikey=shizo', 'Random Husby', '💙');
     }
   }
 ];
-                         
