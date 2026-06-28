@@ -1,4 +1,4 @@
-const { keithApi } = require('../../utils/keithApi');
+const axios = require('axios');
 
 module.exports = {
   name: 'pickupline',
@@ -10,8 +10,12 @@ module.exports = {
   async execute(sock, msg, args, extra) {
     await extra.react('😏');
     try {
-      const data = await keithApi('/fun/pickuplines');
-      await extra.reply(`😏 *Pickup Line*\n\n${data.result || JSON.stringify(data)}`);
+      const { data } = await axios.get('https://api.jcwyt.com/pickup');
+
+      // API returns plain text or { line: "..." }
+      const line = typeof data === 'string' ? data : (data.line || data.pickup || JSON.stringify(data));
+
+      await extra.reply(`😏 *Pickup Line*\n\n_${line}_`);
     } catch (e) {
       await extra.reply(`❌ Error: ${e.message}`);
     }
