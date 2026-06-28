@@ -2,7 +2,7 @@ module.exports = [
   {
     name: 'waifu',
     aliases: ['randomwaifu'],
-    category: 'fun',
+    category: 'anime',
     description: 'Get a random SFW waifu image',
     usage: '.waifu',
 
