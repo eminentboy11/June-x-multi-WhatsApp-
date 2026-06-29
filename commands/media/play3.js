@@ -1,4 +1,3 @@
-const { applyFont } = require('../../utils/fontConverter');
 const axios  = require('axios');
 const yts    = require('yt-search');
 const config = require('../../config');
@@ -18,39 +17,31 @@ module.exports = {
         const chatId = extra.from;
         const query  = args.join(' ').trim();
 
-        if (!query) return extra.reply(`Usage: ${config.prefix || '.'}play3 <youtube url or search>`);
+        if (!query) return extra.reply(`Usage: ${config.prefix || '.'}play3 <song name>`);
 
         await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
         let filePath;
 
         try {
-            // ── Step 1: get title via yt-search ──────────────────────────
+            // ── Step 1: Search YouTube ────────────────────────────────────
             const search = await yts(query);
             const video  = search.videos[0];
             if (!video) throw new Error('No results found');
 
-            const title    = video.title;
-            const videoUrl = video.url;
+            // ── Step 2: Call API ──────────────────────────────────────────
+            const { data: apiRes } = await axios.get(
+                `https://ravenn.site/download/audio?url=${encodeURIComponent(video.url)}&format=mp3`,
+                { timeout: 30000 }
+            );
 
-            // ── Step 2: call API ──────────────────────────────────────────
-            const apiUrl = `https://ravenn.site/download/audio?url=${encodeURIComponent(videoUrl)}&format=mp3`;
-            const { data: apiRes } = await axios.get(apiUrl, { timeout: 30000 });
+            // result field holds the mp3 link
+            const downloadUrl = apiRes?.result;
+            if (!downloadUrl) throw new Error('No download URL returned');
 
-            const downloadUrl = apiRes?.status || apiRes?.result;
-            if (!downloadUrl) throw new Error('API did not return a download URL');
-
-            // ── Step 3: stream MP3 to temp file ───────────────────────────
+            // ── Step 3: Download to temp file ─────────────────────────────
             filePath = path.join(os.tmpdir(), `play3-${Date.now()}.mp3`);
-
-            const stream = await axios({
-                method:       'get',
-                url:          downloadUrl,
-                responseType: 'stream',
-                timeout:      120000,
-                maxRedirects: 5,
-            });
-
+            const stream = await axios({ method: 'get', url: downloadUrl, responseType: 'stream', timeout: 120000 });
             const writer = fs.createWriteStream(filePath);
             stream.data.pipe(writer);
             await new Promise((resolve, reject) => {
@@ -59,12 +50,11 @@ module.exports = {
             });
 
             if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-                throw new Error('Download failed — file is empty');
+                throw new Error('Downloaded file is empty');
             }
 
-            const safeTitle = title.replace(/[<>:"/\\|?*]/g, '').trim().slice(0, 80);
-
-            // ── Step 4: send as clean document ────────────────────────────
+            // ── Step 4: Send as MP3 document ──────────────────────────────
+            const safeTitle = video.title.replace(/[<>:"/\\|?*]/g, '').trim().slice(0, 80);
             await sock.sendMessage(chatId, {
                 document: fs.readFileSync(filePath),
                 mimetype: 'audio/mpeg',
@@ -74,7 +64,7 @@ module.exports = {
             await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
         } catch (err) {
-            console.error('[Play3] error:', err.message);
+            console.error('[Play3]', err.message);
             await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
             await extra.reply(`❌ ${err.message}`);
         } finally {
