@@ -129,7 +129,7 @@ async function sendRecovered(sock, targetJid, stored, originChat) {
     const mentions = stored.sender ? [stored.sender] : [];
 
     const meta =
-        `🗑️ *Deleted Message Recovered*\n` +
+        `🗑️ *DELETED MESSAGE* 🗑️\n` +
         `${divider}\n` +
         `👤 *From:* @${senderNum}\n` +
         `🕐 *Time:* ${timestamp}\n` +
