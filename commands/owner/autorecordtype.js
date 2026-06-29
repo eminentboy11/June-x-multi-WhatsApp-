@@ -13,24 +13,17 @@ module.exports = {
         const current = getMode();
 
         if (!sub) {
-            return extra.reply(
-                `🎙️⌨️ *Auto Record + Type*\n` +
-                `━━━━━━━━━━━━━━━\n` +
-                `Status: *${current === 'recordtype' ? '✅ ON' : '❌ OFF'}*\n\n` +
-                `When ON the bot briefly shows _"recording…"_ then switches to _"typing…"_ before responding.\n\n` +
-                `  .autorecordtype on\n` +
-                `  .autorecordtype off`
-            );
+            return extra.reply(`🎙️⌨️ Auto Record+Type: *${current === 'recordtype' ? '✅ ON' : '❌ OFF'}*\n\nUsage: .autorecordtype on/off`);
         }
 
         if (sub === 'on') {
             setMode('recordtype');
-            return extra.reply('✅ *Auto Record+Type* enabled — bot will show _recording → typing_ before responses.\n_Disables typing & recording-only modes._');
+            return extra.reply('🎙️⌨️ Auto Record+Type set to *ON*');
         }
 
         if (sub === 'off') {
             if (current === 'recordtype') setMode('off');
-            return extra.reply('❌ *Auto Record+Type* disabled.');
+            return extra.reply('🎙️⌨️ Auto Record+Type set to *OFF*');
         }
 
         return extra.reply('⚠️ Usage: .autorecordtype on/off');
