@@ -117,15 +117,15 @@ async function handleAntiEdit(sock, updates) {
             const readmore  = String.fromCharCode(8206).repeat(4001);
 
             const replyText =
-                `✏️ *Edited Message Detected*\n` +
+                `✏️ *EDITED MESSAGE* ✏️\n` +
                 `━━━━━━━━━━━━━━━━━━━━\n` +
                 `👤 *Sender:* @${senderNum}\n` +
                 `📌 *Chat:* ${chatType}\n` +
                 `🕐 *Time:* ${timestamp}` +
                 chatLabel + '\n' +
                 `━━━━━━━━━━━━━━━━━━━━\n${readmore}\n` +
-                `📝 *Original:*\n${originalText || '_[Not cached]_'}\n\n` +
-                `✏️ *Edited to:*\n${editedText}\n` +
+                `📝 *Original:*\n${originalText || '_Empty_'}\n\n` +
+                `📝 *Edited to:*\n${editedText}\n` +
                 `━━━━━━━━━━━━━━━━━━━━`;
 
             await sock.sendMessage(targetJid, {
