@@ -34,10 +34,10 @@ module.exports = {
             const videoUrl = video.url;
 
             // ── Step 2: call API ──────────────────────────────────────────
-            const apiUrl = `https://phantom-api.us.ci/api/download/youtube2?url=${encodeURIComponent(videoUrl)}&format=mp3`;
+            const apiUrl = `https://ravenn.site/download/audio?url=${encodeURIComponent(videoUrl)}&format=mp3`;
             const { data: apiRes } = await axios.get(apiUrl, { timeout: 30000 });
 
-            const downloadUrl = apiRes?.sucess || apiRes?.result?.download_url;
+            const downloadUrl = apiRes?.status || apiRes?.result;
             if (!downloadUrl) throw new Error('API did not return a download URL');
 
             // ── Step 3: stream MP3 to temp file ───────────────────────────
