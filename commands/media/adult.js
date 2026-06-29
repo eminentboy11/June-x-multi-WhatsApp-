@@ -23,18 +23,16 @@ module.exports = {
         let filePath;
 
         try {
-            // ── Step 1: Search — result is array of URLs ──────────────────
+            // ── Step 1: Search ────────────────────────────────────────────
             const { data: searchRes } = await axios.get(
                 `https://ravenn.site/search/xvideos?q=${encodeURIComponent(query)}`,
                 { timeout: 30000 }
             );
 
-            const videoUrl = Array.isArray(searchRes?.result?.url)
-                ? searchRes.result?.url[0]          // pick first URL from array
-                : searchRes?.result?.url;           // already a single URL
+            const videoUrl = searchRes?.result?.url?.[0];
             if (!videoUrl) throw new Error('No results found');
 
-            // ── Step 2: Download — result is single MP4 URL ───────────────
+            // ── Step 2: Download ──────────────────────────────────────────
             const { data: dlRes } = await axios.get(
                 `https://ravenn.site/download/xvideos?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 30000 }
@@ -68,6 +66,7 @@ module.exports = {
             await sock.sendMessage(chatId, {
                 video:    fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
+                caption:  `🎬 ${query}`,
             }, { quoted: msg });
 
             await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
