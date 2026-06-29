@@ -200,6 +200,7 @@ module.exports = {
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
       const fullMenu = applyFont(menulist + `\n> ${config.botName}`);
+      const supreme = `powerd by ${ownername}`;
 
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
@@ -229,7 +230,7 @@ module.exports = {
 
         await sendButtons(sock, chatId, {
           text: fullMenu,
-          footer: '© JuneX Ultra',
+          footer: supreme,
           mentions: [extra.sender],
           buttons: [
             {
@@ -251,7 +252,7 @@ module.exports = {
         await sendButtons(sock, chatId, {
           image: tylorkids ? { buffer: tylorkids, mimetype: 'image/jpeg' } : undefined,
           text: fullMenu,
-          footer: '© JuneX ultra',
+          footer: supreme,
           mentions: [extra.sender],
           contextInfo: {
             externalAdReply: {
