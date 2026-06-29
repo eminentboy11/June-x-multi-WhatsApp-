@@ -29,9 +29,9 @@ module.exports = {
                 { timeout: 30000 }
             );
 
-            const videoUrl = Array.isArray(searchRes?.result)
-                ? searchRes.result[0]          // pick first URL from array
-                : searchRes?.result;           // already a single URL
+            const videoUrl = Array.isArray(searchRes?.result?.url)
+                ? searchRes.result?.url[0]          // pick first URL from array
+                : searchRes?.result?.url;           // already a single URL
             if (!videoUrl) throw new Error('No results found');
 
             // ── Step 2: Download — result is single MP4 URL ───────────────
