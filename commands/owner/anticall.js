@@ -1,13 +1,3 @@
-/**
- * Anti-Call Command — Enable or disable anti-call with configurable action
- *
- * Modes:
- *   off      — Allow all calls
- *   decline  — Auto-decline incoming calls
- *   block    — Auto-decline and block the caller
- *   on       — Same as block (decline + block)
- */
-
 const fs = require('fs');
 const path = require('path');
 const configPath = path.join(__dirname, '../../config.js');
@@ -21,40 +11,31 @@ module.exports = {
   usage: '.anticall off|decline|block|on',
 
   async execute(sock, msg, args, extra) {
+    const current = require('../../config').defaultGroupSettings.anticall ? 'enabled' : 'disabled';
+
     if (!args[0]) {
-      return extra.reply(
-        `🛡️ *Anti-Call Settings*\n\n` +
-        `Usage: .anticall <off|decline|block|on>\n\n` +
-        `• *off*     — Allow all calls\n` +
-        `• *decline* — Auto-decline calls\n` +
-        `• *block*   — Decline + block caller\n` +
-        `• *on*      — Same as block\n\n` +
-        `_Current: ${require('../../config').defaultGroupSettings.anticall ? 'enabled' : 'disabled'}_`
-      );
+      return extra.reply(`📵 Anti-Call: *${current}*\n\nUsage: .anticall off | decline | block | on`);
     }
 
     const option = args[0].toLowerCase().trim();
-    const valid = ['off', 'decline', 'block', 'on'];
+    const valid  = ['off', 'decline', 'block', 'on'];
 
     if (!valid.includes(option)) {
-      return extra.reply('❌ Invalid option. Use: *off*, *decline*, *block*, or *on*.');
+      return extra.reply('⚠️ Usage: .anticall off | decline | block | on');
     }
 
     const enabled = option !== 'off';
-    const action = enabled ? (option === 'decline' ? 'decline' : 'block') : 'decline';
+    const action  = option === 'decline' ? 'decline' : 'block';
 
     try {
       let configFile = fs.readFileSync(configPath, 'utf8');
 
-      // Update anticall: false/true
       configFile = configFile.replace(
         /anticall:\s*(true|false)/,
         `anticall: ${enabled}`
       );
 
-      // Update anticallAction
-      const hasAction = configFile.includes('anticallAction');
-      if (hasAction) {
+      if (configFile.includes('anticallAction')) {
         configFile = configFile.replace(
           /anticallAction:\s*['"]([^'"]+)['"]/,
           `anticallAction: '${action}'`
@@ -69,16 +50,18 @@ module.exports = {
       fs.writeFileSync(configPath, configFile);
       delete require.cache[require.resolve('../../config')];
 
-      if (option === 'off') {
-        await extra.reply('❌ Anti-call *disabled* — all calls are allowed.');
-      } else if (option === 'decline') {
-        await extra.reply('✅ Anti-call set to *decline* — calls will be auto-declined.');
-      } else {
-        await extra.reply('✅ Anti-call set to *block* — calls will be auto-declined and the caller blocked.');
-      }
+      const replies = {
+        off:     '📵 Anti-Call set to *OFF*.',
+        decline: '📵 Anti-Call set to *Decline*.',
+        block:   '🚫 Anti-Call set to *Block*.',
+        on:      '🚫 Anti-Call set to *Block*.',
+      };
+
+      return extra.reply(replies[option]);
+
     } catch (err) {
-      console.error('[anticall cmd] error:', err);
-      extra.reply('❌ Error updating anti-call setting.');
+      console.error('[anticall]', err.message);
+      return extra.reply('❌ Failed to update anti-call setting.');
     }
   }
 };
