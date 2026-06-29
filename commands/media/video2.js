@@ -58,7 +58,7 @@ async function downloadVideo(videoUrl) {
         try {
             // Primary API
             const response = await axios.get(
-                `https://apiskeith.top/download/video?url=${encodeURIComponent(videoUrl)}`,
+                `https://ravenn.site/download/video?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
             if (response.data?.status && response.data?.result) {
