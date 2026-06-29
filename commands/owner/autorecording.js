@@ -2,7 +2,7 @@ const { getMode, setMode } = require('../../utils/presenceSettings');
 
 module.exports = {
     name: 'autorecording',
-    aliases: ['autorecord', 'fakerecord'],
+    aliases: ['autorecord', 'record'],
     category: 'owner',
     description: 'Show fake audio-recording presence before every bot response',
     usage: '.autorecording on/off',
@@ -13,24 +13,17 @@ module.exports = {
         const current = getMode();
 
         if (!sub) {
-            return extra.reply(
-                `🎙️ *Auto Recording*\n` +
-                `━━━━━━━━━━━━━━━\n` +
-                `Status: *${current === 'recording' ? '✅ ON' : '❌ OFF'}*\n\n` +
-                `When ON the bot shows a _"recording…"_ presence indicator before every response.\n\n` +
-                `  .autorecording on\n` +
-                `  .autorecording off`
-            );
+            return extra.reply(`🎙️ Auto Recording: *${current === 'recording' ? '✅ ON' : '❌ OFF'}*\n\nUsage: .autorecording on/off`);
         }
 
         if (sub === 'on') {
             setMode('recording');
-            return extra.reply('✅ *Auto Recording* enabled — bot will show _recording…_ before responses.\n_Disables typing & record+type modes._');
+            return extra.reply('🎙️ Auto Recording set to *ON*');
         }
 
         if (sub === 'off') {
             if (current === 'recording') setMode('off');
-            return extra.reply('❌ *Auto Recording* disabled.');
+            return extra.reply('🎙️ Auto Recording set to *OFF*');
         }
 
         return extra.reply('⚠️ Usage: .autorecording on/off');
