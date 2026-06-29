@@ -4,41 +4,47 @@ const path   = require('path');
 const os     = require('os');
 const config = require('../../config');
 
-
 module.exports = {
     name: 'xvideo',
-    aliases: ['adult', 'xvdl', 'xmp4'],
+    aliases: ['xadult', 'xvdl', 'xmp4'],
     category: 'media',
-    description: 'Download a xvideo and send as MP4',
-    usage: '.xvdl <xvidurl or search>',
+    description: 'Download a video and send as MP4',
+    usage: '.vdl <url or search>',
     ownerOnly: false,
 
     async execute(sock, msg, args, extra) {
         const chatId = extra.from;
         const query  = args.join(' ').trim();
 
-        if (!query) return extra.reply(`Usage: ${config.prefix || '.'}xvdl < url or search>`);
+        if (!query) return extra.reply(`Usage: ${config.prefix || '.'}vdl <url or search>`);
 
         await sock.sendMessage(chatId, { react: { text: '⏳', key: msg.key } });
 
         let filePath;
 
         try {
-            const apiSearchUrl = `https://ravenn.site/search/xvideos?q=${encodeURIComponent(query)}`;
-            const { data: searchRes } = await axios.get(apiSearchUrl, { timeout: 30000 });
+            // ── Step 1: Search — result is array of URLs ──────────────────
+            const { data: searchRes } = await axios.get(
+                `https://ravenn.site/search/xvideos?q=${encodeURIComponent(query)}`,
+                { timeout: 30000 }
+            );
 
-            const videoUrl = searchRes?.result?.url?.[0];
+            const videoUrl = Array.isArray(searchRes?.result)
+                ? searchRes.result[0]          // pick first URL from array
+                : searchRes?.result;           // already a single URL
             if (!videoUrl) throw new Error('No results found');
 
+            // ── Step 2: Download — result is single MP4 URL ───────────────
+            const { data: dlRes } = await axios.get(
+                `https://ravenn.site/download/xvideos?url=${encodeURIComponent(videoUrl)}`,
+                { timeout: 30000 }
+            );
 
-            const apiDownloadUrl = `https://ravenn.site/download/xvideos?url=${encodeURIComponent(videoUrl)}`;
-            const { data: apiRes } = await axios.get(apiDownloadUrl, { timeout: 30000 });
+            const downloadUrl = dlRes?.result;
+            if (!downloadUrl) throw new Error('No download URL returned');
 
-            const downloadUrl = apiRes?.result?.download_url;
-            if (!downloadUrl) throw new Error('API did not return a download URL');
-
-            filePath = path.join(os.tmpdir(), `video3-${Date.now()}.mp4`);
-
+            // ── Step 3: Stream to temp file ───────────────────────────────
+            filePath = path.join(os.tmpdir(), `video-${Date.now()}.mp4`);
             const stream = await axios({
                 method:       'get',
                 url:          downloadUrl,
@@ -55,21 +61,19 @@ module.exports = {
             });
 
             if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-                throw new Error('Download failed — file is empty');
+                throw new Error('Downloaded file is empty');
             }
 
-            const safeTitle = title.replace(/[<>:"/\\|?*]/g, '').trim().slice(0, 80);
-
+            // ── Step 4: Send as MP4 ───────────────────────────────────────
             await sock.sendMessage(chatId, {
-                video: fs.readFileSync(filePath),
+                video:    fs.readFileSync(filePath),
                 mimetype: 'video/mp4',
-                caption: `🎬 ${safeTitle}`,
             }, { quoted: msg });
 
             await sock.sendMessage(chatId, { react: { text: '✅', key: msg.key } });
 
         } catch (err) {
-            console.error('[Video3] error:', err.message);
+            console.error('[Video]', err.message);
             await sock.sendMessage(chatId, { react: { text: '❌', key: msg.key } });
             await extra.reply(`❌ ${err.message}`);
         } finally {
