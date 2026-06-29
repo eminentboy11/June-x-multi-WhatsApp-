@@ -199,7 +199,7 @@ module.exports = {
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
-      const fullMenu = applyFont(menulist + `\n> © Supreme`);
+      const fullMenu = applyFont(menulist + `\n> ${config.botName}`);
 
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
