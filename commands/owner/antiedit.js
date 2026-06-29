@@ -1,13 +1,5 @@
 /**
  * AntiEdit — catches message edits and reveals the original content.
- *
- * Modes (global):
- *   on / chat → reveal edits in the same chat where the edit happened
- *   pm        → send ALL edits from ALL chats to the bot's own self-chat (sock.user.id)
- *   off       → disabled entirely
- *
- * Config key in data/antiedit.json:
- *   { "mode": "chat" | "pm" | "off" }
  */
 
 const fs     = require('fs');
@@ -35,8 +27,7 @@ function setMode(mode) {
     saveConfig({ mode });
 }
 
-// ── In-memory message store ───────────────────────────────────────────────────
-const messageStore = new Map(); // Map<chatId, Map<msgId, entry>>
+const messageStore = new Map();
 
 function storeMessage(msg) {
     try {
@@ -88,22 +79,17 @@ async function handleAntiEdit(sock, updates) {
 
             if (!newMsg) continue;
 
-            const chatId = key.remoteJid;
-
-            // ✅ Removed groups-only filter — now handles DMs and groups
-
+            const chatId        = key.remoteJid;
             const originalMsgId = proto?.key?.id || key.id;
+            const targetJid     = mode === 'pm' && selfJid ? selfJid : chatId;
+            const original      = messageStore.get(chatId)?.get(originalMsgId);
+            const originalText  = original?.text || null;
 
-            const targetJid = mode === 'pm' && selfJid ? selfJid : chatId;
-
-            const original     = messageStore.get(chatId)?.get(originalMsgId);
-            const originalText = original?.text || null;
-
-            const rawSender  = original?.sender || key.participant || key.remoteJid || '';
-            const sender     = rawSender.includes(':')
+            const rawSender = original?.sender || key.participant || key.remoteJid || '';
+            const sender    = rawSender.includes(':')
                 ? rawSender.split(':')[0] + '@s.whatsapp.net'
                 : rawSender;
-            const senderNum  = sender.split('@')[0];
+            const senderNum = sender.split('@')[0];
 
             const editedText =
                 newMsg.conversation ||
@@ -122,24 +108,23 @@ async function handleAntiEdit(sock, updates) {
                   })
                 : new Date().toLocaleString();
 
-            // Label whether the edit came from a group or DM
             const isGroup   = chatId.endsWith('@g.us');
             const chatLabel = targetJid !== chatId
                 ? `\n💬 *${isGroup ? 'Group' : 'DM'}:* ${chatId.split('@')[0]}`
                 : '';
 
             const chatType  = isGroup ? '👥 Group' : '💬 Private Chat';
-
             const readmore  = String.fromCharCode(8206).repeat(4001);
+
             const replyText =
-                `✏️ *EDITED MESSAGE DETECTED!*\n` +
+                `✏️ *Edited Message Detected*\n` +
                 `━━━━━━━━━━━━━━━━━━━━\n` +
                 `👤 *Sender:* @${senderNum}\n` +
-                `📌 *Chat Type:* ${chatType}\n` +
+                `📌 *Chat:* ${chatType}\n` +
                 `🕐 *Time:* ${timestamp}` +
                 chatLabel + '\n' +
                 `━━━━━━━━━━━━━━━━━━━━\n${readmore}\n` +
-                `📝 *Original:*\n${originalText || '[Not cached — message sent before bot started]'}\n\n` +
+                `📝 *Original:*\n${originalText || '_[Not cached]_'}\n\n` +
                 `✏️ *Edited to:*\n${editedText}\n` +
                 `━━━━━━━━━━━━━━━━━━━━`;
 
@@ -157,8 +142,6 @@ async function handleAntiEdit(sock, updates) {
     }
 }
 
-// ── Command module ────────────────────────────────────────────────────────────
-
 module.exports = {
     name: 'antiedit',
     aliases: ['antieditmsg', 'editdetect'],
@@ -171,46 +154,31 @@ module.exports = {
     handleAntiEdit,
 
     async execute(sock, msg, args, extra) {
-        const { from, reply } = extra;
-        const sub = (args[0] || '').toLowerCase();
-
+        const { reply } = extra;
+        const sub  = (args[0] || '').toLowerCase();
         const mode = getMode();
 
-        const statusLabel = () => {
-            if (mode === 'off')  return '❌ OFF';
-            if (mode === 'chat') return '✅ ON — Chat (edits revealed in their chat)';
-            if (mode === 'pm')   return '✅ ON — PM (edits sent to bot self-chat)';
-            return mode;
-        };
+        const statusLabel =
+            mode === 'chat' ? '✅ ON — Chat' :
+            mode === 'pm'   ? '✅ ON — PM'   : '❌ OFF';
 
         if (!sub || sub === 'status') {
-            return reply(
-                `✏️ *Anti-Edit*\n` +
-                `━━━━━━━━━━━━━━━\n` +
-                `📌 Status: *${statusLabel()}*\n\n` +
-                `edits in *groups and private chats*.\n\n` +
-                `*Commands:*\n` +
-                `  .antiedit on    — activate (default: chat mode)\n` +
-                `  .antiedit chat  — edits revealed in the same chat\n` +
-                `  .antiedit pm    — all edits sent to bot self-chat\n` +
-                `  .antiedit off   — deactivate\n` +
-                `  .antiedit status`
-            );
+            return reply(`✏️ Anti-Edit: *${statusLabel}*\n\n.antiedit on | pm | chat | off`);
         }
 
         if (sub === 'on' || sub === 'chat') {
             setMode('chat');
-            return reply('✅ *Anti-Edit* activated ');
+            return reply('✏️ Anti-Edit set to *ON* — edits revealed in chat.');
         }
 
         if (sub === 'pm') {
             setMode('pm');
-            return reply('✅ *Anti-Edit [PM]* activated ');
+            return reply('✏️ Anti-Edit set to *Private* — edits sent to bot self-chat.');
         }
 
         if (sub === 'off') {
             setMode('off');
-            return reply('❌ *Anti-Edit* deactivated.');
+            return reply('✏️ Anti-Edit set to *OFF*.');
         }
 
         return reply('⚠️ Usage: .antiedit on | pm | chat | off | status');
