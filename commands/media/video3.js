@@ -34,11 +34,11 @@ module.exports = {
             const { title, url: videoUrl } = video;
 
             // ── Step 2: fetch download URL from API ──────────────────────
-            const apiUrl = `https://api.drexapp.space/downloader/ytmp4v1?url=${encodeURIComponent(videoUrl)}&quality=best`;
+            const apiUrl = `https://ravenn.site/download/video?url=${encodeURIComponent(videoUrl)}&quality=best`;
 
             const { data: apiRes } = await axios.get(apiUrl, { timeout: 30_000 });
 
-            const downloadUrl = apiRes?.result?.download_url;
+            const downloadUrl = apiRes?.result;
             if (!downloadUrl) throw new Error('API did not return a download URL');
 
             // ── Step 3: stream MP4 to temp file ──────────────────────────
