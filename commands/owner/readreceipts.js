@@ -1,26 +1,17 @@
 /**
  * Read Receipts Command - Manage read receipts privacy (Owner Only)
+ * Persisted in database/bot-settings.json via database.js
  */
+const db = require('../../database');
 
-const fs   = require('fs');
-const path = require('path');
-
-const CONFIG_PATH = path.join(__dirname, '../../data/autoreadreceipts.json');
-const DEFAULT_CONFIG = { readReceipts: 'all' };
+const KEY = 'readReceipts';
 
 function loadConfig() {
-    try {
-        if (!fs.existsSync(CONFIG_PATH)) saveConfig(DEFAULT_CONFIG);
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    } catch {
-        return { ...DEFAULT_CONFIG };
-    }
+    return { readReceipts: db.getBotSetting(KEY) || 'all' };
 }
 
 function saveConfig(cfg) {
-    try {
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
-    } catch (_) {}
+    db.setBotSetting(KEY, cfg.readReceipts || 'all');
 }
 
 const STATUS_LABEL = {
@@ -44,7 +35,6 @@ module.exports = {
             const cfg = loadConfig();
             const opt = args[0]?.toLowerCase();
 
-            // ── No args: show current status ──────────────────────────────
             if (!opt) {
                 const current = cfg.readReceipts || 'all';
                 return await sock.sendMessage(chatId, {
@@ -61,30 +51,24 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            // ── on ────────────────────────────────────────────────────────
             if (opt === 'on') {
-                cfg.readReceipts = 'all';
-                saveConfig(cfg);
+                saveConfig({ readReceipts: 'all' });
                 await sock.updateReadReceiptsPrivacy('all');
                 return await sock.sendMessage(chatId, {
                     text: `✅ *Read Receipts turned ON*\n\nEveryone will see blue ticks when you read messages.`
                 }, { quoted: msg });
             }
 
-            // ── contacts ──────────────────────────────────────────────────
             if (opt === 'contacts') {
-                cfg.readReceipts = 'contacts';
-                saveConfig(cfg);
+                saveConfig({ readReceipts: 'contacts' });
                 await sock.updateReadReceiptsPrivacy('contacts');
                 return await sock.sendMessage(chatId, {
                     text: `👥 *Read Receipts set to CONTACTS*\n\nOnly your contacts will see blue ticks.`
                 }, { quoted: msg });
             }
 
-            // ── off ───────────────────────────────────────────────────────
             if (opt === 'off') {
-                cfg.readReceipts = 'none';
-                saveConfig(cfg);
+                saveConfig({ readReceipts: 'none' });
                 await sock.updateReadReceiptsPrivacy('none');
                 return await sock.sendMessage(chatId, {
                     text: `❌ *Read Receipts turned OFF*\n\nNo one will see blue ticks when you read messages.`

@@ -1,34 +1,23 @@
 /**
  * Always Online — keeps bot presence set to "available" continuously
- * Setting persisted in data/alwaysonline.json
+ * Setting persisted in database/bot-settings.json via database.js
  */
+const db = require('../../database');
 
-const fs   = require('fs');
-const path = require('path');
-
-const SETTINGS_FILE = path.join(__dirname, '../../data/alwaysonline.json');
-const HEARTBEAT_MS  = 10_000; // ping presence every 10 s
+const HEARTBEAT_MS = 10_000; // ping presence every 10 s
 
 let _interval = null;
 
 function loadSettings() {
-    try {
-        if (fs.existsSync(SETTINGS_FILE)) {
-            return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-        }
-    } catch (_) {}
-    return { enabled: false };
+    return { enabled: db.getBotSetting('alwaysOnline') || false };
 }
 
 function saveSettings(s) {
-    const dir = path.dirname(SETTINGS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(s, null, 2));
+    db.setBotSetting('alwaysOnline', !!s.enabled);
 }
 
 function startHeartbeat(sock) {
     if (_interval) clearInterval(_interval);
-    // Send immediately then repeat
     sock.sendPresenceUpdate('available').catch(() => {});
     _interval = setInterval(() => {
         sock.sendPresenceUpdate('available').catch(() => {});
@@ -68,8 +57,7 @@ module.exports = {
             }
 
             if (opt === 'on') {
-                settings.enabled = true;
-                saveSettings(settings);
+                saveSettings({ enabled: true });
                 startHeartbeat(sock);
                 return extra.reply(
                     `🟢 *Always Online: ON*\n\n` +
@@ -78,8 +66,7 @@ module.exports = {
             }
 
             if (opt === 'off') {
-                settings.enabled = false;
-                saveSettings(settings);
+                saveSettings({ enabled: false });
                 stopHeartbeat(sock);
                 return extra.reply(
                     `⚫ *Always Online: OFF*\n\n` +

@@ -1,58 +1,64 @@
 /**
  * Autoread — automatically blue-tick messages
  * Modes: off | pm | group | on (both)
+ * Settings persisted in database/bot-settings.json via database.js
  */
-const fs   = require('fs');
-const path = require('path');
+const db = require('../../database');
 
-const FILE = path.join(__dirname, '../../data/autoread.json');
+const KEY = 'autoReadMode';
 
 function load() {
-    try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); }
-    catch { return { mode: 'off' }; }
+  return { mode: db.getBotSetting(KEY) || 'off' };
 }
+
 function save(data) {
-    try { fs.writeFileSync(FILE, JSON.stringify(data, null, 2)); }
-    catch (e) { console.error('[autoread] save error:', e); }
+  db.setBotSetting(KEY, data.mode || 'off');
 }
 
 module.exports = {
-    name: 'autoread',
-    aliases: ['autobluetick', 'autobt', 'autotick'],
-    category: 'owner',
-    description: 'Automatically blue-tick messages',
-    usage: '.autoread <on/off/pm/group>',
-    ownerOnly: true,
+  name: 'autoread',
+  aliases: ['autobluetick', 'autobt', 'autotick'],
+  category: 'owner',
+  description: 'Automatically blue-tick messages',
+  usage: '.autoread <on/off/pm/group>',
+  ownerOnly: true,
 
-    async execute(sock, msg, args, extra) {
-        const sub     = (args[0] || '').toLowerCase();
-        const current = load().mode;
+  async execute(sock, msg, args, extra) {
+    const sub     = (args[0] || '').toLowerCase();
+    const current = load().mode;
 
-        const label = (m) => ({
-            off:   '❌ OFF',
-            pm:    '💬 PM only',
-            group: '👥 Groups only',
-            on:    '✅ ON (PM + Groups)',
-        }[m] || '❌ OFF');
+    const label = (m) => ({
+      off:   '❌ OFF',
+      pm:    '💬 PM only',
+      group: '👥 Groups only',
+      on:    '✅ ON (PM + Groups)',
+    }[m] || '❌ OFF');
 
-        if (!sub) {
-            return extra.reply(
-                `👁️ *Auto Read (Blue Tick)*\n` +
-                `━━━━━━━━━━━━━━━\n` +
-                `Status: *${label(current)}*\n\n` +
-                `*Options:*\n` +
-                `  .autoread on    — blue-tick all messages\n` +
-                `  .autoread pm    — blue-tick DMs only\n` +
-                `  .autoread group — blue-tick groups only\n` +
-                `  .autoread off   — disable`
-            );
-        }
-
-        if (!['on', 'off', 'pm', 'group'].includes(sub)) {
-            return extra.reply('⚠️ Usage: .autoread on / off / pm / group');
-        }
-
-        save({ mode: sub });
-        return extra.reply(`👁️ *Auto Read* set to *${label(sub)}*`);
+    if (!sub) {
+      return extra.reply(
+        `👁️ *Auto Read (Blue Tick)*\n` +
+        `━━━━━━━━━━━━━━━\n` +
+        `Status: *${label(current)}*\n\n` +
+        `*Options:*\n` +
+        `  .autoread on    — blue-tick all messages\n` +
+        `  .autoread pm    — blue-tick DMs only\n` +
+        `  .autoread group — blue-tick groups only\n` +
+        `  .autoread off   — disable`
+      );
     }
+
+    if (!['on', 'off', 'pm', 'group'].includes(sub)) {
+      return extra.reply('⚠️ Usage: .autoread on / off / pm / group');
+    }
+
+    save({ mode: sub });
+
+    // Keep runtime config in sync
+    try {
+      const config = require('../../config');
+      config.autoRead = (sub === 'on' || sub === 'group');
+    } catch (_) {}
+
+    return extra.reply(`👁️ *Auto Read* set to *${label(sub)}*`);
+  }
 };

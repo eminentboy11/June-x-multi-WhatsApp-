@@ -1,22 +1,22 @@
-const config = require('../../config');
-const fs = require('fs');
-const path = require('path');
-
-const SETTINGS_FILE = path.join(__dirname, '../../data/autostatusview.json');
+/**
+ * Auto Status View — persists via database/bot-settings.json via database.js
+ */
+const db = require('../../database');
 
 function loadSettings() {
-    try {
-        if (fs.existsSync(SETTINGS_FILE)) {
-            return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-        }
-    } catch (_) {}
-    return { enabled: false, react: false, emoji: '💚' };
+    return {
+        enabled: db.getBotSetting('autoStatusView')  || false,
+        react:   db.getBotSetting('autoStatusReact') || false,
+        emoji:   db.getBotSetting('autoStatusEmoji') || '💚',
+    };
 }
 
 function saveSettings(settings) {
-    const dir = path.dirname(SETTINGS_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    db.updateBotSettings({
+        autoStatusView:  !!settings.enabled,
+        autoStatusReact: !!settings.react,
+        autoStatusEmoji: settings.emoji || '💚',
+    });
 }
 
 // Strip invisible variation selectors / zero-width chars that WhatsApp
@@ -90,7 +90,6 @@ module.exports = {
                 if (!emoji) return extra.reply('⚠️ Use: .autostatusview emoji 😍');
                 settings.emoji = emoji;
                 saveSettings(settings);
-                // Show only the stored emoji — no extra prefix emoji to avoid doubles
                 return extra.reply(`✅ *React emoji set to:* ${emoji}`);
             }
 

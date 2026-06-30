@@ -1,6 +1,8 @@
+/**
+ * Set Timezone — persists via database/bot-settings.json
+ */
 const config = require('../../config');
-const fs = require('fs');
-const path = require('path');
+const db = require('../../database');
 
 const COMMON_TIMEZONES = [
   'Africa/Nairobi', 'Africa/Lagos', 'Africa/Cairo', 'Africa/Johannesburg',
@@ -45,17 +47,9 @@ module.exports = {
         return extra.reply(`❌ Invalid timezone: *${newTz}*\n\nUse *${config.prefix}settimezone list* to see valid options.`);
       }
 
+      // Persist to database and update runtime config
+      db.setBotSetting('timezone', newTz);
       config.timezone = newTz;
-
-      const configPath = path.join(__dirname, '../../config.js');
-      let configContent = fs.readFileSync(configPath, 'utf-8');
-      configContent = configContent.replace(
-        /timezone:\s*['"]([^'"]*)['"]/,
-        `timezone: '${newTz}'`
-      );
-      fs.writeFileSync(configPath, configContent, 'utf-8');
-
-      delete require.cache[require.resolve('../../config')];
 
       const now = new Date().toLocaleString('en-US', { timeZone: newTz, dateStyle: 'full', timeStyle: 'long' });
       await extra.reply(`✅ Timezone set to: *${newTz}*\n\n🕐 Current time: ${now}`);
