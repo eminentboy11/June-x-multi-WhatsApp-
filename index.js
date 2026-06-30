@@ -102,6 +102,26 @@ try {
     for (const key of CONFIG_KEYS) {
         if (key in all && all[key] !== undefined) config[key] = all[key];
     }
+    // Restore custom menu image if one was set before restart
+    if (all.menuImageCustom) {
+        const PERSIST_PATH = path.join(__dirname, 'data/custom_menu.jpg');
+        const IMAGE_PATH   = path.join(__dirname, 'utils/bot_image.jpg');
+        const MENU1_PATH   = path.join(__dirname, 'assets/menu1.jpg');
+        if (fs.existsSync(PERSIST_PATH)) {
+            try {
+                const buf = fs.readFileSync(PERSIST_PATH);
+                fs.writeFileSync(IMAGE_PATH, buf);
+                try { fs.writeFileSync(MENU1_PATH, buf); } catch {}
+                log('[ SETTINGS ] Custom menu image restored from database/data.', 'cyan');
+            } catch (imgErr) {
+                log(`[ SETTINGS ] Could not restore custom menu image: ${imgErr.message}`, 'yellow');
+            }
+        } else {
+            // Persistent image file is gone — clear the stale DB flag to stay consistent
+            db.setBotSetting('menuImageCustom', false);
+            log('[ SETTINGS ] Custom menu image file missing; reset menuImageCustom flag.', 'yellow');
+        }
+    }
     log('[ SETTINGS ] Runtime settings loaded and applied from database.', 'cyan');
 } catch (e) {
     log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
