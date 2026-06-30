@@ -93,11 +93,16 @@ global.__ROOT__ = __dirname
 const config = require('./config')
 
 // ─── Apply Persisted Runtime Settings ─────────────────────────────────────────
-// Overrides config values with any owner-changed settings saved in data/settings.json
+// Overrides config values with any owner-changed settings saved in database/bot-settings.json
 try {
-    const runtimeSettings = require('./utils/settings');
-    runtimeSettings.applyToConfig(config);
-    log('[ SETTINGS ] Runtime settings loaded and applied.', 'cyan');
+    const db = require('./database');
+    const all = db.getAllBotSettings();
+    // Apply scalar config keys
+    const CONFIG_KEYS = ['prefix', 'botName', 'timezone', 'autoReact', 'autoReactMode'];
+    for (const key of CONFIG_KEYS) {
+        if (key in all && all[key] !== undefined) config[key] = all[key];
+    }
+    log('[ SETTINGS ] Runtime settings loaded and applied from database.', 'cyan');
 } catch (e) {
     log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
 }
@@ -719,13 +724,10 @@ async function startKnightBot() {
 
             // Apply saved read receipts privacy setting
             try {
-                const rrCfgPath = path.join(__dirname, 'data', 'autoreadreceipts.json')
-                if (fs.existsSync(rrCfgPath)) {
-                    const rrCfg = JSON.parse(fs.readFileSync(rrCfgPath, 'utf8'))
-                    const setting = rrCfg.readReceipts || 'all'
-                    await sock.updateReadReceiptsPrivacy(setting)
-                    log(`👁️ Read receipts privacy applied: ${setting}`, 'cyan')
-                }
+                const db = require('./database')
+                const setting = db.getBotSetting('readReceipts') || 'all'
+                await sock.updateReadReceiptsPrivacy(setting)
+                log(`👁️ Read receipts privacy applied: ${setting}`, 'cyan')
             } catch (_) {}
 
             // Apply always-online heartbeat if enabled
@@ -913,11 +915,8 @@ async function startKnightBot() {
                 }
             })
 
-            // Background: auto-read and anti-link
+            // Background: anti-link (auto-read is handled in handler.js via DB autoReadMode)
             setImmediate(async () => {
-                if (config.autoRead && from.endsWith('@g.us')) {
-                    try { await sock.readMessages([msg.key]) } catch (e) {}
-                }
                 if (from.endsWith('@g.us')) {
                     try {
                         const meta = await handler.getGroupMetadata(sock, from)
