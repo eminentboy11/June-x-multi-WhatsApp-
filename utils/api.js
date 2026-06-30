@@ -170,12 +170,11 @@ const APIs = {
 
   getIzumiDownloadByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://api.drexapp.space/downloader/ytmp3?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
+      axios.get(`https://ravenn.site/download/audio?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.status && res?.data?.result?.downloadURL) {
+    if (res?.data?.status && res?.data?.result) {
       return {
-        download: res.data.result.downloadURL,
-        title: res.data.result.title,
+        download: res.data.result,
         thumbnail: res.data.result.thumbnail
       };
     }
