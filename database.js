@@ -265,6 +265,7 @@ const BOT_SETTINGS_DEFAULTS = {
   autoStatusReact: false,
   autoStatusEmoji: '💚',
   readReceipts: 'all',
+  menuImageCustom: false,
 };
 
 const getBotSetting = (key) => {
