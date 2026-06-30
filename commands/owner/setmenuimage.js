@@ -4,6 +4,7 @@ const path = require('path');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const https = require('https');
 const http = require('http');
+const db = require('../../database');
 
 const IMAGE_PATH    = path.join(__dirname, '../../utils/bot_image.jpg');
 const MENU1_PATH    = path.join(__dirname, '../../assets/menu1.jpg');
@@ -36,6 +37,8 @@ async function saveImage(buffer) {
   fs.writeFileSync(IMAGE_PATH, finalBuffer);
   fs.writeFileSync(PERSIST_PATH, finalBuffer);   // persistent copy in data/
   try { fs.writeFileSync(MENU1_PATH, finalBuffer); } catch {}
+  const saved = db.setBotSetting('menuImageCustom', true);
+  if (!saved) throw new Error('Image written to disk but DB flag could not be saved — image may not restore after restart.');
 }
 
 module.exports = {
@@ -55,6 +58,8 @@ module.exports = {
         try {
           // Remove the persistent custom copy first
           if (fs.existsSync(PERSIST_PATH)) fs.unlinkSync(PERSIST_PATH);
+          const cleared = db.setBotSetting('menuImageCustom', false);
+          if (!cleared) return extra.reply('❌ Reset failed: could not update settings database.');
           // Restore default image from the permanent asset
           if (fs.existsSync(DEFAULT_IMAGE)) {
             const defaultBuf = fs.readFileSync(DEFAULT_IMAGE);
