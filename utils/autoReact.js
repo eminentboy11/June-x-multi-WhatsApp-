@@ -1,60 +1,28 @@
-// utils/autoReact.js
-const fs = require('fs');
-const path = require('path');
-
-const CONFIG_PATH = path.join(__dirname, '../config.js');
+/**
+ * Auto-React settings — backed by database/bot-settings.json via database.js.
+ * No longer modifies config.js directly.
+ */
+const db = require('../database');
 
 function load() {
-    try {
-        // Clear require cache to get fresh config
-        delete require.cache[require.resolve('../config.js')];
-        const config = require('../config.js');
-        
-        return {
-            enabled: config.autoReact || false,
-            mode: config.autoReactMode || 'bot'
-        };
-    } catch {
-        return {
-            enabled: false,
-            mode: 'bot'
-        };
-    }
+  return {
+    enabled: db.getBotSetting('autoReact') || false,
+    mode:    db.getBotSetting('autoReactMode') || 'bot',
+  };
 }
 
 function save(data) {
-    try {
-        const configContent = fs.readFileSync(CONFIG_PATH, 'utf8');
-        
-        let updatedContent = configContent;
-        
-        // Update autoReact value
-        updatedContent = updatedContent.replace(
-            /autoReact:\s*(true|false)/,
-            `autoReact: ${data.enabled}`
-        );
-        
-        // Update or add autoReactMode
-        if (configContent.includes('autoReactMode:')) {
-            updatedContent = updatedContent.replace(
-                /autoReactMode:\s*['"]\w+['"]/,
-                `autoReactMode: '${data.mode}'`
-            );
-        } else {
-            // Add autoReactMode after autoReact line
-            updatedContent = updatedContent.replace(
-                /(autoReact:\s*(?:true|false),?)/,
-                `$1\n    autoReactMode: '${data.mode}',`
-            );
-        }
-        
-        fs.writeFileSync(CONFIG_PATH, updatedContent, 'utf8');
-        
-        // Clear cache so next require gets updated values
-        delete require.cache[require.resolve('../config.js')];
-    } catch (err) {
-        console.error('[autoReact] save error:', err);
-    }
+  db.updateBotSettings({
+    autoReact:     !!data.enabled,
+    autoReactMode: data.mode || 'bot',
+  });
+
+  // Keep runtime config in sync so handler.js sees the change immediately
+  try {
+    const config = require('../config');
+    config.autoReact     = !!data.enabled;
+    config.autoReactMode = data.mode || 'bot';
+  } catch (_) {}
 }
 
 module.exports = { load, save };

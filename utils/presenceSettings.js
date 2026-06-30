@@ -1,30 +1,25 @@
 /**
- * Shared presence settings — read/write data/presence.json
+ * Shared presence settings — backed by database/bot-settings.json via database.js
  * Modes: 'off' | 'typing' | 'recording' | 'recordtype'
  */
-const fs   = require('fs');
-const path = require('path');
+const db = require('../database');
 
-const FILE = path.join(__dirname, '../data/presence.json');
+const KEY = 'presenceMode';
 
 function load() {
-    try {
-        return JSON.parse(fs.readFileSync(FILE, 'utf8'));
-    } catch {
-        return { mode: 'off' };
-    }
+  return { mode: db.getBotSetting(KEY) || 'off' };
 }
 
 function save(data) {
-    try { fs.writeFileSync(FILE, JSON.stringify(data, null, 2)); } catch {}
+  db.setBotSetting(KEY, data.mode || 'off');
 }
 
 function getMode() {
-    return load().mode || 'off';
+  return db.getBotSetting(KEY) || 'off';
 }
 
 function setMode(mode) {
-    save({ mode });
+  db.setBotSetting(KEY, mode);
 }
 
 module.exports = { load, save, getMode, setMode };

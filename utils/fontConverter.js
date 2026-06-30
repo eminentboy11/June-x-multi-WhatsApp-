@@ -1,8 +1,3 @@
-const fs = require('fs');
-const path = require('path');
-
-const FONT_FILE = path.join(__dirname, '../data/fontSettings.json');
-
 const NORMAL_LOWER = 'abcdefghijklmnopqrstuvwxyz';
 const NORMAL_UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 const NORMAL_DIGITS = '0123456789';
@@ -35,28 +30,17 @@ const FONTS = {
 
 function getCurrentFont() {
   try {
-    // Check session-backed settings store first (survives restarts)
-    const runtimeSettings = require('./settings');
-    const fromStore = runtimeSettings.get('fontStyle');
-    if (fromStore && fromStore !== 'normal') return fromStore;
-    // Fallback to dedicated fontSettings.json
-    if (!fs.existsSync(FONT_FILE)) return fromStore || 'normal';
-    return JSON.parse(fs.readFileSync(FONT_FILE, 'utf8')).font || fromStore || 'normal';
+    const db = require('../database');
+    return db.getBotSetting('fontStyle') || 'normal';
   } catch {
     return 'normal';
   }
 }
 
 function setCurrentFont(fontName) {
-  // Write to both the dedicated file and the session-backed settings store
   try {
-    const dir = path.dirname(FONT_FILE);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(FONT_FILE, JSON.stringify({ font: fontName }), 'utf8');
-  } catch (_) {}
-  try {
-    const runtimeSettings = require('./settings');
-    runtimeSettings.set('fontStyle', fontName);
+    const db = require('../database');
+    db.setBotSetting('fontStyle', fontName);
   } catch (_) {}
 }
 
