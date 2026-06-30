@@ -107,19 +107,43 @@ try {
         const PERSIST_PATH = path.join(__dirname, 'data/custom_menu.jpg');
         const IMAGE_PATH   = path.join(__dirname, 'utils/bot_image.jpg');
         const MENU1_PATH   = path.join(__dirname, 'assets/menu1.jpg');
+
+        let buf = null;
+
+        // 1. Try restoring from the persistent file on disk
         if (fs.existsSync(PERSIST_PATH)) {
+            try { buf = fs.readFileSync(PERSIST_PATH); } catch {}
+        }
+
+        // 2. If the file is gone, rebuild it from the base64 copy in the database
+        if (!buf && all.menuImageData) {
             try {
-                const buf = fs.readFileSync(PERSIST_PATH);
+                const decoded = Buffer.from(all.menuImageData, 'base64');
+                if (!decoded || decoded.length < 100) throw new Error('Decoded image data is empty or too small to be valid.');
+                buf = decoded;
+                // Re-write the persistent file so future restarts use the faster path
+                try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); } catch {}
+                fs.writeFileSync(PERSIST_PATH, buf);
+                log('[ SETTINGS ] Custom menu image rebuilt from database.', 'cyan');
+            } catch (rebuildErr) {
+                log(`[ SETTINGS ] Could not rebuild menu image from database: ${rebuildErr.message}`, 'yellow');
+                buf = null;
+            }
+        }
+
+        if (buf) {
+            try {
                 fs.writeFileSync(IMAGE_PATH, buf);
                 try { fs.writeFileSync(MENU1_PATH, buf); } catch {}
-                log('[ SETTINGS ] Custom menu image restored from database/data.', 'cyan');
+                log('[ SETTINGS ] Custom menu image restored successfully.', 'cyan');
             } catch (imgErr) {
                 log(`[ SETTINGS ] Could not restore custom menu image: ${imgErr.message}`, 'yellow');
             }
         } else {
-            // Persistent image file is gone — clear the stale DB flag to stay consistent
+            // Neither file nor DB data available — clear the stale flag
             db.setBotSetting('menuImageCustom', false);
-            log('[ SETTINGS ] Custom menu image file missing; reset menuImageCustom flag.', 'yellow');
+            db.setBotSetting('menuImageData', null);
+            log('[ SETTINGS ] Custom menu image missing from both disk and database; reset flag.', 'yellow');
         }
     }
     log('[ SETTINGS ] Runtime settings loaded and applied from database.', 'cyan');
