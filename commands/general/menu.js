@@ -200,7 +200,7 @@ module.exports = {
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
       const fullMenu = applyFont(menulist + `\n> ${config.botName}`);
-      const supreme = `powerd by ${ownername}`;
+      const supreme = `Powered by ${ownername}`;
 
       if (menustyle === '1') {
         await sock.sendMessage(chatId, {
