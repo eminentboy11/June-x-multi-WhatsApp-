@@ -75,7 +75,7 @@ module.exports = {
                 defaultBranch = repo.default_branch || 'main';
 
                 text = applyFont(
-                    `┏━⿻『 GITHUB REPOSITORY 』⿻━\n\n` +
+                    `┏━━━━━━━━━━━━━━━━\n\n` +
                     `✧ Repository:  ${repo.name}\n` +
                     `✧ Owner:       ${repo.owner.login}\n` +
                     `✧ Description: ${repo.description || 'N/A'}\n` +
@@ -83,7 +83,9 @@ module.exports = {
                     `✧ License:     ${repo.license?.name || 'N/A'}\n` +
                     `✧ Branch:      ${defaultBranch}\n` +
                     `✧ Visibility:  ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
-                    `┃ Statistics\n` +
+                    `┗━━━━━━━━━━━━━━━━━\n` +
+                    `┏━━━━━━━━━━━━━━━━━\n` +
+                    `⿻ STATISTICS\n` +
                     `⿻ Stars:       ${repo.stargazers_count.toLocaleString()}\n` +
                     `⿻ Forks:       ${repo.forks_count.toLocaleString()}\n` +
                     `⿻ Watchers:    ${repo.watchers_count.toLocaleString()}\n` +
