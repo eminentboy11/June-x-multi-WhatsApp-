@@ -41,15 +41,17 @@ module.exports = {
             const settings = loadSettings();
 
             if (!args[0]) {
+                const view = settings.enabled ? '🟢 ON' : '🔴 OFF';
+                const react = settings.react ? '🟢 ON' : '🔴 OFF';
                 return extra.reply(
-                    ` *AUTO STATUS VIEW*\n━━━━━━━━━━━━━━━\n\n` +
-                    ` View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
-                    `${settings.react ? '💚' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
-                    `React Emoji: *${settings.emoji || '💚'}*\n\n` +
-                    `*Commands:*\n` +
-                    `  autostatusview <on/off>\n` +
-                    `  autostatusview react <on/off>\n` +
-                    `  autostatusview emoji <😍>`
+                    `👁️ *AUTO STATUS VIEW*\n` +
+                    `━━━━━━━━━━━━\n` +
+                    `View: ${view}\n` +
+                    `React: ${react}  (${settings.emoji})\n` +
+                    `━━━━━━━━━━━━\n` +
+                    `.autostatusview on/off\n` +
+                    `.autostatusview react on/off\n` +
+                    `.autostatusview emoji 😍`
                 );
             }
 
