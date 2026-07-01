@@ -75,20 +75,20 @@ module.exports = {
                 defaultBranch = repo.default_branch || 'main';
 
                 text = applyFont(
-                    `┏━━『 GITHUB REPOSITORY 』━━\n\n` +
-                    `📁 Repository:  ${repo.name}\n` +
-                    `👤 Owner:       ${repo.owner.login}\n` +
-                    `📝 Description: ${repo.description || 'N/A'}\n` +
-                    `💻 Language:    ${repo.language || 'N/A'}\n` +
-                    `📜 License:     ${repo.license?.name || 'N/A'}\n` +
-                    `🌿 Branch:      ${defaultBranch}\n` +
-                    `🔐 Visibility:  ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
+                    `┏━⿻『 GITHUB REPOSITORY 』⿻━\n\n` +
+                    `✧ Repository:  ${repo.name}\n` +
+                    `✧ Owner:       ${repo.owner.login}\n` +
+                    `✧ Description: ${repo.description || 'N/A'}\n` +
+                    `✧ Language:    ${repo.language || 'N/A'}\n` +
+                    `✧ License:     ${repo.license?.name || 'N/A'}\n` +
+                    `✧ Branch:      ${defaultBranch}\n` +
+                    `✧ Visibility:  ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
                     `┃ Statistics\n` +
-                    `⭐ Stars:       ${repo.stargazers_count.toLocaleString()}\n` +
-                    `🍴 Forks:       ${repo.forks_count.toLocaleString()}\n` +
-                    `👁️ Watchers:    ${repo.watchers_count.toLocaleString()}\n` +
-                    `💾 Size:        ${(repo.size / 1024).toFixed(2)} MB\n` +
-                    `🐛 Issues:      ${repo.open_issues_count.toLocaleString()}\n\n` +
+                    `⿻ Stars:       ${repo.stargazers_count.toLocaleString()}\n` +
+                    `⿻ Forks:       ${repo.forks_count.toLocaleString()}\n` +
+                    `⿻ Watchers:    ${repo.watchers_count.toLocaleString()}\n` +
+                    `⿻ Size:        ${(repo.size / 1024).toFixed(2)} MB\n` +
+                    `⿻ Issues:      ${repo.open_issues_count.toLocaleString()}\n\n` +
                     `┗━━━━━━━━━━━━━━━━`
                 );
 
