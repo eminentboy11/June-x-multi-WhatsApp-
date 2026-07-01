@@ -46,12 +46,12 @@ module.exports = {
                 return extra.reply(
                     `👁️ *AUTO STATUS VIEW*\n` +
                     `━━━━━━━━━━━━\n` +
-                    `View: ${view}\n` +
-                    `React: ${react}  (${settings.emoji})\n` +
+                    `VIEW: ${view}\n` +
+                    `REACT: ${react}  (${settings.emoji})\n` +
                     `━━━━━━━━━━━━\n` +
-                    `.autostatusview on/off\n` +
-                    `.autostatusview react on/off\n` +
-                    `.autostatusview emoji 😍`
+                    ` ✧ autostatusview <on/off>\n` +
+                    ` ✧ autostatusview react <on/off>\n` +
+                    ` ✧ autostatusview emoji <💚>`
                 );
             }
 
