@@ -1,6 +1,6 @@
 /**
  * Sport Commands — Powered by Keith API (ravenn.site/sports)
- * Covers all endpoints including FIFA World Cup full group stage
+ * Covers all endpoints including FIFA World Cup auto-updating group stage
  */
 
 const axios = require('axios');
@@ -14,6 +14,85 @@ async function keithApi(endpoint, params = {}) {
     if (data.status === false) throw new Error(data.error || data.message || 'API error');
     return data.result !== undefined ? data.result : data;
 }
+
+// ── FIFA Auto-Update Engine ────────────────────────────────────────────────────
+// Polls /fifa/standings every 3 minutes and caches result in memory.
+// Automatically detects tournament phase (groups → knockouts → final → ended).
+
+const fifaCache = {
+    data:        null,   // last successful result
+    phase:       'idle', // idle | groups | r32 | r16 | qf | sf | final | ended
+    lastFetch:   0,
+    fetchCount:  0,
+    error:       null,
+    interval:    null,
+};
+
+const POLL_INTERVAL = 3 * 60 * 1000; // 3 minutes
+
+function detectPhase(result) {
+    if (!result) return 'idle';
+    const standings = result.standings || [];
+    const matches   = result.matches   || result.upcomingMatches || [];
+    const comp      = (result.competition || '').toLowerCase();
+
+    if (comp.includes('final') && !comp.includes('semi') && !comp.includes('quarter'))
+        return 'final';
+    if (comp.includes('semi')) return 'sf';
+    if (comp.includes('quarter')) return 'qf';
+    if (comp.includes('round of 16')) return 'r16';
+    if (comp.includes('round of 32')) return 'r32';
+
+    // If standings still have 4-team groups → group stage
+    if (standings.length > 0 && standings.length % 4 === 0) return 'groups';
+
+    // If no standings but matches remain → knockout
+    if (!standings.length && matches.length) return 'r32';
+
+    // If we got a winner field → ended
+    if (result.winner || result.champion) return 'ended';
+
+    return 'groups';
+}
+
+async function fetchFifaData() {
+    try {
+        const result = await keithApi('/fifa/standings');
+        fifaCache.data      = result;
+        fifaCache.phase     = detectPhase(result);
+        fifaCache.lastFetch = Date.now();
+        fifaCache.fetchCount++;
+        fifaCache.error     = null;
+
+        // Stop polling if tournament is over
+        if (fifaCache.phase === 'ended') {
+            stopFifaPolling();
+            console.log('[FIFA] Tournament ended — polling stopped.');
+        }
+
+        console.log(`[FIFA] Auto-update #${fifaCache.fetchCount} — phase: ${fifaCache.phase}`);
+    } catch (err) {
+        fifaCache.error = err.message;
+        console.error('[FIFA] Auto-update failed:', err.message);
+    }
+}
+
+function startFifaPolling() {
+    if (fifaCache.interval) return; // already running
+    fetchFifaData(); // immediate first fetch
+    fifaCache.interval = setInterval(fetchFifaData, POLL_INTERVAL);
+    console.log('[FIFA] Auto-update polling started (every 3 min)');
+}
+
+function stopFifaPolling() {
+    if (fifaCache.interval) {
+        clearInterval(fifaCache.interval);
+        fifaCache.interval = null;
+    }
+}
+
+// Start polling immediately when module loads
+startFifaPolling();
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -59,14 +138,33 @@ function countryFlag(name = '') {
         'kenya': '🇰🇪', 'mexico': '🇲🇽', 'morocco': '🇲🇦', 'netherlands': '🇳🇱',
         'nigeria': '🇳🇬', 'paraguay': '🇵🇾', 'peru': '🇵🇪', 'poland': '🇵🇱',
         'portugal': '🇵🇹', 'qatar': '🇶🇦', 'saudi arabia': '🇸🇦', 'senegal': '🇸🇳',
-        'serbia': '🇷🇸', 'south korea': '🇰🇷', 'spain': '🇪🇸', 'switzerland': '🇨🇭',
-        'tunisia': '🇹🇳', 'turkey': '🇹🇷', 'ukraine': '🇺🇦', 'united states': '🇺🇸',
-        'usa': '🇺🇸', 'uruguay': '🇺🇾', 'wales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+        'serbia': '🇷🇸', 'south africa': '🇿🇦', 'south korea': '🇰🇷', 'spain': '🇪🇸',
+        'switzerland': '🇨🇭', 'tunisia': '🇹🇳', 'turkey': '🇹🇷', 'ukraine': '🇺🇦',
+        'united states': '🇺🇸', 'usa': '🇺🇸', 'uruguay': '🇺🇾', 'wales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+        'czechia': '🇨🇿', 'czech republic': '🇨🇿', 'new zealand': '🇳🇿',
+        'ivory coast': '🇨🇮', 'venezuela': '🇻🇪', 'panama': '🇵🇦', 'bolivia': '🇧🇴',
+        'honduras': '🇭🇳', 'jamaica': '🇯🇲', 'indonesia': '🇮🇩', 'thailand': '🇹🇭',
     };
     for (const [country, flag] of Object.entries(flags)) {
         if (n.includes(country)) return flag;
     }
     return '🏳️';
+}
+
+// ── Phase label helper ────────────────────────────────────────────────────────
+
+function phaseLabel(phase) {
+    const labels = {
+        idle:   '⏳ Awaiting tournament start',
+        groups: '🔷 Group Stage',
+        r32:    '⚔️ Round of 32',
+        r16:    '⚔️ Round of 16',
+        qf:     '🏅 Quarter Finals',
+        sf:     '🏅 Semi Finals',
+        final:  '🏆 FINAL',
+        ended:  '🎉 Tournament Ended',
+    };
+    return labels[phase] || phase;
 }
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
@@ -100,8 +198,7 @@ function fmtTeams(result) {
         if (t.formedYear)      s += `   📅 Founded: ${t.formedYear}\n`;
         if (t.social?.website) s += `   🌐 ${t.social.website}\n`;
         if (t.description) {
-            const desc = String(t.description).slice(0, 200).trim();
-            s += `   📝 ${desc}...\n`;
+            s += `   📝 ${String(t.description).slice(0, 200).trim()}...\n`;
         }
         return s;
     }).join('\n');
@@ -117,8 +214,7 @@ function fmtVenues(result) {
         if (v.location) s += `   📍 Location: ${v.location}\n`;
         if (v.country)  s += `   🌍 Country: ${v.country}\n`;
         if (v.description) {
-            const desc = String(v.description).slice(0, 200).trim();
-            s += `   📝 ${desc}...\n`;
+            s += `   📝 ${String(v.description).slice(0, 200).trim()}...\n`;
         }
         return s;
     }).join('\n');
@@ -154,7 +250,7 @@ function fmtStandings(result) {
     if (!arr.length) return '_No standings data available_';
     const comp = result?.competition ? `${result.competition}\n\n` : '';
     const rows = arr.slice(0, 25).map(r => {
-        const pos  = String(r.position || r.pos || '').padStart(2);
+        const pos  = String(r.position || '').padStart(2);
         const team = (r.team || r.name || '?').padEnd(28);
         const p    = r.played ?? r.mp ?? 0;
         const w    = r.won   ?? r.w  ?? 0;
@@ -235,7 +331,7 @@ function fmtLivescore2(result) {
         const s2     = g.team2?.score ?? '';
         const status = g.status || '';
         let s = `┏ ${t1} *${s1}* - *${s2}* ${t2}\n`;
-        if (status)    s += `┃ 🔴 ${status}\n`;
+        if (status)     s += `┃ 🔴 ${status}\n`;
         if (g.playPath) s += `┃ 🎬 ${g.playPath}\n`;
         s += `┗━━━━━━━━━━━━━━━\n`;
         return s;
@@ -272,93 +368,159 @@ function fmtBet(result) {
     }).join('\n');
 }
 
+// ── FIFA formatter — reads exact API shape: { competition, standings: [...] } ──
+
 function fmtFifaStandings(result) {
     if (!result) return '_No FIFA data available_';
-    const groups = result.groups || result.table || result.standings;
-    if (Array.isArray(groups) && groups.length) return fmtStandings({ standings: groups });
-    const details = result.details || result;
-    let s = `🌍 *FIFA World Cup 2026*\n\n`;
-    if (details.name)           s += `🏆 Competition: ${details.name}\n`;
-    if (details.selectedSeason) s += `📅 Season: ${details.selectedSeason}\n`;
-    if (details.country)        s += `🌍 Country: ${details.country}\n`;
-    const seasons = result.allAvailableSeasons;
-    if (seasons?.length)        s += `\n📋 Available seasons: ${seasons.slice(0, 5).join(', ')}\n`;
-    return s;
+
+    const standings = result.standings || [];
+    const comp      = result.competition || 'FIFA World Cup';
+
+    if (!standings.length) return `🌍 *${comp}*\n\n_No standings data yet._`;
+
+    let body = `🌍 *${comp}*\n\n`;
+    body += `${'─'.repeat(44)}\n`;
+    body += ` # ${'Team'.padEnd(20)} MP  W  D  L  GF GA  GD Pts\n`;
+    body += `${'─'.repeat(44)}\n`;
+
+    for (const t of standings) {
+        const pos  = String(t.position || '').padStart(2);
+        const name = (t.team || '?').slice(0, 18).padEnd(20);
+        const mp   = String(t.played         ?? 0).padStart(2);
+        const w    = String(t.won            ?? 0).padStart(2);
+        const d    = String(t.draw           ?? 0).padStart(2);
+        const l    = String(t.lost           ?? 0).padStart(2);
+        const gf   = String(t.goalsFor       ?? 0).padStart(3);
+        const ga   = String(t.goalsAgainst   ?? 0).padStart(3);
+        const gd   = String(t.goalDifference ?? 0).padStart(4);
+        const pts  = String(t.points         ?? 0).padStart(3);
+        const flag = countryFlag(t.team || '');
+
+        body += `${pos}. ${flag} ${name}${mp} ${w} ${d} ${l} ${gf}${ga} ${gd}${pts}\n`;
+    }
+
+    return body;
 }
 
-// ── World Cup group stage formatter ───────────────────────────────────────────
+// ── FIFA group stage formatter — chunks flat standings into groups of 4 ────────
 
 function fmtWorldCupGroups(result) {
-    // ── Extract group map from various API response shapes ─────────────────
-    let groupMap = {}; // { 'A': [...teams], 'B': [...teams], ... }
+    const standings = result?.standings || (Array.isArray(result) ? result : []);
+    const comp      = result?.competition || 'FIFA World Cup';
 
-    // Shape 1: result.groups = [ { group: 'A', standings: [...] }, ... ]
-    if (Array.isArray(result?.groups)) {
-        for (const g of result.groups) {
-            const label = (g.group || g.name || g.stage || '').replace(/Group\s*/i, '').trim();
-            const teams = g.standings || g.teams || g.table || [];
-            if (label && teams.length) groupMap[label] = teams;
-        }
+    if (!standings.length) {
+        return `🌍 *${comp}*\n\n_Group stage data not yet available._`;
     }
 
-    // Shape 2: result.standings is a flat array with a 'group' field per row
-    if (!Object.keys(groupMap).length && Array.isArray(result?.standings)) {
-        for (const row of result.standings) {
-            const g = (row.group || row.stage || '').replace(/Group\s*/i, '').trim();
+    // Check if API provides a group field
+    const hasGroupField = standings.some(r => r.group);
+
+    let groupMap = {};
+
+    if (hasGroupField) {
+        for (const row of standings) {
+            const g = (row.group || '').replace(/Group\s*/i, '').trim();
             if (!g) continue;
             if (!groupMap[g]) groupMap[g] = [];
             groupMap[g].push(row);
         }
-    }
-
-    // Shape 3: flat top-level array with group field
-    if (!Object.keys(groupMap).length && Array.isArray(result)) {
-        for (const row of result) {
-            const g = (row.group || row.stage || '').replace(/Group\s*/i, '').trim();
-            if (!g) continue;
-            if (!groupMap[g]) groupMap[g] = [];
-            groupMap[g].push(row);
-        }
+    } else {
+        // No group field — chunk every 4 rows: A, B, C, D ...
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        standings.forEach((row, idx) => {
+            const letter = letters[Math.floor(idx / 4)] || `G${Math.floor(idx / 4) + 1}`;
+            if (!groupMap[letter]) groupMap[letter] = [];
+            groupMap[letter].push(row);
+        });
     }
 
     const groupKeys = Object.keys(groupMap).sort();
-
-    if (!groupKeys.length) {
-        // No group breakdown — show raw overview with a note
-        return fmtFifaStandings(result) +
-            '\n\n_ℹ️ Full group breakdown not yet released by API._';
-    }
-
-    // ── Build grouped table ────────────────────────────────────────────────
     let body = '';
 
     for (const key of groupKeys) {
         const teams = groupMap[key];
 
         body += `🔷 *GROUP ${key}*\n`;
-        body += `${'─'.repeat(44)}\n`;
-        body += `${'Team'.padEnd(22)} MP  W  D  L  GF GA GD Pts\n`;
+        body += `${'─'.repeat(46)}\n`;
+        body += `  ${'Team'.padEnd(22)} MP  W  D  L  GF GA  GD Pts\n`;
 
         teams.forEach((t, idx) => {
-            const name = (t.team || t.name || t.country || '?').slice(0, 20).padEnd(22);
-            const mp   = String(t.played        ?? t.mp  ?? t.pld ?? 0).padStart(2);
-            const w    = String(t.won           ?? t.w   ?? 0).padStart(2);
-            const d    = String(t.draw          ?? t.drawn ?? t.d ?? 0).padStart(2);
-            const l    = String(t.lost          ?? t.l   ?? 0).padStart(2);
-            const gf   = String(t.goalsFor      ?? t.gf  ?? t.scored    ?? 0).padStart(3);
-            const ga   = String(t.goalsAgainst  ?? t.ga  ?? t.conceded  ?? 0).padStart(3);
-            const gd   = String(t.goalDifference ?? t.gd ?? 0).padStart(3);
-            const pts  = String(t.points        ?? t.pts ?? 0).padStart(3);
-            const flag = countryFlag(t.team || t.name || t.country || '');
+            const name = (t.team || '?').slice(0, 20).padEnd(22);
+            const mp   = String(t.played         ?? 0).padStart(2);
+            const w    = String(t.won            ?? 0).padStart(2);
+            const d    = String(t.draw           ?? 0).padStart(2);
+            const l    = String(t.lost           ?? 0).padStart(2);
+            const gf   = String(t.goalsFor       ?? 0).padStart(3);
+            const ga   = String(t.goalsAgainst   ?? 0).padStart(3);
+            const gd   = String(t.goalDifference ?? 0).padStart(4);
+            const pts  = String(t.points         ?? 0).padStart(3);
+            const flag = countryFlag(t.team || '');
+            const mark = idx < 2 ? '✅' : '  '; // top 2 advance
 
-            // Top 2 advance marker
-            const marker = idx < 2 ? '✅' : '  ';
-
-            body += `${marker}${flag} ${name}${mp} ${w} ${d} ${l} ${gf}${ga}${gd}${pts}\n`;
+            body += `${mark}${flag} ${name}${mp} ${w} ${d} ${l} ${gf}${ga} ${gd}${pts}\n`;
         });
 
         body += '\n';
     }
+
+    return body;
+}
+
+// ── Knockout stage formatter ───────────────────────────────────────────────────
+
+function fmtKnockout(result, phase) {
+    const matches = result?.matches || result?.fixtures ||
+                    result?.upcomingMatches || (Array.isArray(result) ? result : []);
+
+    if (!matches.length) return `_No ${phaseLabel(phase)} data available yet._`;
+
+    return matches.slice(0, 32).map((m, i) => {
+        const home   = m.homeTeam || m.home || m.team1 || '?';
+        const away   = m.awayTeam || m.away || m.team2 || '?';
+        const score  = m.score || (m.homeScore !== undefined ? `${m.homeScore} - ${m.awayScore}` : null);
+        const date   = m.date || m.utcDate || '';
+        const venue  = m.venue || m.stadium || '';
+        const status = m.status || '';
+        const hFlag  = countryFlag(home);
+        const aFlag  = countryFlag(away);
+
+        let s = `┏ *Match ${i + 1}*\n`;
+        s += `┃ ${hFlag} *${home}* vs *${away}* ${aFlag}\n`;
+        if (score)  s += `┃ 📊 Score: *${score}*\n`;
+        if (date)   s += `┃ 📅 ${date}\n`;
+        if (venue)  s += `┃ 🏟️ ${venue}\n`;
+        if (status) s += `┃ 🔄 ${status}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    }).join('\n');
+}
+
+// ── Final formatter ────────────────────────────────────────────────────────────
+
+function fmtFinal(result) {
+    const match = (result?.matches || result?.fixtures || [])[0] || result;
+
+    if (!match) return '_Final data not available yet._';
+
+    const home   = match.homeTeam || match.home || match.team1 || '?';
+    const away   = match.awayTeam || match.away || match.team2 || '?';
+    const score  = match.score || (match.homeScore !== undefined ? `${match.homeScore} - ${match.awayScore}` : null);
+    const date   = match.date || match.utcDate || '';
+    const venue  = match.venue || match.stadium || '';
+    const winner = result.winner || result.champion || match.winner || '';
+    const hFlag  = countryFlag(home);
+    const aFlag  = countryFlag(away);
+    const wFlag  = winner ? countryFlag(winner) : '';
+
+    let body = `🏆 *THE FINAL*\n`;
+    body += `${'═'.repeat(30)}\n\n`;
+    body += `${hFlag} *${home}*\n`;
+    body += `         ⚔️  VS  ⚔️\n`;
+    body += `${aFlag} *${away}*\n\n`;
+    if (score)  body += `📊 *Score: ${score}*\n`;
+    if (date)   body += `📅 Date: ${date}\n`;
+    if (venue)  body += `🏟️ Venue: ${venue}\n`;
+    if (winner) body += `\n🥇 *CHAMPION: ${wFlag} ${winner}* 🎉\n`;
 
     return body;
 }
@@ -484,18 +646,139 @@ module.exports = [
         },
     },
 
-    // ── 5. FIFA 2026 Standings Overview ────────────────────────────────────────
+    // ── 5. FIFA — Auto-updating full tournament tracker ────────────────────────
+    {
+        name: 'worldcupgroups',
+        aliases: ['wcgroups', 'fifagroups', 'wcstage', 'groupstage', 'wc', 'fifatracker'],
+        category: 'sports',
+        description: 'FIFA World Cup 2026 — live auto-updating tracker (groups → knockouts → final)',
+        usage: '.worldcupgroups',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                // Use cached data if fresh (< 3 min), else force a fresh fetch
+                const now     = Date.now();
+                const isFresh = fifaCache.data && (now - fifaCache.lastFetch < POLL_INTERVAL);
+
+                if (!isFresh) await fetchFifaData();
+
+                const result = fifaCache.data;
+                const phase  = fifaCache.phase;
+                const lastUp = fifaCache.lastFetch
+                    ? new Date(fifaCache.lastFetch).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                    : 'unknown';
+
+                if (!result) {
+                    await react(sock, msg, '❌');
+                    return extra.reply(`❌ FIFA data unavailable: ${fifaCache.error || 'unknown error'}`);
+                }
+
+                const comp = result.competition || 'FIFA World Cup 2026';
+
+                // ── Build output per phase ─────────────────────────────────────
+                let body   = '';
+                let header = '';
+                let footer = '';
+
+                if (phase === 'groups') {
+                    const standings = result.standings || [];
+                    const groups    = Math.ceil(standings.length / 4);
+                    header = `┏━━『 🌍 ${comp} — Group Stage 』━━`;
+                    body   = fmtWorldCupGroups(result);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `📋 Groups: *${groups}*  •  Teams: *${standings.length}*\n` +
+                        `✅ = Top 2 advance to Round of 32\n` +
+                        `🔄 Last updated: *${lastUp}* (auto-updates every 3 min)`;
+
+                } else if (phase === 'r32' || phase === 'r16') {
+                    const label = phase === 'r32' ? 'Round of 32' : 'Round of 16';
+                    header = `┏━━『 🌍 ${comp} — ${label} 』━━`;
+                    body   = fmtKnockout(result, phase);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `⚔️ *${label}*\n` +
+                        `🔄 Last updated: *${lastUp}* (auto-updates every 3 min)`;
+
+                } else if (phase === 'qf') {
+                    header = `┏━━『 🌍 ${comp} — Quarter Finals 』━━`;
+                    body   = fmtKnockout(result, phase);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `🏅 *Quarter Finals*\n` +
+                        `🔄 Last updated: *${lastUp}* (auto-updates every 3 min)`;
+
+                } else if (phase === 'sf') {
+                    header = `┏━━『 🌍 ${comp} — Semi Finals 』━━`;
+                    body   = fmtKnockout(result, phase);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `🏅 *Semi Finals*\n` +
+                        `🔄 Last updated: *${lastUp}* (auto-updates every 3 min)`;
+
+                } else if (phase === 'final') {
+                    header = `┏━━『 🏆 ${comp} — THE FINAL 』━━`;
+                    body   = fmtFinal(result);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `🔄 Last updated: *${lastUp}* (auto-updates every 3 min)`;
+
+                } else if (phase === 'ended') {
+                    header = `┏━━『 🏆 ${comp} — TOURNAMENT OVER 』━━`;
+                    body   = fmtFinal(result);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `🎉 FIFA World Cup 2026 has concluded!\n` +
+                        `Auto-updates have stopped.`;
+
+                } else {
+                    // idle / unknown — show raw standings if any
+                    header = `┏━━『 🌍 ${comp} 』━━`;
+                    body   = fmtFifaStandings(result);
+                    footer =
+                        `┗━━━━━━━━━━━━━━━━\n` +
+                        `🔄 Last updated: *${lastUp}*`;
+                }
+
+                await sendLong(sock, msg, header, body, footer);
+                await react(sock, msg, '✅');
+
+            } catch (err) {
+                console.error('[worldcupgroups]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed to fetch FIFA data: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 6. FIFA standings overview ────────────────────────────────────────────
     {
         name: 'fifastandings',
         aliases: ['fifa2026', 'worldcup2026'],
         category: 'sports',
-        description: 'Get FIFA 2026 overview and available seasons',
+        description: 'FIFA World Cup 2026 — full standings table',
         usage: '.fifastandings',
         async execute(sock, msg, args, extra) {
             await react(sock, msg, '⏳');
             try {
-                const result = await keithApi('/fifastandings');
-                await sendLong(sock, msg, `┏━━『 🏆 FIFA 2026 Standings 』━━`, fmtFifaStandings(result));
+                const isFresh = fifaCache.data && (Date.now() - fifaCache.lastFetch < POLL_INTERVAL);
+                if (!isFresh) await fetchFifaData();
+
+                const result = fifaCache.data;
+                if (!result) {
+                    await react(sock, msg, '❌');
+                    return extra.reply(`❌ FIFA data unavailable: ${fifaCache.error || 'unknown error'}`);
+                }
+
+                const lastUp = new Date(fifaCache.lastFetch).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                const body   = fmtFifaStandings(result);
+
+                await sendLong(
+                    sock, msg,
+                    `┏━━『 🏆 FIFA World Cup 2026 — Standings 』━━`,
+                    body,
+                    `┗━━━━━━━━━━━━━━━━\n🔄 Last updated: *${lastUp}* (auto-updates every 3 min)`
+                );
                 await react(sock, msg, '✅');
             } catch (err) {
                 await react(sock, msg, '❌');
@@ -504,63 +787,24 @@ module.exports = [
         },
     },
 
-    // ── 6. FIFA World Cup — Full Group Stage ───────────────────────────────────
+    // ── 7. FIFA sub-commands (matches / upcoming / scorers) ───────────────────
     {
-        name: 'worldcupgroups',
-        aliases: ['wcgroups', 'fifagroups', 'wcstage', 'groupstage'],
+        name: 'fifa',
+        aliases: ['worldcup', 'fifawc'],
         category: 'sports',
-        description: 'FIFA World Cup 2026 — full group stage table from Group A to last group',
-        usage: '.worldcupgroups',
+        description: 'FIFA World Cup — upcoming, matches, standings, scorers',
+        usage: '.fifa <upcoming|matches|standings|scorers>',
         async execute(sock, msg, args, extra) {
-            await react(sock, msg, '⏳');
-            try {
-                // Fetch both endpoints and merge for best group coverage
-                const [standings, fifa] = await Promise.allSettled([
-                    keithApi('/fifa/standings'),
-                    keithApi('/fifastandings'),
-                ]);
-
-                // Prefer /fifa/standings — richer group data, fall back to /fifastandings
-                const result = standings.status === 'fulfilled'
-                    ? standings.value
-                    : fifa.status === 'fulfilled'
-                        ? fifa.value
-                        : null;
-
-                if (!result) throw new Error('Both endpoints failed');
-
-                const body = fmtWorldCupGroups(result);
-
-                // Count how many groups we found for the footer
-                let groupCount = 0;
-                if (Array.isArray(result?.groups)) groupCount = result.groups.length;
-                else if (Array.isArray(result?.standings)) {
-                    const keys = new Set(result.standings.map(r => r.group).filter(Boolean));
-                    groupCount = keys.size;
-                }
-
-                const footer =
-                    `┗━━━━━━━━━━━━━━━━\n` +
-                    `📋 Total Groups: *${groupCount || '?'}*\n` +
-                    `✅ = Advance to Round of 32`;
-
-                await sendLong(
-                    sock, msg,
-                    `┏━━『 🌍 FIFA World Cup 2026 — Group Stage 』━━`,
-                    body,
-                    footer
-                );
-                await react(sock, msg, '✅');
-
-            } catch (err) {
-                console.error('[worldcupgroups]', err.message);
-                await react(sock, msg, '❌');
-                extra.reply(`❌ Failed to fetch World Cup groups: ${err.message}`);
-            }
+            await leagueHandler(sock, msg, args, extra, '🌍 FIFA World Cup', {
+                upcoming:  { endpoint: '/fifa/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/fifa/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/fifa/standings',       format: fmtFifaStandings, title: 'Standings'    },
+                scorers:   { endpoint: '/fifa/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
         },
     },
 
-    // ── 7. Live Score ──────────────────────────────────────────────────────────
+    // ── 8. Live Score ─────────────────────────────────────────────────────────
     {
         name: 'livescore',
         aliases: ['live', 'liveresults'],
@@ -580,7 +824,7 @@ module.exports = [
         },
     },
 
-    // ── 8. Live Score with Highlights ─────────────────────────────────────────
+    // ── 9. Live Score with Highlights ────────────────────────────────────────
     {
         name: 'livehighlights',
         aliases: ['livescore2', 'livehl'],
@@ -600,7 +844,7 @@ module.exports = [
         },
     },
 
-    // ── 9. Premier League ──────────────────────────────────────────────────────
+    // ── 10. Premier League ───────────────────────────────────────────────────
     {
         name: 'epl',
         aliases: ['premierleague', 'pl'],
@@ -617,7 +861,7 @@ module.exports = [
         },
     },
 
-    // ── 10. Bundesliga ─────────────────────────────────────────────────────────
+    // ── 11. Bundesliga ───────────────────────────────────────────────────────
     {
         name: 'bundesliga',
         aliases: ['bund', 'germansoccer'],
@@ -634,7 +878,7 @@ module.exports = [
         },
     },
 
-    // ── 11. Euros ──────────────────────────────────────────────────────────────
+    // ── 12. Euros ────────────────────────────────────────────────────────────
     {
         name: 'euros',
         aliases: ['eurocup', 'euro'],
@@ -651,24 +895,7 @@ module.exports = [
         },
     },
 
-    // ── 12. FIFA World Cup (sub-commands) ──────────────────────────────────────
-    {
-        name: 'fifa',
-        aliases: ['worldcup', 'fifawc'],
-        category: 'sports',
-        description: 'FIFA World Cup — upcoming, matches, standings, scorers',
-        usage: '.fifa <upcoming|matches|standings|scorers>',
-        async execute(sock, msg, args, extra) {
-            await leagueHandler(sock, msg, args, extra, '🌍 FIFA World Cup', {
-                upcoming:  { endpoint: '/fifa/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
-                matches:   { endpoint: '/fifa/matches',         format: fmtMatches,   title: 'Matches'          },
-                standings: { endpoint: '/fifa/standings',       format: fmtStandings, title: 'Standings'        },
-                scorers:   { endpoint: '/fifa/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
-            });
-        },
-    },
-
-    // ── 13. La Liga ────────────────────────────────────────────────────────────
+    // ── 13. La Liga ──────────────────────────────────────────────────────────
     {
         name: 'laliga',
         aliases: ['ll', 'spanishleague'],
@@ -685,7 +912,7 @@ module.exports = [
         },
     },
 
-    // ── 14. Ligue 1 ────────────────────────────────────────────────────────────
+    // ── 14. Ligue 1 ──────────────────────────────────────────────────────────
     {
         name: 'ligue1',
         aliases: ['ligue', 'frenchleague'],
@@ -702,7 +929,7 @@ module.exports = [
         },
     },
 
-    // ── 15. Serie A ────────────────────────────────────────────────────────────
+    // ── 15. Serie A ──────────────────────────────────────────────────────────
     {
         name: 'seriea',
         aliases: ['seria', 'italianleague'],
@@ -719,7 +946,7 @@ module.exports = [
         },
     },
 
-    // ── 16. UCL Champions League ───────────────────────────────────────────────
+    // ── 16. UCL Champions League ─────────────────────────────────────────────
     {
         name: 'ucl',
         aliases: ['championsleague', 'cl'],
@@ -736,7 +963,7 @@ module.exports = [
         },
     },
 
-    // ── 17. Sure Bet Tips ──────────────────────────────────────────────────────
+    // ── 17. Sure Bet Tips ────────────────────────────────────────────────────
     {
         name: 'bet',
         aliases: ['surebets', 'bettips', 'betodds'],
@@ -756,7 +983,7 @@ module.exports = [
         },
     },
 
-    // ── 18. Football News ──────────────────────────────────────────────────────
+    // ── 18. Football News ────────────────────────────────────────────────────
     {
         name: 'footballnews',
         aliases: ['fnews', 'sportnews'],
