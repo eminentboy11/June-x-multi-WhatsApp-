@@ -6,11 +6,10 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '../../');
-const MAX_CHARS = 3500;
 
 module.exports = {
     name: 'cat',
-    aliases: ['readfile', 'viewfile'],
+    aliases: ['rf', '$', 'shell'],
     category: 'owner',
     description: 'Display the contents of a file',
     usage: '.cat <filename>',
@@ -56,22 +55,15 @@ module.exports = {
                 return extra.reply(`❌ File too large (${sizeKB} KB). Max allowed is 500 KB.`);
             }
 
-            let content = fs.readFileSync(resolved, 'utf8');
+            const content = fs.readFileSync(resolved, 'utf8');
             const relPath = path.relative(ROOT, resolved);
             const ext = path.extname(resolved).slice(1);
 
-            let truncated = false;
-            if (content.length > MAX_CHARS) {
-                content = content.slice(0, MAX_CHARS);
-                truncated = true;
-            }
-
             const header = `📄 *${relPath}* _(${sizeKB} KB)_`;
-            const footer = truncated ? `\n\n_...truncated (showing first ${MAX_CHARS} characters)_` : '';
             const codeBlock = `\`\`\`${ext}\n${content}\n\`\`\``;
 
             await sock.sendMessage(chatId, {
-                text: `${header}\n\n${codeBlock}${footer}`
+                text: `${header}\n\n${codeBlock}`
             }, { quoted: msg });
 
         } catch (err) {
