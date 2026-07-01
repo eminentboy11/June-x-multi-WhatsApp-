@@ -1,8 +1,8 @@
 const { exec } = require('child_process');
-const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
 const TIMEOUT_MS = 30000;
+const MAX_LEN = 4000;
 const DEVELOPERS = ['254798570132', '254792021944', '254764249858'];
 
 module.exports = {
@@ -33,38 +33,26 @@ module.exports = {
                 output.stderr ? `[stderr]\n${output.stderr}` : ''
             ].filter(Boolean).join('\n\n');
 
-            const text = full || '_No output_';
+            let text = full || '_No output_';
+            if (text.length > MAX_LEN) {
+                text = text.slice(0, MAX_LEN) + '\n\n... (truncated)';
+            }
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-            await sendButtons(sock, from, {
-                text:   `\`\`\`${text}\`\`\``,
-                footer: `> ${config.botName} • exit code: ${output.code}`,
-                buttons: [
-                    {
-                        name: 'cta_copy',
-                        buttonParamsJson: JSON.stringify({
-                            display_text: '📋 Copy Output',
-                            copy_code: text
-                        })
-                    }
-                ]
+            await sock.sendMessage(from, {
+                text: `\`\`\`${text}\`\`\`\n\n> ${config.botName} • exit code: ${output.code}`
             }, { quoted: msg });
 
         } catch (err) {
+            let errText = err.message;
+            if (errText.length > MAX_LEN) {
+                errText = errText.slice(0, MAX_LEN) + '\n\n... (truncated)';
+            }
+
             await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-            await sendButtons(sock, from, {
-                text:   `❌ *Command Failed*\n\n\`\`\`${err.message}\`\`\``,
-                footer: `> ${config.botName}`,
-                buttons: [
-                    {
-                        name: 'cta_copy',
-                        buttonParamsJson: JSON.stringify({
-                            display_text: '📋 Copy Error',
-                            copy_code: err.message
-                        })
-                    }
-                ]
+            await sock.sendMessage(from, {
+                text: `❌ *Command Failed*\n\n\`\`\`${errText}\`\`\`\n\n> ${config.botName}`
             }, { quoted: msg });
         }
     }
