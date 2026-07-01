@@ -1,613 +1,779 @@
 /**
- * Sports Commands — Powered by ravenn.site (Keith APIs)
- *
- * League commands  (.fifa | .epl | .ucl | .laliga | .seriea | .bundesliga | .ligue1 | .euros)
- *   Subcommands:   upcoming · scores · standings · scorers
- *
- * Special commands
- *   .livescore              — all live football scores
- *   .footballnews           — latest football news
- *   .bettips                — betting predictions & odds
- *   .playsearch  <name>     — search a player
- *   .clubsearch  <name>     — search a club / team
- *   .stadiumsearch <name>   — search a stadium / venue
- *   .matchevents <team vs team> — head-to-head match history
+ * Sport Commands — Powered by Keith API (ravenn.site/sports)
+ * Covers all endpoints including FIFA World Cup full group stage
  */
 
-const axios  = require('axios');
-const { applyFont } = require('../../utils/fontConverter');
+const axios = require('axios');
 
-const BASE       = 'https://ravenn.site';
-const TIMEOUT    = 20000;
-const MAX_LEN    = 3800;
+const BASE = 'https://ravenn.site';
 
-// ── Shared helpers ─────────────────────────────────────────────────────────────
-
-const react = (sock, msg, emoji) =>
-    sock.sendMessage(msg.key.remoteJid, { react: { text: emoji, key: msg.key } }).catch(() => {});
-
-const send = (sock, jid, text, quoted) =>
-    sock.sendMessage(jid, { text: applyFont(text) }, quoted ? { quoted } : undefined);
-
-async function api(path) {
-    const { data } = await axios.get(`${BASE}${path}`, { timeout: TIMEOUT });
-    return data;
+async function keithApi(endpoint, params = {}) {
+    const url = `${BASE}${endpoint}`;
+    const { data } = await axios.get(url, { params, timeout: 30000 });
+    if (!data) throw new Error('No response from API');
+    if (data.status === false) throw new Error(data.error || data.message || 'API error');
+    return data.result !== undefined ? data.result : data;
 }
 
-async function sendChunked(sock, jid, msg, lines) {
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+const react = (sock, msg, emoji) =>
+    sock.sendMessage(msg.key.remoteJid, { react: { text: emoji, key: msg.key } });
+
+const send = (sock, msg, text) =>
+    sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg });
+
+async function sendLong(sock, msg, header, body, footer = '┗━━━━━━━━━━━━━━━━') {
+    const LIMIT = 3500;
+    const lines = body.split('\n');
     const chunks = [];
     let cur = '';
     for (const line of lines) {
-        if ((cur + line + '\n').length > MAX_LEN) {
-            if (cur) chunks.push(cur.trimEnd());
-            cur = '';
-        }
+        if ((cur + line + '\n').length > LIMIT) { chunks.push(cur); cur = ''; }
         cur += line + '\n';
     }
-    if (cur.trim()) chunks.push(cur.trimEnd());
+    if (cur.trim()) chunks.push(cur);
+    if (!chunks.length) chunks.push('_No data available_');
+
     for (let i = 0; i < chunks.length; i++) {
-        await send(sock, jid, chunks[i], i === 0 ? msg : undefined);
+        const part   = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : '';
+        const isLast = i === chunks.length - 1;
+        const text =
+            (i === 0 ? `${header}${part}\n\n` : `${header}${part} cont...\n\n`) +
+            chunks[i] +
+            (isLast ? `\n${footer}` : '');
+        await sock.sendMessage(msg.key.remoteJid, { text }, { quoted: i === 0 ? msg : undefined });
     }
+}
+
+// ── Country flag helper ────────────────────────────────────────────────────────
+
+function countryFlag(name = '') {
+    const n = name.toLowerCase();
+    const flags = {
+        'argentina': '🇦🇷', 'australia': '🇦🇺', 'belgium': '🇧🇪', 'brazil': '🇧🇷',
+        'cameroon': '🇨🇲', 'canada': '🇨🇦', 'chile': '🇨🇱', 'colombia': '🇨🇴',
+        'costa rica': '🇨🇷', 'croatia': '🇭🇷', 'denmark': '🇩🇰', 'ecuador': '🇪🇨',
+        'egypt': '🇪🇬', 'england': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'france': '🇫🇷', 'germany': '🇩🇪',
+        'ghana': '🇬🇭', 'iran': '🇮🇷', 'italy': '🇮🇹', 'japan': '🇯🇵',
+        'kenya': '🇰🇪', 'mexico': '🇲🇽', 'morocco': '🇲🇦', 'netherlands': '🇳🇱',
+        'nigeria': '🇳🇬', 'paraguay': '🇵🇾', 'peru': '🇵🇪', 'poland': '🇵🇱',
+        'portugal': '🇵🇹', 'qatar': '🇶🇦', 'saudi arabia': '🇸🇦', 'senegal': '🇸🇳',
+        'serbia': '🇷🇸', 'south korea': '🇰🇷', 'spain': '🇪🇸', 'switzerland': '🇨🇭',
+        'tunisia': '🇹🇳', 'turkey': '🇹🇷', 'ukraine': '🇺🇦', 'united states': '🇺🇸',
+        'usa': '🇺🇸', 'uruguay': '🇺🇾', 'wales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+    };
+    for (const [country, flag] of Object.entries(flags)) {
+        if (n.includes(country)) return flag;
+    }
+    return '🏳️';
 }
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
-function fmtStandings(data, label) {
-    const rows = data?.result?.standings || [];
-    if (!rows.length) return [`❌ No standings data available for ${label}.`];
-
-    const lines = [
-        `┏━━『 ${label} — STANDINGS 』━━`,
-        '',
-        `${'#'.padEnd(3)} ${'Team'.padEnd(26)} ${'P'.padEnd(3)}${'W'.padEnd(3)}${'D'.padEnd(3)}${'L'.padEnd(3)} GD   Pts`,
-        '─'.repeat(52),
-    ];
-
-    for (const r of rows) {
-        const pos = String(r.position || '').padEnd(3);
-        const team = String(r.team || '???').slice(0, 25).padEnd(26);
-        const p  = String(r.played  || 0).padEnd(3);
-        const w  = String(r.won     || 0).padEnd(3);
-        const d  = String(r.draw    || 0).padEnd(3);
-        const l  = String(r.lost    || 0).padEnd(3);
-        const gd = (r.goalsFor || 0) - (r.goalsAgainst || 0);
-        const gdStr = String(gd >= 0 ? `+${gd}` : gd).padEnd(5);
-        const pts = String(r.points || 0);
-        lines.push(`${pos}${team}${p}${w}${d}${l}${gdStr}${pts}`);
-    }
-
-    lines.push('');
-    lines.push('┗━━━━━━━━━━━━━━━━');
-    return lines;
+function fmtPlayers(result) {
+    const arr = Array.isArray(result) ? result : [];
+    if (!arr.length) return '_No players found_';
+    return arr.slice(0, 10).map((p, i) => {
+        let t = `*${i + 1}. ${p.name || p.strPlayer || 'Unknown'}*\n`;
+        if (p.team)        t += `   🏟️ Team: ${p.team}\n`;
+        if (p.sport)       t += `   🏅 Sport: ${p.sport}\n`;
+        if (p.nationality) t += `   🌍 Nationality: ${p.nationality}\n`;
+        if (p.position)    t += `   📍 Position: ${p.position}\n`;
+        if (p.birthDate)   t += `   🎂 Born: ${p.birthDate}\n`;
+        if (p.status)      t += `   ✅ Status: ${p.status}\n`;
+        return t;
+    }).join('\n');
 }
 
-function fmtUpcoming(data, label) {
-    const matches = data?.result?.upcomingMatches || [];
-    if (!matches.length) return [`❌ No upcoming fixtures for ${label}.`];
-
-    const lines = [
-        `┏━━『 ${label} — UPCOMING FIXTURES 』━━`,
-        '',
-    ];
-
-    for (const m of matches.slice(0, 25)) {
-        const day  = m.matchday ? `MD${m.matchday}` : '';
-        const home = m.homeTeam || '???';
-        const away = m.awayTeam || '???';
-        const date = m.date     || '';
-        lines.push(`📅 ${home} 🆚 ${away}`);
-        if (date) lines.push(`   🕐 ${date}${day ? '  ' + day : ''}`);
-        lines.push('');
-    }
-
-    lines.push('┗━━━━━━━━━━━━━━━━');
-    return lines;
+function fmtTeams(result) {
+    const arr = Array.isArray(result) ? result : [];
+    if (!arr.length) return '_No teams found_';
+    return arr.slice(0, 5).map((t, i) => {
+        let s = `*${i + 1}. ${t.name || 'Unknown'}*\n`;
+        if (t.league)          s += `   🏆 League: ${t.league}\n`;
+        if (t.sport)           s += `   🏅 Sport: ${t.sport}\n`;
+        if (t.stadium)         s += `   🏟️ Stadium: ${t.stadium}\n`;
+        if (t.stadiumCapacity) s += `   👥 Capacity: ${Number(t.stadiumCapacity).toLocaleString()}\n`;
+        if (t.location)        s += `   📍 Location: ${t.location}\n`;
+        if (t.country)         s += `   🌍 Country: ${t.country}\n`;
+        if (t.formedYear)      s += `   📅 Founded: ${t.formedYear}\n`;
+        if (t.social?.website) s += `   🌐 ${t.social.website}\n`;
+        if (t.description) {
+            const desc = String(t.description).slice(0, 200).trim();
+            s += `   📝 ${desc}...\n`;
+        }
+        return s;
+    }).join('\n');
 }
 
-function fmtScores(data, label) {
-    const matches = data?.result?.matches || [];
-    if (!matches.length) return [`❌ No match data for ${label}.`];
-
-    const lines = [
-        `┏━━『 ${label} — SCORES 』━━`,
-        '',
-    ];
-
-    for (const m of matches.slice(0, 25)) {
-        const home   = m.homeTeam || '???';
-        const away   = m.awayTeam || '???';
-        const score  = m.score   || '- -';
-        const status = (m.status || '').toUpperCase();
-        const icon   = status === 'FINISHED' ? '✅' : status === 'IN_PLAY' || status === 'LIVE' ? '🔴' : '⏳';
-        const day    = m.matchday ? `MD${m.matchday}` : '';
-        lines.push(`${icon} ${home} ${score} ${away}${day ? '  [' + day + ']' : ''}`);
-    }
-
-    lines.push('');
-    lines.push('┗━━━━━━━━━━━━━━━━');
-    return lines;
+function fmtVenues(result) {
+    const arr = Array.isArray(result) ? result : [];
+    if (!arr.length) return '_No venues found_';
+    return arr.slice(0, 5).map((v, i) => {
+        let s = `*${i + 1}. ${v.name || 'Unknown'}*\n`;
+        if (v.sport)    s += `   🏅 Sport: ${v.sport}\n`;
+        if (v.capacity) s += `   👥 Capacity: ${Number(v.capacity).toLocaleString()}\n`;
+        if (v.location) s += `   📍 Location: ${v.location}\n`;
+        if (v.country)  s += `   🌍 Country: ${v.country}\n`;
+        if (v.description) {
+            const desc = String(v.description).slice(0, 200).trim();
+            s += `   📝 ${desc}...\n`;
+        }
+        return s;
+    }).join('\n');
 }
 
-function fmtScorers(data, label) {
-    const scorers = data?.result?.scorers || data?.result || [];
-    const list = Array.isArray(scorers) ? scorers : [];
-    if (!list.length) return [`❌ Top scorers not available for ${label} right now.`];
+function fmtGameEvents(result) {
+    const arr = Array.isArray(result) ? result : [];
+    if (!arr.length) return '_No events found_';
+    return arr.slice(0, 10).map(e => {
+        const home   = e.teams?.home?.name || e.homeTeam || '?';
+        const away   = e.teams?.away?.name || e.awayTeam || '?';
+        const hs     = e.teams?.home?.score;
+        const as_    = e.teams?.away?.score;
+        const date   = e.dateTime?.date || e.date || '';
+        const time   = e.dateTime?.time?.slice(0, 5) || '';
+        const venue  = e.venue?.name || '';
+        const status = e.status || '';
+        const season = e.season || '';
+        let s = `┏ *${home}* vs *${away}*\n`;
+        if (hs !== null && hs !== undefined && as_ !== null && as_ !== undefined)
+            s += `┃ 📊 Score: ${hs} - ${as_}\n`;
+        if (date)   s += `┃ 📅 ${date}${time ? ' ' + time : ''}\n`;
+        if (venue)  s += `┃ 🏟️ ${venue}\n`;
+        if (status) s += `┃ 🔄 ${status}\n`;
+        if (season) s += `┃ 📋 Season: ${season}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    }).join('\n');
+}
 
-    const lines = [
-        `┏━━『 ${label} — TOP SCORERS 』━━`,
-        '',
-    ];
-
-    list.slice(0, 20).forEach((s, i) => {
-        const name  = s.player?.name || s.name || '???';
-        const team  = s.team?.name   || s.team || '';
-        const goals = s.goals        || s.numberOfGoals || '?';
-        lines.push(`${String(i + 1).padEnd(3)} ⚽ ${name}${team ? ' (' + team + ')' : ''}  — ${goals} goals`);
+function fmtStandings(result) {
+    const arr = result?.standings || (Array.isArray(result) ? result : []);
+    if (!arr.length) return '_No standings data available_';
+    const comp = result?.competition ? `${result.competition}\n\n` : '';
+    const rows = arr.slice(0, 25).map(r => {
+        const pos  = String(r.position || r.pos || '').padStart(2);
+        const team = (r.team || r.name || '?').padEnd(28);
+        const p    = r.played ?? r.mp ?? 0;
+        const w    = r.won   ?? r.w  ?? 0;
+        const d    = r.draw  ?? r.drawn ?? r.d ?? 0;
+        const l    = r.lost  ?? r.l  ?? 0;
+        const pts  = r.points ?? r.pts ?? 0;
+        const gd   = r.goalDifference ?? r.gd ?? '';
+        return `${pos}. ${team} P${p} W${w} D${d} L${l}${gd !== '' ? ' GD' + gd : ''} | *${pts}pts*`;
     });
-
-    lines.push('');
-    lines.push('┗━━━━━━━━━━━━━━━━');
-    return lines;
+    return comp + rows.join('\n');
 }
 
-// ── League command factory ─────────────────────────────────────────────────────
+function fmtScorers(result) {
+    const arr = result?.topScorers || result?.scorers || (Array.isArray(result) ? result : []);
+    if (!arr.length) return '_No scorers data available_';
+    const comp = result?.competition ? `${result.competition}\n\n` : '';
+    const rows = arr.slice(0, 20).map((s, i) => {
+        const rank    = s.rank || s.position || (i + 1);
+        const player  = s.player || s.name || s.strPlayer || '?';
+        const team    = s.team || s.club || '';
+        const goals   = s.goals ?? s.scored ?? s.numberOfGoals ?? '?';
+        const assists = s.assists ?? '';
+        let t = `*${rank}.* ⚽ ${player}${team ? ` (${team})` : ''}\n`;
+        t += `    Goals: *${goals}*${assists !== '' ? ` │ Assists: ${assists}` : ''}\n`;
+        return t;
+    });
+    return comp + rows.join('');
+}
 
-const LEAGUES = {
-    fifa:       { prefix: '/fifa',        label: '🌍 FIFA World Cup',       aliases: ['wc', 'worldcup']            },
-    epl:        { prefix: '/epl',         label: '⚽ Premier League',        aliases: ['premierleague', 'pl']       },
-    ucl:        { prefix: '/ucl',         label: '🏆 Champions League',      aliases: ['championsleague', 'cl']     },
-    laliga:     { prefix: '/laliga',      label: '🇪🇸 La Liga',             aliases: ['ll', 'spain']               },
-    seriea:     { prefix: '/seriea',      label: '🇮🇹 Serie A',             aliases: ['serie', 'italy']            },
-    bundesliga: { prefix: '/bundesliga',  label: '🇩🇪 Bundesliga',          aliases: ['bund', 'germany']           },
-    ligue1:     { prefix: '/ligue1',      label: '🇫🇷 Ligue 1',            aliases: ['ligue', 'france']           },
-    euros:      { prefix: '/euros',       label: '🇪🇺 UEFA Euros',          aliases: ['euro', 'euros2024']         },
-};
+function fmtMatches(result) {
+    const matches = result?.upcomingMatches || result?.matches || result?.fixtures ||
+                    (Array.isArray(result) ? result : []);
+    if (!matches.length) return '_No matches data available_';
+    const comp = result?.competition ? `${result.competition}\n\n` : '';
+    const rows = matches.slice(0, 15).map(m => {
+        const home  = m.homeTeam || m.home || m.team1 || '?';
+        const away  = m.awayTeam || m.away || m.team2 || '?';
+        const score = m.score || (m.homeScore !== undefined ? `${m.homeScore} - ${m.awayScore}` : null);
+        const date  = m.date || m.utcDate || '';
+        const day   = m.matchday ? `MD${m.matchday}` : '';
+        let s = `┏ ${home} vs ${away}\n`;
+        if (score) s += `┃ 📊 ${score}\n`;
+        if (day)   s += `┃ 📋 ${day}\n`;
+        if (date)  s += `┃ 📅 ${date}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    });
+    return comp + rows.join('\n');
+}
 
-const SUBS = ['upcoming', 'scores', 'standings', 'scorers'];
+function fmtLivescore(result) {
+    const gamesObj = result?.games || result;
+    let games = Array.isArray(gamesObj) ? gamesObj : Object.values(gamesObj || {});
+    if (!games.length) return '_No live games right now_';
+    return games.slice(0, 20).map(g => {
+        const home   = g.p1 || g.home || '?';
+        const away   = g.p2 || g.away || '?';
+        const s1     = g.R?.r1 ?? g.homeScore ?? '';
+        const s2     = g.R?.r2 ?? g.awayScore ?? '';
+        const status = g.R?.st || g.status || '';
+        const date   = g.dt || '';
+        const time   = g.tm || '';
+        let s = `┏ ${home} *${s1}* - *${s2}* ${away}\n`;
+        if (status) s += `┃ ⏱ ${status}\n`;
+        if (date)   s += `┃ 📅 ${date}${time ? ' ' + time : ''}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    }).join('\n');
+}
 
-function makeLeagueCommand(name, { prefix, label, aliases }) {
-    const helpText =
-        `┏━━『 ${label} 』━━\n\n` +
-        `Usage: *.${name} <option>*\n\n` +
-        `  📅 *upcoming*   — Next fixtures\n` +
-        `  📊 *scores*     — Results / live\n` +
-        `  🏆 *standings*  — League table\n` +
-        `  👟 *scorers*    — Top goal scorers\n\n` +
-        `Example: *.${name} standings*\n\n` +
-        `┗━━━━━━━━━━━━━━━━`;
+function fmtLivescore2(result) {
+    const list = result?.data?.list || result?.list || (Array.isArray(result) ? result : []);
+    if (!list.length) return '_No live highlights right now_';
+    return list.slice(0, 15).map(g => {
+        const t1     = g.team1?.name || '?';
+        const t2     = g.team2?.name || '?';
+        const s1     = g.team1?.score ?? '';
+        const s2     = g.team2?.score ?? '';
+        const status = g.status || '';
+        let s = `┏ ${t1} *${s1}* - *${s2}* ${t2}\n`;
+        if (status)    s += `┃ 🔴 ${status}\n`;
+        if (g.playPath) s += `┃ 🎬 ${g.playPath}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    }).join('\n');
+}
 
-    return {
-        name,
-        aliases,
+function fmtNews(result) {
+    const items = result?.data?.items || result?.items || (Array.isArray(result) ? result : []);
+    if (!items.length) return '_No news available_';
+    return items.slice(0, 10).map((n, i) => {
+        const title   = n.title || n.headline || '';
+        const summary = n.summary || n.description || '';
+        const date    = n.date || (n.createdAt ? new Date(Number(n.createdAt)).toLocaleDateString() : '');
+        let s = `*${i + 1}. ${title}*\n`;
+        if (date)    s += `📅 ${date}\n`;
+        if (summary) s += `${String(summary).slice(0, 250)}\n`;
+        return s + '\n';
+    }).join('');
+}
+
+function fmtBet(result) {
+    const arr = Array.isArray(result) ? result : (result?.tips || result?.bets || []);
+    if (!arr.length) return '_No bet tips available right now. Try again later._';
+    return arr.slice(0, 15).map((b, i) => {
+        const match = b.match || b.game || b.fixture || `Match ${i + 1}`;
+        const tip   = b.tip || b.prediction || b.pick || '';
+        const odds  = b.odds || b.odd || '';
+        const conf  = b.confidence || b.probability || '';
+        let s = `*${i + 1}. ${match}*\n`;
+        if (tip)  s += `   🎯 Tip: ${tip}\n`;
+        if (odds) s += `   💰 Odds: ${odds}\n`;
+        if (conf) s += `   📊 Confidence: ${conf}\n`;
+        return s;
+    }).join('\n');
+}
+
+function fmtFifaStandings(result) {
+    if (!result) return '_No FIFA data available_';
+    const groups = result.groups || result.table || result.standings;
+    if (Array.isArray(groups) && groups.length) return fmtStandings({ standings: groups });
+    const details = result.details || result;
+    let s = `🌍 *FIFA World Cup 2026*\n\n`;
+    if (details.name)           s += `🏆 Competition: ${details.name}\n`;
+    if (details.selectedSeason) s += `📅 Season: ${details.selectedSeason}\n`;
+    if (details.country)        s += `🌍 Country: ${details.country}\n`;
+    const seasons = result.allAvailableSeasons;
+    if (seasons?.length)        s += `\n📋 Available seasons: ${seasons.slice(0, 5).join(', ')}\n`;
+    return s;
+}
+
+// ── World Cup group stage formatter ───────────────────────────────────────────
+
+function fmtWorldCupGroups(result) {
+    // ── Extract group map from various API response shapes ─────────────────
+    let groupMap = {}; // { 'A': [...teams], 'B': [...teams], ... }
+
+    // Shape 1: result.groups = [ { group: 'A', standings: [...] }, ... ]
+    if (Array.isArray(result?.groups)) {
+        for (const g of result.groups) {
+            const label = (g.group || g.name || g.stage || '').replace(/Group\s*/i, '').trim();
+            const teams = g.standings || g.teams || g.table || [];
+            if (label && teams.length) groupMap[label] = teams;
+        }
+    }
+
+    // Shape 2: result.standings is a flat array with a 'group' field per row
+    if (!Object.keys(groupMap).length && Array.isArray(result?.standings)) {
+        for (const row of result.standings) {
+            const g = (row.group || row.stage || '').replace(/Group\s*/i, '').trim();
+            if (!g) continue;
+            if (!groupMap[g]) groupMap[g] = [];
+            groupMap[g].push(row);
+        }
+    }
+
+    // Shape 3: flat top-level array with group field
+    if (!Object.keys(groupMap).length && Array.isArray(result)) {
+        for (const row of result) {
+            const g = (row.group || row.stage || '').replace(/Group\s*/i, '').trim();
+            if (!g) continue;
+            if (!groupMap[g]) groupMap[g] = [];
+            groupMap[g].push(row);
+        }
+    }
+
+    const groupKeys = Object.keys(groupMap).sort();
+
+    if (!groupKeys.length) {
+        // No group breakdown — show raw overview with a note
+        return fmtFifaStandings(result) +
+            '\n\n_ℹ️ Full group breakdown not yet released by API._';
+    }
+
+    // ── Build grouped table ────────────────────────────────────────────────
+    let body = '';
+
+    for (const key of groupKeys) {
+        const teams = groupMap[key];
+
+        body += `🔷 *GROUP ${key}*\n`;
+        body += `${'─'.repeat(44)}\n`;
+        body += `${'Team'.padEnd(22)} MP  W  D  L  GF GA GD Pts\n`;
+
+        teams.forEach((t, idx) => {
+            const name = (t.team || t.name || t.country || '?').slice(0, 20).padEnd(22);
+            const mp   = String(t.played        ?? t.mp  ?? t.pld ?? 0).padStart(2);
+            const w    = String(t.won           ?? t.w   ?? 0).padStart(2);
+            const d    = String(t.draw          ?? t.drawn ?? t.d ?? 0).padStart(2);
+            const l    = String(t.lost          ?? t.l   ?? 0).padStart(2);
+            const gf   = String(t.goalsFor      ?? t.gf  ?? t.scored    ?? 0).padStart(3);
+            const ga   = String(t.goalsAgainst  ?? t.ga  ?? t.conceded  ?? 0).padStart(3);
+            const gd   = String(t.goalDifference ?? t.gd ?? 0).padStart(3);
+            const pts  = String(t.points        ?? t.pts ?? 0).padStart(3);
+            const flag = countryFlag(t.team || t.name || t.country || '');
+
+            // Top 2 advance marker
+            const marker = idx < 2 ? '✅' : '  ';
+
+            body += `${marker}${flag} ${name}${mp} ${w} ${d} ${l} ${gf}${ga}${gd}${pts}\n`;
+        });
+
+        body += '\n';
+    }
+
+    return body;
+}
+
+// ── League sub-command handler ─────────────────────────────────────────────────
+
+async function leagueHandler(sock, msg, args, extra, label, endpoints) {
+    const sub       = (args[0] || '').toLowerCase();
+    const validSubs = Object.keys(endpoints);
+
+    if (!sub || !validSubs.includes(sub)) {
+        return send(sock, msg,
+            `┏━━『 ${label} 』━━\n\n` +
+            `Usage: .${extra.command} <option>\n\n` +
+            `Options:\n` + validSubs.map(s => `  • *${s}*`).join('\n') +
+            `\n\n┗━━━━━━━━━━━━━━━━`
+        );
+    }
+
+    await react(sock, msg, '⏳');
+    try {
+        const { endpoint, format, title } = endpoints[sub];
+        const result = await keithApi(endpoint);
+        const body   = format(result);
+        await sendLong(sock, msg, `┏━━『 ${label} — ${title} 』━━`, body);
+        await react(sock, msg, '✅');
+    } catch (err) {
+        console.error(`[${label}/${sub}]`, err.message);
+        await react(sock, msg, '❌');
+        extra.reply(`❌ ${label} ${sub} failed: ${err.message}`);
+    }
+}
+
+// ── Commands ───────────────────────────────────────────────────────────────────
+
+module.exports = [
+
+    // ── 1. Player Search ───────────────────────────────────────────────────────
+    {
+        name: 'playersearch',
+        aliases: ['psearch', 'kplayer'],
         category: 'sports',
-        description: `${label} — upcoming fixtures, scores, standings & top scorers`,
-        usage: `.${name} <upcoming | scores | standings | scorers>`,
-
+        description: 'Search for any sport player',
+        usage: '.playersearch <player name>',
         async execute(sock, msg, args, extra) {
-            const sub    = args[0]?.toLowerCase();
-            const chatId = extra.from;
-
-            if (!sub || !SUBS.includes(sub)) {
-                return extra.reply(applyFont(helpText));
-            }
-
-            const emojiMap = { upcoming: '📅', scores: '📊', standings: '🏆', scorers: '👟' };
-            await react(sock, msg, emojiMap[sub]);
-
+            const q = args.join(' ').trim();
+            if (!q) return extra.reply('❌ Provide a player name.\n\nExample: *.playersearch Bukayo Saka*');
+            await react(sock, msg, '🔍');
             try {
-                let path, lines;
+                const result = await keithApi('/sport/playersearch', { q });
+                await sendLong(sock, msg, `┏━━『 🔍 Player Search: "${q}" 』━━`, fmtPlayers(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Search failed: ${err.message}`);
+            }
+        },
+    },
 
-                if (sub === 'upcoming') {
-                    path  = `${prefix}/upcomingmatches`;
-                    const data = await api(path);
-                    if (!data.status) throw new Error(data.error || 'API error');
-                    lines = fmtUpcoming(data, label);
+    // ── 2. Team Search ─────────────────────────────────────────────────────────
+    {
+        name: 'kteamsearch',
+        aliases: ['tsearch', 'kteam'],
+        category: 'sports',
+        description: 'Search for any sport team',
+        usage: '.kteamsearch <team name>',
+        async execute(sock, msg, args, extra) {
+            const q = args.join(' ').trim();
+            if (!q) return extra.reply('❌ Provide a team name.\n\nExample: *.kteamsearch Arsenal*');
+            await react(sock, msg, '🔍');
+            try {
+                const result = await keithApi('/sport/teamsearch', { q });
+                await sendLong(sock, msg, `┏━━『 🔍 Team Search: "${q}" 』━━`, fmtTeams(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Search failed: ${err.message}`);
+            }
+        },
+    },
 
-                } else if (sub === 'scores') {
-                    path  = `${prefix}/matches`;
-                    const data = await api(path);
-                    if (!data.status) throw new Error(data.error || 'API error');
-                    lines = fmtScores(data, label);
+    // ── 3. Venue Search ────────────────────────────────────────────────────────
+    {
+        name: 'venuesearch',
+        aliases: ['stadium', 'findvenue'],
+        category: 'sports',
+        description: 'Search for a stadium/venue',
+        usage: '.venuesearch <venue name>',
+        async execute(sock, msg, args, extra) {
+            const q = args.join(' ').trim();
+            if (!q) return extra.reply('❌ Provide a venue name.\n\nExample: *.venuesearch Emirates*');
+            await react(sock, msg, '🔍');
+            try {
+                const result = await keithApi('/sport/venuesearch', { q });
+                await sendLong(sock, msg, `┏━━『 🏟️ Venue Search: "${q}" 』━━`, fmtVenues(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Search failed: ${err.message}`);
+            }
+        },
+    },
 
-                } else if (sub === 'standings') {
-                    path  = `${prefix}/standings`;
-                    const data = await api(path);
-                    if (!data.status) throw new Error(data.error || 'API error');
-                    lines = fmtStandings(data, label);
+    // ── 4. Game Events / H2H ───────────────────────────────────────────────────
+    {
+        name: 'gameevents',
+        aliases: ['matchhistory', 'h2h'],
+        category: 'sports',
+        description: 'Game events/history between two teams',
+        usage: '.gameevents <team vs team>',
+        async execute(sock, msg, args, extra) {
+            const q = args.join(' ').trim();
+            if (!q) return extra.reply('❌ Provide a match query.\n\nExample: *.gameevents Arsenal vs Chelsea*');
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/sport/gameevents', { q });
+                await sendLong(sock, msg, `┏━━『 📋 Game Events: "${q}" 』━━`, fmtGameEvents(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed: ${err.message}`);
+            }
+        },
+    },
 
-                } else if (sub === 'scorers') {
-                    path  = `${prefix}/scorers`;
-                    const data = await api(path);
-                    if (!data.status) throw new Error(data.error || 'API error');
-                    lines = fmtScorers(data, label);
+    // ── 5. FIFA 2026 Standings Overview ────────────────────────────────────────
+    {
+        name: 'fifastandings',
+        aliases: ['fifa2026', 'worldcup2026'],
+        category: 'sports',
+        description: 'Get FIFA 2026 overview and available seasons',
+        usage: '.fifastandings',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/fifastandings');
+                await sendLong(sock, msg, `┏━━『 🏆 FIFA 2026 Standings 』━━`, fmtFifaStandings(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 6. FIFA World Cup — Full Group Stage ───────────────────────────────────
+    {
+        name: 'worldcupgroups',
+        aliases: ['wcgroups', 'fifagroups', 'wcstage', 'groupstage'],
+        category: 'sports',
+        description: 'FIFA World Cup 2026 — full group stage table from Group A to last group',
+        usage: '.worldcupgroups',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                // Fetch both endpoints and merge for best group coverage
+                const [standings, fifa] = await Promise.allSettled([
+                    keithApi('/fifa/standings'),
+                    keithApi('/fifastandings'),
+                ]);
+
+                // Prefer /fifa/standings — richer group data, fall back to /fifastandings
+                const result = standings.status === 'fulfilled'
+                    ? standings.value
+                    : fifa.status === 'fulfilled'
+                        ? fifa.value
+                        : null;
+
+                if (!result) throw new Error('Both endpoints failed');
+
+                const body = fmtWorldCupGroups(result);
+
+                // Count how many groups we found for the footer
+                let groupCount = 0;
+                if (Array.isArray(result?.groups)) groupCount = result.groups.length;
+                else if (Array.isArray(result?.standings)) {
+                    const keys = new Set(result.standings.map(r => r.group).filter(Boolean));
+                    groupCount = keys.size;
                 }
 
-                await sendChunked(sock, chatId, msg, lines);
+                const footer =
+                    `┗━━━━━━━━━━━━━━━━\n` +
+                    `📋 Total Groups: *${groupCount || '?'}*\n` +
+                    `✅ = Advance to Round of 32`;
+
+                await sendLong(
+                    sock, msg,
+                    `┏━━『 🌍 FIFA World Cup 2026 — Group Stage 』━━`,
+                    body,
+                    footer
+                );
                 await react(sock, msg, '✅');
 
             } catch (err) {
-                console.error(`[${name} ${sub}]`, err.message);
+                console.error('[worldcupgroups]', err.message);
                 await react(sock, msg, '❌');
-                extra.reply(`❌ Could not fetch ${label} ${sub}: ${err.message}`);
+                extra.reply(`❌ Failed to fetch World Cup groups: ${err.message}`);
             }
         },
-    };
-}
-
-// ── Special commands ───────────────────────────────────────────────────────────
-
-const livescoreCmd = {
-    name: 'livescore',
-    aliases: ['live', 'livenow'],
-    category: 'sports',
-    description: 'All live football scores right now',
-    usage: '.livescore',
-
-    async execute(sock, msg, args, extra) {
-        await react(sock, msg, '🔴');
-        try {
-            const data = await api('/livescore');
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const games = data.result?.games || {};
-            const list  = Object.values(games);
-
-            if (!list.length) {
-                return send(sock, extra.from,
-                    `┏━━『 🔴 LIVE SCORES 』━━\n\nNo live matches at the moment.\n\n┗━━━━━━━━━━━━━━━━`, msg);
-            }
-
-            const lines = [`┏━━『 🔴 LIVE SCORES (${list.length} matches) 』━━`, ''];
-
-            for (const g of list) {
-                const home  = g.p1 || '???';
-                const away  = g.p2 || '???';
-                const hs    = g.l1 != null && g.l1 !== '' ? g.l1 : '-';
-                const as    = g.l2 != null && g.l2 !== '' ? g.l2 : '-';
-                const time  = g.tm  || '';
-                const date  = g.dt  || '';
-                lines.push(`🔴 ${home} ${hs} - ${as} ${away}`);
-                if (date || time) lines.push(`   📅 ${date} ${time}`.trimEnd());
-                lines.push('');
-            }
-
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[livescore]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Could not fetch live scores: ${err.message}`);
-        }
     },
-};
 
-const footballNewsCmd = {
-    name: 'footballnews',
-    aliases: ['fnews', 'sportnews'],
-    category: 'sports',
-    description: 'Latest football news headlines',
-    usage: '.footballnews',
-
-    async execute(sock, msg, args, extra) {
-        await react(sock, msg, '📰');
-        try {
-            const data = await api('/football/news');
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const items = data.result?.data?.items || [];
-            if (!items.length) {
-                return send(sock, extra.from, `┏━━『 📰 FOOTBALL NEWS 』━━\n\nNo news available.\n\n┗━━━━━━━━━━━━━━━━`, msg);
+    // ── 7. Live Score ──────────────────────────────────────────────────────────
+    {
+        name: 'livescore',
+        aliases: ['live', 'liveresults'],
+        category: 'sports',
+        description: 'Get current football live scores',
+        usage: '.livescore',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/livescore');
+                await sendLong(sock, msg, `┏━━『 🔴 LIVE SCORES 』━━`, fmtLivescore(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed: ${err.message}`);
             }
-
-            const lines = [`┏━━『 📰 FOOTBALL NEWS 』━━`, ''];
-
-            for (const item of items.slice(0, 10)) {
-                const title  = item.t || item.title   || item.headline || 'No title';
-                const source = item.s || item.source  || '';
-                const url    = item.u || item.url     || item.link || '';
-                lines.push(`📌 ${title}`);
-                if (source) lines.push(`   📡 ${source}`);
-                if (url)    lines.push(`   🔗 ${url}`);
-                lines.push('');
-            }
-
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[footballnews]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Could not fetch football news: ${err.message}`);
-        }
+        },
     },
-};
 
-const betTipsCmd = {
-    name: 'bettips',
-    aliases: ['bet', 'odds', 'predictions'],
-    category: 'sports',
-    description: 'Sure bet tips and match predictions with odds',
-    usage: '.bettips',
-
-    async execute(sock, msg, args, extra) {
-        await react(sock, msg, '🎯');
-        try {
-            const data = await api('/bet');
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const tips = data.result || [];
-            if (!tips.length) {
-                return send(sock, extra.from, `┏━━『 🎯 BET TIPS 』━━\n\nNo tips available right now.\n\n┗━━━━━━━━━━━━━━━━`, msg);
+    // ── 8. Live Score with Highlights ─────────────────────────────────────────
+    {
+        name: 'livehighlights',
+        aliases: ['livescore2', 'livehl'],
+        category: 'sports',
+        description: 'Get live scores with highlight stream links',
+        usage: '.livehighlights',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/livescore2');
+                await sendLong(sock, msg, `┏━━『 🔴 LIVE SCORES + HIGHLIGHTS 』━━`, fmtLivescore2(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed: ${err.message}`);
             }
-
-            const lines = [`┏━━『 🎯 BET TIPS & PREDICTIONS 』━━`, ''];
-
-            for (const tip of tips.slice(0, 15)) {
-                const match  = tip.match  || '???';
-                const league = tip.league || '';
-                const time   = tip.time   || '';
-                const ft     = tip.predictions?.fulltime    || {};
-                const o25    = tip.predictions?.over_2_5    || {};
-                const btts   = tip.predictions?.bothTeamToScore || {};
-                const result = tip.result;
-
-                lines.push(`⚽ *${match}*`);
-                if (league) lines.push(`   🏆 ${league}`);
-                if (time)   lines.push(`   🕐 ${time}`);
-                if (ft.home !== undefined) {
-                    lines.push(`   📊 1X2: Home ${ft.home}%  Draw ${ft.draw}%  Away ${ft.away}%`);
-                }
-                if (o25.yes !== undefined) lines.push(`   📈 Over 2.5: ${o25.yes}%`);
-                if (btts.yes !== undefined) lines.push(`   🥅 BTTS: ${btts.yes}%`);
-                if (result !== null && result !== undefined) lines.push(`   ✅ Result: ${result}`);
-                lines.push('');
-            }
-
-            lines.push('⚠️ Tips are predictions only. Bet responsibly.');
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[bettips]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Could not fetch bet tips: ${err.message}`);
-        }
+        },
     },
-};
 
-const playSearchCmd = {
-    name: 'playsearch',
-    aliases: ['psearch', 'findplaya'],
-    category: 'sports',
-    description: 'Search for a sports player by name',
-    usage: '.playsearch <player name>',
-
-    async execute(sock, msg, args, extra) {
-        const query = args.join(' ').trim();
-        if (!query) return extra.reply(applyFont(
-            `┏━━『 🔍 PLAYER SEARCH 』━━\n\nUsage: *.playsearch <name>*\n\nExample: *.playsearch Bukayo Saka*\n\n┗━━━━━━━━━━━━━━━━`
-        ));
-
-        await react(sock, msg, '🔍');
-        try {
-            const data = await api(`/sport/playersearch?q=${encodeURIComponent(query)}`);
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const players = data.result || [];
-            if (!players.length) {
-                return send(sock, extra.from, `❌ No players found for *"${query}"*`, msg);
-            }
-
-            const lines = [`┏━━『 🔍 PLAYER SEARCH: "${query}" 』━━`, ''];
-
-            for (const p of players.slice(0, 8)) {
-                const name  = p.name  || '???';
-                const team  = p.team  || '';
-                const sport = p.sport || '';
-                const nat   = p.nationality || p.strNationality || '';
-                const pos   = p.position    || p.strPosition    || '';
-                const born  = p.dateBorn    || '';
-                const id    = p.id          || '';
-                lines.push(`👤 *${name}*`);
-                if (team)  lines.push(`   🏟️ Team: ${team}`);
-                if (sport) lines.push(`   🏅 Sport: ${sport}`);
-                if (nat)   lines.push(`   🌍 Nationality: ${nat}`);
-                if (pos)   lines.push(`   📍 Position: ${pos}`);
-                if (born)  lines.push(`   🎂 Born: ${born}`);
-                if (id)    lines.push(`   🆔 ID: ${id}`);
-                lines.push('');
-            }
-
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[playsearch]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Player search failed: ${err.message}`);
-        }
+    // ── 9. Premier League ──────────────────────────────────────────────────────
+    {
+        name: 'epl',
+        aliases: ['premierleague', 'pl'],
+        category: 'sports',
+        description: 'EPL — upcoming, matches, standings, scorers',
+        usage: '.epl <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '⚽ Premier League', {
+                upcoming:  { endpoint: '/epl/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/epl/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/epl/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/epl/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
     },
-};
 
-const clubSearchCmd = {
-    name: 'clubsearch',
-    aliases: ['csearch', 'findclub'],
-    category: 'sports',
-    description: 'Search for a sports team / club by name',
-    usage: '.clubsearch <team name>',
-
-    async execute(sock, msg, args, extra) {
-        const query = args.join(' ').trim();
-        if (!query) return extra.reply(applyFont(
-            `┏━━『 🔍 CLUB SEARCH 』━━\n\nUsage: *.clubsearch <name>*\n\nExample: *.clubsearch Arsenal*\n\n┗━━━━━━━━━━━━━━━━`
-        ));
-
-        await react(sock, msg, '🏟️');
-        try {
-            const data = await api(`/sport/teamsearch?q=${encodeURIComponent(query)}`);
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const teams = data.result || [];
-            if (!teams.length) {
-                return send(sock, extra.from, `❌ No clubs found for *"${query}"*`, msg);
-            }
-
-            const lines = [`┏━━『 🏟️ CLUB SEARCH: "${query}" 』━━`, ''];
-
-            for (const t of teams.slice(0, 8)) {
-                const name   = t.name         || '???';
-                const short  = t.shortName    || '';
-                const league = t.league       || t.strLeague || '';
-                const sport  = t.sport        || '';
-                const formed = t.formedYear   || '';
-                const nation = t.country      || t.strCountry || '';
-                const id     = t.id           || '';
-                lines.push(`🏟️ *${name}*${short && short !== name ? ' (' + short + ')' : ''}`);
-                if (league) lines.push(`   🏆 League: ${league}`);
-                if (sport)  lines.push(`   🏅 Sport: ${sport}`);
-                if (nation) lines.push(`   🌍 Country: ${nation}`);
-                if (formed) lines.push(`   📅 Founded: ${formed}`);
-                if (id)     lines.push(`   🆔 ID: ${id}`);
-                lines.push('');
-            }
-
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[clubsearch]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Club search failed: ${err.message}`);
-        }
+    // ── 10. Bundesliga ─────────────────────────────────────────────────────────
+    {
+        name: 'bundesliga',
+        aliases: ['bund', 'germansoccer'],
+        category: 'sports',
+        description: 'Bundesliga — upcoming, matches, standings, scorers',
+        usage: '.bundesliga <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🇩🇪 Bundesliga', {
+                upcoming:  { endpoint: '/bundesliga/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/bundesliga/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/bundesliga/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/bundesliga/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
     },
-};
 
-const stadiumSearchCmd = {
-    name: 'stadiumsearch',
-    aliases: ['venuesearch', 'groundsearch'],
-    category: 'sports',
-    description: 'Search for a stadium or venue by name',
-    usage: '.stadiumsearch <venue name>',
-
-    async execute(sock, msg, args, extra) {
-        const query = args.join(' ').trim();
-        if (!query) return extra.reply(applyFont(
-            `┏━━『 🏟️ STADIUM SEARCH 』━━\n\nUsage: *.stadiumsearch <name>*\n\nExample: *.stadiumsearch Emirates*\n\n┗━━━━━━━━━━━━━━━━`
-        ));
-
-        await react(sock, msg, '🏟️');
-        try {
-            const data = await api(`/sport/venuesearch?q=${encodeURIComponent(query)}`);
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const venues = data.result || [];
-            if (!venues.length) {
-                return send(sock, extra.from, `❌ No venues found for *"${query}"*`, msg);
-            }
-
-            const lines = [`┏━━『 🏟️ STADIUM SEARCH: "${query}" 』━━`, ''];
-
-            for (const v of venues.slice(0, 6)) {
-                const name  = v.name        || '???';
-                const alt   = v.alternateName || '';
-                const sport = v.sport        || '';
-                const sponsor = v.sponsor    || '';
-                const desc  = v.description  || '';
-                lines.push(`🏟️ *${name}*`);
-                if (alt)     lines.push(`   🔤 Also: ${alt}`);
-                if (sport)   lines.push(`   🏅 Sport: ${sport}`);
-                if (sponsor) lines.push(`   💼 Sponsor: ${sponsor}`);
-                if (desc)    lines.push(`   📝 ${desc.slice(0, 200)}${desc.length > 200 ? '...' : ''}`);
-                lines.push('');
-            }
-
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[stadiumsearch]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Stadium search failed: ${err.message}`);
-        }
+    // ── 11. Euros ──────────────────────────────────────────────────────────────
+    {
+        name: 'euros',
+        aliases: ['eurocup', 'euro'],
+        category: 'sports',
+        description: 'Euros — upcoming, matches, standings, scorers',
+        usage: '.euros <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🏆 Euros', {
+                upcoming:  { endpoint: '/euros/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/euros/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/euros/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/euros/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
     },
-};
 
-const matchEventsCmd = {
-    name: 'matchevents',
-    aliases: ['h2h', 'gameevents'],
-    category: 'sports',
-    description: 'Head-to-head match history between two teams',
-    usage: '.matchevents <Team A vs Team B>',
-
-    async execute(sock, msg, args, extra) {
-        const query = args.join(' ').trim();
-        if (!query || !query.toLowerCase().includes('vs')) {
-            return extra.reply(applyFont(
-                `┏━━『 ⚽ MATCH EVENTS 』━━\n\nUsage: *.matchevents <Team A vs Team B>*\n\nExample: *.matchevents Arsenal vs Chelsea*\n\n┗━━━━━━━━━━━━━━━━`
-            ));
-        }
-
-        await react(sock, msg, '⚽');
-        try {
-            const data = await api(`/sport/gameevents?q=${encodeURIComponent(query)}`);
-            if (!data.status) throw new Error(data.error || 'API error');
-
-            const events = data.result || [];
-            if (!events.length) {
-                return send(sock, extra.from, `❌ No match history found for *"${query}"*`, msg);
-            }
-
-            const lines = [`┏━━『 ⚽ MATCH HISTORY: ${query.toUpperCase()} 』━━`, ''];
-
-            for (const e of events.slice(0, 10)) {
-                const match  = e.match           || e.alternateMatchName || '???';
-                const sport  = e.sport           || '';
-                const league = e.league?.name    || '';
-                const date   = e.dateEvent       || '';
-                const score  = e.intHomeScore !== undefined
-                    ? `${e.intHomeScore} - ${e.intAwayScore}`
-                    : '';
-                lines.push(`📋 *${match}*`);
-                if (league) lines.push(`   🏆 ${league}`);
-                if (sport)  lines.push(`   🏅 ${sport}`);
-                if (date)   lines.push(`   📅 ${date}`);
-                if (score)  lines.push(`   🔢 Score: ${score}`);
-                if (e.id)   lines.push(`   🆔 Event ID: ${e.id}`);
-                lines.push('');
-            }
-
-            lines.push(`📊 Showing ${Math.min(events.length, 10)} of ${events.length} events`);
-            lines.push('┗━━━━━━━━━━━━━━━━');
-            await sendChunked(sock, extra.from, msg, lines);
-            await react(sock, msg, '✅');
-
-        } catch (err) {
-            console.error('[matchevents]', err.message);
-            await react(sock, msg, '❌');
-            extra.reply(`❌ Could not fetch match history: ${err.message}`);
-        }
+    // ── 12. FIFA World Cup (sub-commands) ──────────────────────────────────────
+    {
+        name: 'fifa',
+        aliases: ['worldcup', 'fifawc'],
+        category: 'sports',
+        description: 'FIFA World Cup — upcoming, matches, standings, scorers',
+        usage: '.fifa <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🌍 FIFA World Cup', {
+                upcoming:  { endpoint: '/fifa/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/fifa/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/fifa/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/fifa/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
     },
-};
 
-// ── Exports ────────────────────────────────────────────────────────────────────
+    // ── 13. La Liga ────────────────────────────────────────────────────────────
+    {
+        name: 'laliga',
+        aliases: ['ll', 'spanishleague'],
+        category: 'sports',
+        description: 'La Liga — upcoming, matches, standings, scorers',
+        usage: '.laliga <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🇪🇸 La Liga', {
+                upcoming:  { endpoint: '/laliga/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/laliga/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/laliga/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/laliga/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
+    },
 
-module.exports = [
-    // League commands (upcoming · scores · standings · scorers)
-    ...Object.entries(LEAGUES).map(([name, cfg]) => makeLeagueCommand(name, cfg)),
+    // ── 14. Ligue 1 ────────────────────────────────────────────────────────────
+    {
+        name: 'ligue1',
+        aliases: ['ligue', 'frenchleague'],
+        category: 'sports',
+        description: 'Ligue 1 — upcoming, matches, standings, scorers',
+        usage: '.ligue1 <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🇫🇷 Ligue 1', {
+                upcoming:  { endpoint: '/ligue1/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/ligue1/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/ligue1/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/ligue1/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
+    },
 
-    // Special commands
-    livescoreCmd,
-    footballNewsCmd,
-    betTipsCmd,
-    playSearchCmd,
-    clubSearchCmd,
-    stadiumSearchCmd,
-    matchEventsCmd,
+    // ── 15. Serie A ────────────────────────────────────────────────────────────
+    {
+        name: 'seriea',
+        aliases: ['seria', 'italianleague'],
+        category: 'sports',
+        description: 'Serie A — upcoming, matches, standings, scorers',
+        usage: '.seriea <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🇮🇹 Serie A', {
+                upcoming:  { endpoint: '/seriea/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/seriea/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/seriea/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/seriea/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
+    },
+
+    // ── 16. UCL Champions League ───────────────────────────────────────────────
+    {
+        name: 'ucl',
+        aliases: ['championsleague', 'cl'],
+        category: 'sports',
+        description: 'UCL Champions League — upcoming, matches, standings, scorers',
+        usage: '.ucl <upcoming|matches|standings|scorers>',
+        async execute(sock, msg, args, extra) {
+            await leagueHandler(sock, msg, args, extra, '🏆 UCL Champions League', {
+                upcoming:  { endpoint: '/ucl/upcomingmatches', format: fmtMatches,   title: 'Upcoming Matches' },
+                matches:   { endpoint: '/ucl/matches',         format: fmtMatches,   title: 'Matches'          },
+                standings: { endpoint: '/ucl/standings',       format: fmtStandings, title: 'Standings'        },
+                scorers:   { endpoint: '/ucl/scorers',         format: fmtScorers,   title: 'Top Scorers'      },
+            });
+        },
+    },
+
+    // ── 17. Sure Bet Tips ──────────────────────────────────────────────────────
+    {
+        name: 'bet',
+        aliases: ['surebets', 'bettips', 'betodds'],
+        category: 'sports',
+        description: 'Get sure bet tips and free odds',
+        usage: '.bet',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/bet');
+                await sendLong(sock, msg, `┏━━『 🎰 Sure Bet Tips & Free Odds 』━━`, fmtBet(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 18. Football News ──────────────────────────────────────────────────────
+    {
+        name: 'footballnews',
+        aliases: ['fnews', 'sportnews'],
+        category: 'sports',
+        description: 'Get latest football news',
+        usage: '.footballnews',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/football/news');
+                await sendLong(sock, msg, `┏━━『 📰 Football News 』━━`, fmtNews(result));
+                await react(sock, msg, '✅');
+            } catch (err) {
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed: ${err.message}`);
+            }
+        },
+    },
+
 ];
