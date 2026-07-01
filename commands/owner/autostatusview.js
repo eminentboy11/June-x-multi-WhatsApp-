@@ -42,16 +42,14 @@ module.exports = {
 
             if (!args[0]) {
                 return extra.reply(
-                    `👁️ *Auto Status View*\n━━━━━━━━━━━━━━━\n\n` +
-                    `📌 View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
+                    ` *AUTO STATUS VIEW*\n━━━━━━━━━━━━━━━\n\n` +
+                    ` View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
                     `${settings.react ? '💚' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
                     `React Emoji: *${settings.emoji || '💚'}*\n\n` +
                     `*Commands:*\n` +
-                    `  .autostatusview on\n` +
-                    `  .autostatusview off\n` +
-                    `  .autostatusview react on/off\n` +
-                    `  .autostatusview emoji 😍\n` +
-                    `  .autostatusview get`
+                    `  autostatusview <on/off>\n` +
+                    `  autostatusview react <on/off>\n` +
+                    `  autostatusview emoji <😍>`
                 );
             }
 
@@ -87,7 +85,7 @@ module.exports = {
             if (opt === 'emoji' || opt === 'setemoji') {
                 const raw = args.slice(1).join('').trim();
                 const emoji = cleanEmoji(raw);
-                if (!emoji) return extra.reply('⚠️ Use: .autostatusview emoji 😍');
+                if (!emoji) return extra.reply('⚠️ Use: .autostatusview emoji <😍>');
                 settings.emoji = emoji;
                 saveSettings(settings);
                 return extra.reply(`✅ *React emoji set to:* ${emoji}`);
