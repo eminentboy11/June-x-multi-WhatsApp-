@@ -256,31 +256,31 @@ module.exports = {
         const globalMode = cfg['_global']?.mode;
 
         const statusLabel =
-            globalMode === 'chat'    ? '✅ ON — Chat'    :
-            globalMode === 'private' ? '✅ ON — Private' : '❌ OFF';
+            globalMode === 'chat'    ? '🟢 ON (Chat)'    :
+            globalMode === 'private' ? '🟢 ON (Private)' : '🔴 OFF';
 
         if (!sub || sub === 'status') {
-            return reply(`🗑️ Anti-Delete: *${statusLabel}*\n\n.antidelete on | private | off`);
+            return reply(`🗑️ *Anti-Delete*: ${statusLabel}\n\n.antidelete on/private/off`);
         }
 
         if (sub === 'on' || sub === 'chat') {
             cfg['_global'] = { mode: 'chat' };
             saveConfig(cfg);
-            return reply('🗑️ Anti-Delete set to *ON* — deleted msgs shown in each chat.');
+            return reply('🗑️ Anti-Delete: ON (Chat)');
         }
 
         if (sub === 'private') {
             cfg['_global'] = { mode: 'private' };
             saveConfig(cfg);
-            return reply('🗑️ Anti-Delete set to *Private* — all deleted msgs go to owner DM.');
+            return reply('🗑️ Anti-Delete: ON (Private)');
         }
 
         if (sub === 'off') {
             delete cfg['_global'];
             saveConfig(cfg);
-            return reply('🗑️ Anti-Delete set to *OFF*.');
+            return reply('🗑️ Anti-Delete: OFF');
         }
 
-        return reply('⚠️ Usage: .antidelete on | private | off | status');
+        return reply('⚠️ Usage: .antidelete on/private/off');
     }
 };
