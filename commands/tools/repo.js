@@ -84,7 +84,7 @@ module.exports = {
                     `✧ Branch:      ${defaultBranch}\n` +
                     `✧ Visibility:  ${repo.private ? '🔒 Private' : '🔓 Public'}\n\n` +
                     `┗━━━━━━━━━━━━━━━━━\n` +
-                    `┏━━━━━━━━━━━━━━━━━\n` +
+                    `┏━━━━━━━━━━━━━━━━━\n\n` +
                     `⿻ STATISTICS\n` +
                     `⿻ Stars:       ${repo.stargazers_count.toLocaleString()}\n` +
                     `⿻ Forks:       ${repo.forks_count.toLocaleString()}\n` +
