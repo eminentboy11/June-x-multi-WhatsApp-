@@ -188,6 +188,118 @@ function fmtMatches(result) {
     return comp + rows.join('\n');
 }
 
+function fmtFifaUpcoming(result) {
+    const matches = result?.upcomingMatches || (Array.isArray(result) ? result : []);
+    if (!matches.length) return '_No upcoming FIFA World Cup matches found_';
+
+    const comp = result?.competition ? `🌍 *${result.competition}*\n\n` : '';
+
+    const rows = matches.map((m, i) => {
+        const home = m.homeTeam || 'TBD';
+        const away = m.awayTeam || 'TBD';
+        const day  = m.matchday && m.matchday !== 'N/A' ? `MD${m.matchday}` : '';
+        const date = m.date || '';
+
+        let s = `┏ *Match ${i + 1}*\n`;
+        s += `┃ ⚔️ ${home} vs ${away}\n`;
+        if (date) s += `┃ 📅 ${date}\n`;
+        if (day)  s += `┃ 📋 ${day}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    });
+
+    return comp + rows.join('\n');
+}
+
+function fmtFifaMatches(result) {
+    const matches = result?.matches || (Array.isArray(result) ? result : []);
+    if (!matches.length) return '_No FIFA World Cup match results found_';
+
+    const comp = result?.competition ? `🌍 *${result.competition}*\n\n` : '';
+
+    const rows = matches.map((m, i) => {
+        const home   = m.homeTeam || 'TBD';
+        const away   = m.awayTeam || 'TBD';
+        const day    = m.matchday ? `MD${m.matchday}` : '';
+        const score  = m.score || '';
+        const status = m.status || '';
+        const winner = m.winner || '';
+
+        let s = `┏ *Match ${i + 1}*\n`;
+        s += `┃ ⚔️ ${home} vs ${away}\n`;
+        if (score)  s += `┃ 📊 Score: *${score}*\n`;
+        if (day)    s += `┃ 📋 ${day}\n`;
+        if (status) s += `┃ 🔄 ${status}\n`;
+        if (winner) s += `┃ 🏆 ${winner === 'Draw' ? 'Draw' : `Winner: ${winner}`}\n`;
+        s += `┗━━━━━━━━━━━━━━━\n`;
+        return s;
+    });
+
+    return comp + rows.join('\n');
+}
+
+function fmtFifaStandings(result) {
+    const standings = result?.standings || (Array.isArray(result) ? result : []);
+    if (!standings.length) return '_No FIFA World Cup standings found_';
+
+    const comp = result?.competition ? `🌍 *${result.competition}*\n\n` : '';
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    let body = '';
+    for (let i = 0; i < standings.length; i += 4) {
+        const group = standings.slice(i, i + 4);
+        const label = standings.length > 4 ? `🔷 *GROUP ${letters[Math.floor(i / 4)]}*\n` : '';
+
+        body += label;
+        body += `${'─'.repeat(46)}\n`;
+        body += `  Team                   MP  W  D  L GF GA GD Pts\n`;
+        body += `${'─'.repeat(46)}\n`;
+
+        group.forEach((t, idx) => {
+            const mark = idx < 2 ? '✅' : '❌';
+            const name = (t.team || '?').padEnd(20);
+            const mp   = String(t.played         ?? 0).padStart(2);
+            const w    = String(t.won            ?? 0).padStart(2);
+            const d    = String(t.draw           ?? 0).padStart(2);
+            const l    = String(t.lost           ?? 0).padStart(2);
+            const gf   = String(t.goalsFor       ?? 0).padStart(3);
+            const ga   = String(t.goalsAgainst   ?? 0).padStart(3);
+            const gd   = String(t.goalDifference ?? 0).padStart(3);
+            const pts  = String(t.points         ?? 0).padStart(3);
+
+            body += `${mark} ${name}${mp} ${w} ${d} ${l}${gf}${ga}${gd}${pts}\n`;
+        });
+        body += '\n';
+    }
+
+    return comp + body.trim();
+}
+
+function fmtFifaScorers(result) {
+    const scorers = result?.topScorers || (Array.isArray(result) ? result : []);
+    if (!scorers.length) return '_No FIFA World Cup top scorers found_';
+
+    const comp = result?.competition ? `🌍 *${result.competition}*\n\n` : '';
+
+    const rows = scorers.map((s, i) => {
+        const rank      = s.rank || (i + 1);
+        const player    = s.player || '?';
+        const team      = s.team || '';
+        const goals     = s.goals ?? '?';
+        const assists   = s.assists;
+        const penalties = s.penalties;
+
+        let t = `*${rank}.* ⚽ ${player}${team ? ` (${team})` : ''}\n`;
+        t += `    Goals: *${goals}*`;
+        if (assists !== undefined && assists !== 'N/A')   t += ` │ Assists: ${assists}`;
+        if (penalties !== undefined && penalties !== 'N/A') t += ` │ Penalties: ${penalties}`;
+        t += '\n';
+        return t;
+    });
+
+    return comp + rows.join('');
+}
+
 function fmtLivescore(result) {
     const gamesObj = result?.games || result;
     let games = Array.isArray(gamesObj) ? gamesObj : Object.values(gamesObj || {});
@@ -376,7 +488,107 @@ module.exports = [
         },
     },
 
-    // ── 5. Live Score ─────────────────────────────────────────────────────────
+    // ── 5. FIFA World Cup — Upcoming Matches ─────────────────────────────────
+    {
+        name: 'fifaupcoming',
+        aliases: ['wcupcoming', 'fifafixtures', 'worldcupfixtures'],
+        category: 'sports',
+        description: 'FIFA World Cup — upcoming matches',
+        usage: '.fifaupcoming',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/fifa/upcomingmatches');
+                await sendLong(
+                    sock, msg,
+                    `┏━━『 🌍 FIFA World Cup — Upcoming Matches 』━━`,
+                    fmtFifaUpcoming(result)
+                );
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[fifaupcoming]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed to fetch upcoming FIFA matches: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 6. FIFA World Cup — Match Results ────────────────────────────────────
+    {
+        name: 'fifamatches',
+        aliases: ['wcmatches', 'fifaresults', 'worldcupresults'],
+        category: 'sports',
+        description: 'FIFA World Cup — match results',
+        usage: '.fifamatches',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/fifa/matches');
+                await sendLong(
+                    sock, msg,
+                    `┏━━『 🌍 FIFA World Cup — Match Results 』━━`,
+                    fmtFifaMatches(result)
+                );
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[fifamatches]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed to fetch FIFA match results: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 7. FIFA World Cup — Standings ────────────────────────────────────────
+    {
+        name: 'fifastandings',
+        aliases: ['wcstandings', 'fifatable', 'worldcupstandings'],
+        category: 'sports',
+        description: 'FIFA World Cup — group standings',
+        usage: '.fifastandings',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/fifa/standings');
+                await sendLong(
+                    sock, msg,
+                    `┏━━『 🌍 FIFA World Cup — Standings 』━━`,
+                    fmtFifaStandings(result)
+                );
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[fifastandings]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed to fetch FIFA standings: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 8. FIFA World Cup — Top Scorers ──────────────────────────────────────
+    {
+        name: 'fifascorers',
+        aliases: ['wcscorers', 'fifatopscorers', 'worldcupscorers'],
+        category: 'sports',
+        description: 'FIFA World Cup — top scorers',
+        usage: '.fifascorers',
+        async execute(sock, msg, args, extra) {
+            await react(sock, msg, '⏳');
+            try {
+                const result = await keithApi('/fifa/scorers');
+                await sendLong(
+                    sock, msg,
+                    `┏━━『 🌍 FIFA World Cup — Top Scorers 』━━`,
+                    fmtFifaScorers(result)
+                );
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[fifascorers]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed to fetch FIFA top scorers: ${err.message}`);
+            }
+        },
+    },
+
+    // ── 9. Live Score ─────────────────────────────────────────────────────────
     {
         name: 'livescore',
         aliases: ['live', 'liveresults'],
@@ -396,7 +608,7 @@ module.exports = [
         },
     },
 
-    // ── 6. Live Score + Highlights ────────────────────────────────────────────
+    // ── 10. Live Score + Highlights ────────────────────────────────────────────
     {
         name: 'livehighlights',
         aliases: ['livescore2', 'livehl'],
@@ -416,7 +628,7 @@ module.exports = [
         },
     },
 
-    // ── 7. Premier League ───────────────────────────────────────────────────
+    // ── 11. Premier League ───────────────────────────────────────────────────
     {
         name: 'epl',
         aliases: ['premierleague', 'pl'],
@@ -433,7 +645,7 @@ module.exports = [
         },
     },
 
-    // ── 8. Bundesliga ───────────────────────────────────────────────────────
+    // ── 12. Bundesliga ───────────────────────────────────────────────────────
     {
         name: 'bundesliga',
         aliases: ['bund', 'germansoccer'],
@@ -450,7 +662,7 @@ module.exports = [
         },
     },
 
-    // ── 9. Euros ────────────────────────────────────────────────────────────
+    // ── 13. Euros ────────────────────────────────────────────────────────────
     {
         name: 'euros',
         aliases: ['eurocup', 'euro'],
@@ -467,7 +679,7 @@ module.exports = [
         },
     },
 
-    // ── 10. La Liga ──────────────────────────────────────────────────────────
+    // ── 14. La Liga ──────────────────────────────────────────────────────────
     {
         name: 'laliga',
         aliases: ['ll', 'spanishleague'],
@@ -484,7 +696,7 @@ module.exports = [
         },
     },
 
-    // ── 11. Ligue 1 ──────────────────────────────────────────────────────────
+    // ── 15. Ligue 1 ──────────────────────────────────────────────────────────
     {
         name: 'ligue1',
         aliases: ['ligue', 'frenchleague'],
@@ -501,7 +713,7 @@ module.exports = [
         },
     },
 
-    // ── 12. Serie A ──────────────────────────────────────────────────────────
+    // ── 16. Serie A ──────────────────────────────────────────────────────────
     {
         name: 'seriea',
         aliases: ['seria', 'italianleague'],
@@ -518,7 +730,7 @@ module.exports = [
         },
     },
 
-    // ── 13. UCL Champions League ─────────────────────────────────────────────
+    // ── 17. UCL Champions League ─────────────────────────────────────────────
     {
         name: 'ucl',
         aliases: ['championsleague', 'cl'],
@@ -535,7 +747,7 @@ module.exports = [
         },
     },
 
-    // ── 14. Sure Bet Tips ────────────────────────────────────────────────────
+    // ── 18. Sure Bet Tips ────────────────────────────────────────────────────
     {
         name: 'bet',
         aliases: ['surebets', 'bettips', 'betodds'],
@@ -555,7 +767,7 @@ module.exports = [
         },
     },
 
-    // ── 15. Football News ────────────────────────────────────────────────────
+    // ── 19. Football News ────────────────────────────────────────────────────
     {
         name: 'footballnews',
         aliases: ['fnews', 'sportnews'],
