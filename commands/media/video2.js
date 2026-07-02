@@ -40,8 +40,8 @@ function getButtons(id, now) {
 }
 
 module.exports = {
-    name: 'ytmp4',
-    aliases: ['video', 'ytvideo'],
+    name: 'ytmp42',
+    aliases: ['video2', 'ytvideo2'],
     category: 'media',
     description: 'Download YouTube videos as MP4',
     usage: '.ytmp4 <video name | YouTube URL>',
