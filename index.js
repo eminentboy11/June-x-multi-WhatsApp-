@@ -486,7 +486,7 @@ async function sendWelcomeMessage(sock) {
 ┃✧ Prefix: [ ${prefix} ]
 ┃✧ Owner: ${ownerName}
 ┃✧ Platform: ${platform}
-┃✧ Status: Online ✅
+┃✧ Status: 🟢 Online 
 ┃✧ Time: ${new Date().toLocaleString()}
 ┃✧ T.Group: t.me/juneOff
 ┃✧ Telegram: t.me/supremlord
@@ -727,7 +727,7 @@ async function startKnightBot() {
             global.isReconnecting = false
             global.errorRetryCount = 0
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
-            log(`💅 Connected as: +${botNum}`, 'yellow')
+            log(`🌿 Connected as: +${botNum}`, 'yellow')
             log('JUNE ULTRA CONNECTED ✅', 'green')
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
@@ -780,7 +780,6 @@ async function startKnightBot() {
                 const aolSettings = aolMod.loadSettings()
                 if (aolSettings.enabled) {
                     aolMod.startHeartbeat(sock)
-                    log('🟢 Always Online heartbeat started', 'cyan')
                 }
             } catch (_) {}
         }
