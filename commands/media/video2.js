@@ -1,5 +1,5 @@
 /**
- * YTMP4 Command — supports YouTube URL or search query
+ * YTMP4 Command — supports YouTube URL or search query, with metadata
  */
 
 const yts = require('yt-search');
@@ -27,7 +27,7 @@ async function downloadVideo(url) {
     } catch {
         const fb = await axios.get(`https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(url)}`, { timeout: 60000 });
         if (!fb.data?.data?.url) throw new Error('Fallback API failed');
-        return { status: true, result: fb.data.data.url, title: fb.data.data.title };
+        return { status: true, result: fb.data.data.url, title: fb.data.data.title, format: fb.data.data.format };
     }
 }
 
@@ -65,27 +65,33 @@ module.exports = {
         let video;
         try {
             video = isYouTubeUrl(query)
-                ? { url: query, title: 'YouTube Video', videoId: Date.now().toString(), author: { name: 'N/A' } }
+                ? { url: query, title: 'YouTube Video', videoId: Date.now().toString(), author: { name: 'N/A' }, views: null, timestamp: 'N/A' }
                 : await searchYouTube(query);
         } catch (e) {
             return extra.reply(`❌ Error: ${e.message}`);
         }
 
-        const tag = Date.now(); // unique marker for this session
+        const tag = Date.now();
         await sendButtons(sock, from, {
             title: '🎬 VIDEO DOWNLOADER',
-            text: `⿻ *Title:* ${video.title}\n⿻ *Channel:* ${video.author?.name}\n⿻ *Link:* ${video.url}\n\n*Select format:*`,
+            text:
+                `⿻ *Title:* ${video.title}\n` +
+                `⿻ *Duration:* ${video.timestamp || 'N/A'}\n` +
+                `⿻ *Views:* ${video.views?.toLocaleString() ?? 'N/A'}\n` +
+                `⿻ *Channel:* ${video.author?.name || 'N/A'}\n` +
+                `⿻ *Link:* ${video.url}\n\n` +
+                `*Select format:*`,
             footer: `Made by ${config.botName}`,
             buttons: getButtons(video.videoId, tag),
         }, { quoted: msg });
 
-        // ✅ Persistent listener — no expiry, multi-tap allowed
+        // Persistent listener — no expiry
         sock.ev.on('messages.upsert', async ev => {
             const m = ev.messages[0];
             if (!m?.message) return;
             const id = extractButtonId(m);
-            if (!id.includes(`_${tag}`)) return; // only match current buttons
-            if (m.key.remoteJid !== from) return; // only same chat
+            if (!id.includes(`_${tag}`)) return;
+            if (m.key.remoteJid !== from) return;
 
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
             try {
@@ -97,10 +103,21 @@ module.exports = {
                 await new Promise((r, j) => { w.on('finish', r); w.on('error', j); });
 
                 const title = api.title || video.title;
+                const cleanTitle = title.replace(/[^\w\s.-]/gi, '').substring(0, 100);
+
                 if (id.startsWith(`${config.prefix || '.'}video_`)) {
-                    await sock.sendMessage(from, { video: { url: file }, mimetype: 'video/mp4', caption: `🎬 ${title}` }, { quoted: m });
+                    await sock.sendMessage(from, {
+                        video: { url: file },
+                        mimetype: 'video/mp4',
+                        caption: `🎬 ${title}\n\n⿻ Channel: ${video.author?.name || 'N/A'}\n⿻ Views: ${video.views?.toLocaleString() ?? 'N/A'}\n⿻ Duration: ${video.timestamp || 'N/A'}`
+                    }, { quoted: m });
                 } else {
-                    await sock.sendMessage(from, { document: { url: file }, mimetype: 'video/mp4', fileName: `${title}.mp4` }, { quoted: m });
+                    await sock.sendMessage(from, {
+                        document: { url: file },
+                        mimetype: 'video/mp4',
+                        fileName: `${cleanTitle}.mp4`,
+                        caption: `🎬 ${title}\n\n⿻ Channel: ${video.author?.name || 'N/A'}\n⿻ Views: ${video.views?.toLocaleString() ?? 'N/A'}\n⿻ Duration: ${video.timestamp || 'N/A'}\n\n> Downloaded via ${config.botName}`
+                    }, { quoted: m });
                 }
                 fs.unlinkSync(file);
                 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
