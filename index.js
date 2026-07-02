@@ -847,7 +847,6 @@ async function startKnightBot() {
                     try {
                         await sock.readMessages([msg.key])
                     } catch (_) {}
-                    log(`[ STATUS VIEW ] ✅ ${normPart}`, 'cyan')
                 }
 
                 // Auto React
