@@ -771,7 +771,6 @@ async function startKnightBot() {
                 const db = require('./database')
                 const setting = db.getBotSetting('readReceipts') || 'all'
                 await sock.updateReadReceiptsPrivacy(setting)
-                log(`👁️ Read receipts privacy applied: ${setting}`, 'cyan')
             } catch (_) {}
 
             // Apply always-online heartbeat if enabled
