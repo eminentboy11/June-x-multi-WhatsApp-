@@ -56,31 +56,39 @@ async function searchYouTube(query) {
 async function downloadVideo(videoUrl) {
     return withRetry(async () => {
         try {
-            // Primary API
+            // Primary API - Fixed endpoint
             const response = await axios.get(
-                `https://ravenn.site/download/video?url=${encodeURIComponent(videoUrl)}`,
+                `https://apiskeith.top/api/ytmp4?url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
+            
             if (response.data?.status && response.data?.result) {
-                return response.data;
+                return {
+                    status: true,
+                    result: response.data.result,
+                    title: response.data.title || 'YouTube Video',
+                    format: response.data.format || 'mp4'
+                };
             }
             throw new Error('Primary API failed');
         } catch (err) {
             console.warn('[ytmp4] primary video API failed, using fallback:', err.message);
 
-            // Fallback API
+            // Fallback API - Fixed
             const fallback = await axios.get(
                 `https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(videoUrl)}`,
                 { timeout: 60000 }
             );
+            
             if (!fallback.data?.data?.url) {
                 throw new Error('Fallback API failed to fetch video');
             }
+            
             return {
                 status: true,
                 result: fallback.data.data.url,
-                title: fallback.data.data.title,
-                format: fallback.data.data.format,
+                title: fallback.data.data.title || 'YouTube Video',
+                format: fallback.data.data.format || 'mp4',
             };
         }
     });
@@ -144,6 +152,16 @@ module.exports = {
         const prefix = config.prefix || '.';
         const originalSender = msg.key.participant || msg.key.remoteJid;
 
+        // Store video data for later use
+        const videoData = {
+            url: video.url,
+            title: video.title,
+            videoId: video.videoId,
+            timestamp: video.timestamp,
+            views: video.views,
+            author: video.author
+        };
+
         // Step 2: Send format selection buttons
         await sendButtons(sock, from, {
             title: `🎬 VIDEO DOWNLOADER`,
@@ -160,7 +178,7 @@ module.exports = {
 
         await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-        // Step 3: Listen for button responses — persistent, no expiry, multi-tap
+        // Step 3: Listen for button responses
         const handleResponse = async (event) => {
             const messageData = event.messages[0];
             if (!messageData?.message) return;
@@ -173,7 +191,6 @@ module.exports = {
             const responseSender = getResponseSender(messageData);
             if (from.endsWith('@g.us') && responseSender !== originalSender) return;
 
-            // ✅ No sock.ev.off — listener stays alive for repeated taps
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
 
             // Step 4: Download & send
@@ -182,62 +199,76 @@ module.exports = {
                     .replace(prefix, '')
                     .split('_')[0];
 
-                const apiData = await downloadVideo(video.url);
+                // Use the stored video URL
+                const apiData = await downloadVideo(videoData.url);
 
+                // Create temp directory
                 const tempDir = path.join(__dirname, 'temp');
                 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
                 const filePath = path.join(tempDir, `video_${dateNow}.mp4`);
 
+                // Download video with better error handling
                 const videoStream = await axios({
                     method: 'get',
                     url: apiData.result,
                     responseType: 'stream',
                     timeout: 600000,
+                    maxRedirects: 5,
                 });
 
                 const writer = fs.createWriteStream(filePath);
                 videoStream.data.pipe(writer);
+
                 await new Promise((resolve, reject) => {
                     writer.on('finish', resolve);
                     writer.on('error', reject);
                 });
 
-                if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
-                    throw new Error('Download failed — file is empty');
+                // Check if file exists and has content
+                if (!fs.existsSync(filePath)) {
+                    throw new Error('File was not created');
                 }
 
-                const title = apiData.title || video.title || 'YouTube Video';
+                const stats = fs.statSync(filePath);
+                if (stats.size === 0) {
+                    throw new Error('Downloaded file is empty');
+                }
+
+                const title = apiData.title || videoData.title || 'YouTube Video';
                 const cleanTitle = title.replace(/[^\w\s.-]/gi, '').substring(0, 100);
 
+                // Send video based on button type
                 if (buttonType === 'video') {
                     await sock.sendMessage(from, {
-                        video: { url: filePath },
+                        video: fs.readFileSync(filePath),
                         mimetype: 'video/mp4',
-                        caption: `🎬 ${title}`,
+                        caption: `🎬 ${title}\n\n> Downloaded via ${config.botName}`,
                     }, { quoted: messageData });
 
                 } else if (buttonType === 'videodoc') {
                     await sock.sendMessage(from, {
-                        document: { url: filePath },
+                        document: fs.readFileSync(filePath),
                         mimetype: 'video/mp4',
                         fileName: `${cleanTitle}.mp4`,
                         caption: `🎬 ${title}\n\n> Downloaded via ${config.botName}`,
                     }, { quoted: messageData });
                 }
 
-                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                // Clean up
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                }
                 await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
             } catch (error) {
                 console.error('[ytmp4] download error:', error.message);
                 await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                 await sock.sendMessage(from, {
-                    text: `🚫 Error: ${error.message}\n\n_Try again later._`,
+                    text: `🚫 Error: ${error.message}\n\n_Try again later or use a different video._`,
                 }, { quoted: messageData });
             }
         };
 
         sock.ev.on('messages.upsert', handleResponse);
-        // ✅ No setTimeout — listener persists until bot restarts
     },
 };
