@@ -14,15 +14,15 @@ function isYouTubeUrl(str) {
 }
 
 async function searchYouTube(query) {
-    const result = await yts(query);
-    if (!result?.videos?.length) throw new Error('No results found');
-    return result.videos[0];
+    const res = await yts(query);
+    if (!res?.videos?.length) throw new Error('No results found');
+    return res.videos[0];
 }
 
 async function downloadVideo(url) {
     try {
-        const res = await axios.get(`https://ravenn.site/download/video?url=${encodeURIComponent(url)}`, { timeout: 60000 });
-        if (res.data?.status && res.data?.result) return res.data;
+        const r = await axios.get(`https://ravenn.site/download/video?url=${encodeURIComponent(url)}`, { timeout: 60000 });
+        if (r.data?.status && r.data?.result) return r.data;
         throw new Error('Primary API failed');
     } catch {
         const fb = await axios.get(`https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(url)}`, { timeout: 60000 });
@@ -31,12 +31,21 @@ async function downloadVideo(url) {
     }
 }
 
-function getButtons(id, now) {
+function getButtons(id, tag) {
     const p = config.prefix || '.';
     return [
-        { id: `${p}video_${id}_${now}`, text: '🎬 Video' },
-        { id: `${p}videodoc_${id}_${now}`, text: '📄 Video Document' },
+        { id: `${p}video_${id}_${tag}`, text: '🎬 Video' },
+        { id: `${p}videodoc_${id}_${tag}`, text: '📄 Video Document' },
     ];
+}
+
+function extractButtonId(msg) {
+    return (
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
+        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+        ''
+    );
 }
 
 module.exports = {
@@ -62,23 +71,26 @@ module.exports = {
             return extra.reply(`❌ Error: ${e.message}`);
         }
 
-        const now = Date.now();
+        const tag = Date.now(); // unique marker for this session
         await sendButtons(sock, from, {
             title: '🎬 VIDEO DOWNLOADER',
             text: `⿻ *Title:* ${video.title}\n⿻ *Channel:* ${video.author?.name}\n⿻ *Link:* ${video.url}\n\n*Select format:*`,
             footer: `Made by ${config.botName}`,
-            buttons: getButtons(video.videoId, now),
+            buttons: getButtons(video.videoId, tag),
         }, { quoted: msg });
 
+        // ✅ Persistent listener — no expiry, multi-tap allowed
         sock.ev.on('messages.upsert', async ev => {
             const m = ev.messages[0];
-            const id = m.message?.buttonsResponseMessage?.selectedButtonId || '';
-            if (!id.includes(`_${now}`)) return;
+            if (!m?.message) return;
+            const id = extractButtonId(m);
+            if (!id.includes(`_${tag}`)) return; // only match current buttons
+            if (m.key.remoteJid !== from) return; // only same chat
 
             await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
             try {
                 const api = await downloadVideo(video.url);
-                const file = path.join(__dirname, `temp_${now}.mp4`);
+                const file = path.join(__dirname, `temp_${tag}.mp4`);
                 const stream = await axios({ url: api.result, method: 'get', responseType: 'stream' });
                 const w = fs.createWriteStream(file);
                 stream.data.pipe(w);
