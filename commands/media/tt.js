@@ -1,97 +1,51 @@
-// commands/tt2.js
 const axios = require('axios');
 const config = require('../../config');
 
-module.exports = {
-  name: 'tt',
-  aliases: ['tiktok','ttdl'],
-  category: 'media',
-  description: 'Download TikTok video (no watermark)',
+module.exports = [
+  {
+    name: 'tiktok',
+    aliases: ['tt', 'tiktokdl'],
+    category: 'media',
+    async execute(sock, msg, args, extra) {
+      // Get URL from args or quoted message
+      const quoted = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
+      const quotedText =
+        quoted?.conversation ||
+        quoted?.extendedTextMessage?.text ||
+        quoted?.imageMessage?.caption ||
+        quoted?.videoMessage?.caption || '';
 
-  async execute(sock, msg, args, extra) {
-    const { from } = extra;
-    const url = args[0];
+      const url = args[0] || quotedText.match(/https?:\/\/[^\s]+tiktok\.com[^\s]*/)?.[0];
 
-    if (!url || !url.includes('tiktok.com')) {
-      return sock.sendMessage(from, {
-        text: `◆ *TikTok Downloader* ◆\n\n◇ Usage: .tt2 <tiktok_url>\n◇ Example: .tt2 https://vm.tiktok.com/xxxxx`
-      }, { quoted: msg });
-    }
+      if (!url || !url.includes('tiktok.com')) {
+        return extra.reply(`❌ Provide a valid TikTok URL!\n\nExample: ${config.prefix}tiktok <url>`);
+      }
 
-    const react = (emoji) => sock.sendMessage(from, {
-      react: { text: emoji, key: msg.key }
-    });
-
-    try {
-      await react('⏳');
-
-      let videoUrl = null;
-      let audioUrl = null;
+      await extra.react('⏳');
 
       try {
-        const { data } = await axios.post(
-          'https://www.tikwm.com/api/',
-          new URLSearchParams({ url, hd: '1' }),
-          { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
-        );
+        const res = await axios.get('https://ravenn.site/download/tiktokdl3', {
+          params: { url },
+          timeout: 15000
+        });
 
-        if (data?.code === 0 && data?.data?.play) {
-          videoUrl = data.data.hdplay || data.data.play;
-          audioUrl = data.data.music;
+        if (!res.data?.status || !res.data?.result) {
+          await extra.react('❌');
+          return extra.reply('❌ Could not download that TikTok video. Try a different URL.');
         }
-      } catch (_) {}
 
-      if (!videoUrl) {
-        const { data } = await axios.get(
-          `https://api.tiklydown.eu.org/api/download?url=${encodeURIComponent(url)}`
-        );
-
-        if (data?.video?.noWatermark) {
-          videoUrl = data.video.noWatermark;
-          audioUrl = data.music?.play_url || null;
-        }
-      }
-
-      if (!videoUrl) {
-        await react('❌');
-        return sock.sendMessage(from, {
-          text: `◆ Failed to fetch video.\n◇ The link may be private or unsupported.`
+        await sock.sendMessage(extra.from, {
+          video: { url: res.data.result },
+          caption: `> *TIKTOK DOWNLOADER*\n\n_Fetched by ${config.botName}_`
         }, { quoted: msg });
+
+        await extra.react('✅');
+
+      } catch (error) {
+        console.error('TikTok command error:', error);
+        await extra.react('❌');
+        await extra.reply('❌ An error occurred while downloading the video!');
       }
-
-      await react('📥');
-
-      const videoRes = await axios.get(videoUrl, { responseType: 'arraybuffer' });
-      const videoBuffer = Buffer.from(videoRes.data);
-
-      await sock.sendMessage(from, {
-        video: videoBuffer,
-        mimetype: 'video/mp4',
-        caption: `> Powered by ${config.botName}`
-      }, { quoted: msg });
-
-      if (audioUrl) {
-        try {
-          const audioRes = await axios.get(audioUrl, { responseType: 'arraybuffer' });
-          const audioBuffer = Buffer.from(audioRes.data);
-
-          await sock.sendMessage(from, {
-            audio: audioBuffer,
-            mimetype: 'audio/mpeg',
-            ptt: false,
-            caption: `> Powered by ${config.botName}`
-          }, { quoted: msg });
-        } catch (_) {}
-      }
-
-      await react('✅');
-
-    } catch (err) {
-      console.error('[tt2]', err.message);
-      await react('❌');
-      await sock.sendMessage(from, {
-        text: `◆ Error: ${err.message}`
-      }, { quoted: msg });
     }
   }
-};
+];
