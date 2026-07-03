@@ -908,9 +908,6 @@ async function startKnightBot() {
             }
             // ───────────────────────────────────────────────────────────────────
 
-            // DevReact: auto-react with shield to dev owner messages
-            devReact(sock, msg).catch(() => {})
-
             // Auto-save status: triggered when someone replies to a status
             setImmediate(() => {
                 try {
