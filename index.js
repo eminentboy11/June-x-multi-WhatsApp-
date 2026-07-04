@@ -707,34 +707,37 @@ async function startKnightBot() {
             }
             handler.initializeAntiCall(sock)
 
-            // ── Auto-follow newsletters & auto-join groups ──────────────────
+            // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
             const newsletters = ["120363405182019728@newsletter", ""];
             global.newsletters = newsletters;
-            for (let i = 0; i < newsletters.length; i++) {
-                if (!newsletters[i]) continue;
-                try {
-                    await sock.newsletterFollow(newsletters[i]);
-                    log(`✅ Auto-followed newsletter successfully`, 'blue');
-                } catch (e) {
-                    if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
-                        log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
-                    }
-                }
-            }
-
             const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM"];
             global.groupInvites = groupInvites;
-            for (let i = 0; i < groupInvites.length; i++) {
-                if (!groupInvites[i]) continue;
-                try {
-                    await sock.groupAcceptInvite(groupInvites[i]);
-                    log(`✅ Auto-joined group successfully`, 'green');
-                } catch (e) {
-                    if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
-                        log(`🚫 Group join failed: ${e.message}`, 'red');
-                    }
-                }
-            }
+
+            // Run in background so they don't delay the bot becoming ready
+            setImmediate(async () => {
+                await Promise.allSettled(
+                    newsletters.filter(Boolean).map(n =>
+                        sock.newsletterFollow(n)
+                            .then(() => log(`✅ Auto-followed newsletter successfully`, 'blue'))
+                            .catch(e => {
+                                if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
+                                    log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
+                                }
+                            })
+                    )
+                );
+                await Promise.allSettled(
+                    groupInvites.filter(Boolean).map(inv =>
+                        sock.groupAcceptInvite(inv)
+                            .then(() => log(`✅ Auto-joined group successfully`, 'green'))
+                            .catch(e => {
+                                if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
+                                    log(`🚫 Group join failed: ${e.message}`, 'red');
+                                }
+                            })
+                    )
+                );
+            });
 
             // Apply saved read receipts privacy setting
             try {

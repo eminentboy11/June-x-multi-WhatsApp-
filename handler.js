@@ -920,28 +920,49 @@ const handleMessage = async (sock, msg) => {
     if (!command) return;
     
     // fromMe = message sent by the bot's own number → always treat as owner
-    // ── Resolve LID sender → phone number JID (Baileys 7.x group LID support) ──
-    // In newer WhatsApp, group participants are identified by LID (@lid) instead of
-    // phone number JIDs. We resolve them using the participant list which contains
-    // phone-number info, so owner/sudo checks work correctly in groups.
+    // ── Resolve LID sender → phone number JID (Baileys 7.x LID support) ──────
+    // In newer WhatsApp (7.x RC), senders in both groups AND DMs are identified
+    // by LID (@lid / @hosted.lid) instead of phone number JIDs.  We resolve them
+    // so that owner/sudo checks work correctly everywhere.
+    //
+    // Detection: use jidDecode server field — the only reliable signal for LIDs.
+    // Resolution: only accept the result when getLidMappingValue returns a real
+    // phone-number mapping; never accept a synthetic fallback as "resolved".
     let resolvedSender = sender;
-    if (isGroup && sender && groupMetadata?.participants) {
-      const senderRaw = sender.split('@')[0];
-      const looksLikeLid = sender.endsWith('@lid') || !/^\d{7,}$/.test(senderRaw);
-      if (looksLikeLid) {
-        const matched = groupMetadata.participants.find(p => {
-          if (!p) return false;
-          const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
-          const pLid = typeof p === 'string' ? '' : (p.lid || '');
-          return pId === sender || pLid === sender;
-        });
-        if (matched && typeof matched === 'object') {
-          const pn = matched.phoneNumber || matched.pn;
-          if (pn) {
-            resolvedSender = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
+    try {
+      const { jidDecode: _jidDec } = require('@whiskeysockets/baileys');
+      const { getLidMappingValue } = require('./utils/jidHelper');
+      const decoded = sender ? _jidDec(sender) : null;
+      const server  = decoded?.server;
+      const isLidServer = server === 'lid' || server === 'hosted.lid';
+
+      if (isLidServer && decoded?.user) {
+        if (isGroup && groupMetadata?.participants) {
+          // Group path: resolve via participant list (most authoritative for groups)
+          const matched = groupMetadata.participants.find(p => {
+            if (!p) return false;
+            const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
+            const pLid = typeof p === 'string' ? '' : (p.lid || '');
+            return pId === sender || pLid === sender;
+          });
+          if (matched && typeof matched === 'object') {
+            const pn = matched.phoneNumber || matched.pn;
+            if (pn) resolvedSender = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
           }
+          // Fallback to mapping file if participant list had no phoneNumber
+          if (resolvedSender === sender) {
+            const pnUser = getLidMappingValue(decoded.user, 'lidToPn');
+            if (pnUser) resolvedSender = `${pnUser}@s.whatsapp.net`;
+          }
+        } else if (!isGroup) {
+          // DM path: only resolve when a real lidToPn mapping exists on disk
+          const pnUser = getLidMappingValue(decoded.user, 'lidToPn');
+          if (pnUser) resolvedSender = `${pnUser}@s.whatsapp.net`;
+          // No mapping → keep original sender; do not synthesize a phone JID
         }
       }
+    } catch (_lidErr) {
+      // Never let resolution errors block command execution
     }
     // ─────────────────────────────────────────────────────────────────────────
 
