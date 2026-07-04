@@ -107,6 +107,13 @@ module.exports = {
               display_text: '🔑 Copy Invite Code',
               copy_code: meta.invite || inviteCode
             })
+          },
+          {
+            name: 'cta_copy',
+            buttonParamsJson: JSON.stringify({
+              display_text: '🔗 Copy Channel Link',
+              copy_code: channelUrl
+            })
           }
         ];
 
