@@ -5,11 +5,29 @@ const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const https = require('https');
 const http = require('http');
 const db = require('../../database');
+const settings = require('../../utils/settings');
 
-const IMAGE_PATH    = path.join(__dirname, '../../utils/bot_image.jpg');
-const MENU1_PATH    = path.join(__dirname, '../../assets/menu1.jpg');
-const PERSIST_PATH  = path.join(__dirname, '../../data/custom_menu.jpg'); // survives resets
-const DEFAULT_IMAGE = path.join(__dirname, '../../assets/menu2.jpg'); // always present, used for reset
+const IMAGE_PATH         = path.join(__dirname, '../../utils/bot_image.jpg');
+const MENU1_PATH         = path.join(__dirname, '../../assets/menu1.jpg');
+const PERSIST_PATH       = path.join(__dirname, '../../data/custom_menu.jpg'); // survives resets
+const DEFAULT_IMAGE      = path.join(__dirname, '../../assets/menu2.jpg');     // always present, used for reset
+const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
+
+// Switch menu style to 3 (image + text + ad-reply) whenever a custom image is set
+function applyMenuStyle3() {
+  try {
+    let current = {};
+    if (fs.existsSync(MENU_SETTINGS_FILE)) {
+      current = JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8'));
+    }
+    current.menuStyle = '3';
+    fs.mkdirSync(path.dirname(MENU_SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(MENU_SETTINGS_FILE, JSON.stringify(current, null, 2));
+    settings.set('menuStyle', '3');
+  } catch (e) {
+    console.error('[setmenuimage] Could not auto-set menu style:', e.message);
+  }
+}
 
 function downloadFromUrl(url) {
   return new Promise((resolve, reject) => {
@@ -47,7 +65,7 @@ async function saveImage(buffer) {
 
 module.exports = {
   name: 'setmenuimage',
-  aliases: ['setmenuimg', 'setbotimage', 'setbotimg', 'botimage', 'changemenuimage'],
+  aliases: ['setmenuimg', 'setbotimage', 'setbotimg', 'botimage', 'menuimage'],
   category: 'owner',
   description: 'Set bot/menu image. Reply to image, send URL, @mention, or use "reset".',
   usage: '.setmenuimage (reply to image) | .setmenuimage <url> | .setmenuimage @user | .setmenuimage reset',
@@ -86,8 +104,9 @@ module.exports = {
         try {
           const buffer = await downloadFromUrl(args[0]);
           await saveImage(buffer);
+          applyMenuStyle3();
           await extra.react('✅');
-          return extra.reply('✅ Bot image updated from URL!');
+          return extra.reply('✅ Bot image updated from URL! Menu style auto-set to Style 3.');
         } catch (e) {
           return extra.reply(`❌ Failed to download image: ${e.message}`);
         }
@@ -100,8 +119,9 @@ module.exports = {
           const ppUrl = await sock.profilePictureUrl(mentioned[0], 'image');
           const buffer = await downloadFromUrl(ppUrl);
           await saveImage(buffer);
+          applyMenuStyle3();
           await extra.react('✅');
-          return extra.reply('✅ Bot image set from mentioned user\'s profile picture!');
+          return extra.reply('✅ Bot image set from mentioned user\'s profile picture! Menu style auto-set to Style 3.');
         } catch {
           return extra.reply('❌ Could not get profile picture of mentioned user. They may not have one set.');
         }
@@ -143,8 +163,9 @@ module.exports = {
       }
 
       await saveImage(mediaBuffer);
+      applyMenuStyle3();
       await extra.react('✅');
-      await extra.reply('✅ Bot image updated!');
+      await extra.reply('✅ Bot image updated! Menu style auto-set to Style 3.');
     } catch (error) {
       console.error('setmenuimage error:', error);
       await extra.reply(`❌ Error: ${error.message}`);
