@@ -1,6 +1,6 @@
 module.exports = {
-    ownerNumber: ['254792021944','254798952773','254764249858'],
-    ownerName: ['Supreme', '✮⃝𝐒ᵘᵖʳᵉᵐᵉ', 'Tay keith'],
+    ownerNumber: ['254798570132','254792021944','254764249858'],
+    ownerName: ['Supreme', '✮⃝𝐒ᵘᵖʳᵉᵐᵉ', 'ˢᵘᵖʳᵉᵐᵉ ᴸᵒʳᵈ'],
     
     botName: 'JuneX-Ultra',
     prefix: '.',
