@@ -75,7 +75,8 @@ module.exports = {
 
         if (!meta) throw new Error('Newsletter not found');
 
-        const channelUrl = `https://whatsapp.com/channel/${meta.invite || inviteCode}`;
+        const finalInvite = meta.invite || inviteCode;
+        const channelUrl = `https://whatsapp.com/channel/${finalInvite}`;
 
         let infoText =
           `┏━━『 *NEWSLETTER INFO* 』━━\n\n` +
@@ -88,7 +89,7 @@ module.exports = {
                               infoText += `👥 *Subscribers:* ${meta.subscriberCount.toLocaleString()}\n`;
         if (meta.creationTime) {
           const date = new Date(meta.creationTime * 1000);
-          infoText +=         `📅 *Created:* ${date.toLocaleDateString()}\n`;
+          infoText +=         `📅 *Created:* ${date.toLocaleDateString()} ${date.toLocaleTimeString()}\n`;
         }
 
         infoText += `\n┗━━━━━━━━━━━━━━━━`;
@@ -104,15 +105,8 @@ module.exports = {
           {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
-              display_text: '🔑 Copy Invite Code',
-              copy_code: meta.invite || inviteCode
-            })
-          },
-          {
-            name: 'cta_copy',
-            buttonParamsJson: JSON.stringify({
-              display_text: '🔗 Copy Channel Link',
-              copy_code: channelUrl
+              display_text: '🔑 Copy Newsletter',
+              copy_code: finalInvite
             })
           }
         ];
