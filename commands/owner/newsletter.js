@@ -48,17 +48,9 @@ module.exports = {
     try {
       const chatId = extra.from;
 
-      const text = msg.message?.conversation ||
-                   msg.message?.extendedTextMessage?.text ||
-                   args.join(' ');
+      let link = (args && args.length > 0) ? args.join(' ').trim() : '';
 
-      if (!text || text.trim().length === 0) {
-        return extra.reply('❌ Please provide a WhatsApp channel link!\n\nExample: .newsletter https://whatsapp.com/channel/0029VaAbCdEfGhIJkL');
-      }
-
-      let link = text.replace(/^\.(newsletter|nl|channel|channelinfo)\s+/i, '').trim() || args.join(' ').trim();
-
-      if (!link || link.length === 0) {
+      if (!link) {
         return extra.reply('❌ Please provide a WhatsApp channel link!\n\nExample: .newsletter https://whatsapp.com/channel/0029VaAbCdEfGhIJkL');
       }
 
@@ -106,7 +98,7 @@ module.exports = {
             name: 'cta_copy',
             buttonParamsJson: JSON.stringify({
               display_text: '🔑 Copy Newsletter',
-              copy_code: finalInvite
+              copy_code: meta.id
             })
           }
         ];
