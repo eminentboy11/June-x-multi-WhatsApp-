@@ -6,35 +6,6 @@
 // --- Environment Setup ---
 require('dotenv').config();
 
-/*************************************
- * Raw Output Suppression
- *************************************/
-const originalWrite = process.stdout.write;
-process.stdout.write = function (chunk, encoding, callback) {
-    const message = chunk.toString();
-    if (message.includes('Closing session: SessionEntry') || message.includes('SessionEntry {')) {
-        return;
-    }
-    return originalWrite.apply(this, arguments);
-};
-
-const originalWriteError = process.stderr.write;
-process.stderr.write = function (chunk, encoding, callback) {
-    const message = chunk.toString();
-    if (message.includes('Closing session: SessionEntry')) {
-        return;
-    }
-    return originalWriteError.apply(this, arguments);
-};
-
-const originalLog = console.log;
-console.log = function (message, ...optionalParams) {
-    if (typeof message === 'string' && message.startsWith('Closing session: SessionEntry')) {
-        return;
-    }
-    originalLog.apply(console, [message, ...optionalParams]);
-};
-
 const fs = require('fs')
 const chalk = require('chalk')
 const path = require('path')
@@ -62,9 +33,33 @@ const { applyFont } = require('./utils/fontConverter')
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true'
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 
+// ─── Platform Detection (early) ───────────────────────────────────────────────
+const IS_HEROKU = !!process.env.DYNO
+
+// ─── Dead logs on Heroku ──────────────────────────────────────────────────
+// Heroku timestamps everything and charges for log drains. On Heroku we keep
+// logs completely dead (silent) except actual errors. On every other platform
+// we keep the full chalk/lolcat styled output.
+if (IS_HEROKU) {
+    const noop = () => {}
+    console.log = noop
+    console.info = noop
+    console.warn = noop
+    // console.error stays alive for critical issues only
+    process.stdout.write = () => true
+}
+
 // ─── Centralized Logger ───────────────────────────────────────────────────────
 
 function log(message, color = 'white', isError = false) {
+    if (IS_HEROKU) {
+        // Dead logs: only errors survive on Heroku
+        if (isError && typeof message === 'string') {
+            console.error(`[JUNEX ULTRA] ${message}`)
+        }
+        return
+    }
+
     const prefix = chalk.blue.bold('[ JUNEX ULTRA ]')
     const logFunc = isError ? console.error : console.log
     const coloredMessage = chalk[color] ? chalk[color](message) : message
@@ -895,18 +890,24 @@ async function startKnightBot() {
                     const dayz = moment(Date.now()).tz(tz).locale('en').format('dddd')
                     const timez = moment(Date.now()).tz(tz).locale('en').format('HH:mm:ss z')
                     const datez = moment(Date.now()).tz(tz).format('DD/MM/YYYY')
-                    lolcatjs.fromString(`┏━━━━━━━━━━━━━『  JUNE ULTRA 』━━━━━━━━━━━━━─`)
-                    lolcatjs.fromString(`»  Sent Time: ${dayz}, ${timez}`)
-                    lolcatjs.fromString(`»  Date: ${datez}`)
-                    lolcatjs.fromString(`»  Message Type: ${mtype}`)
-                    lolcatjs.fromString(`»  Sender Name: ${pushname}`)
-                    lolcatjs.fromString(`»  Chat ID: ${from.split('@')[0]}`)
-                    if (isGrp && groupName) {
-                        lolcatjs.fromString(`»  Group: ${groupName}`)
-                        lolcatjs.fromString(`»  Group JID: ${from.split('@')[0]}`)
+
+                    if (IS_HEROKU) {
+                        // Dead/plain logs for Heroku — no lolcat, no box-drawing noise.
+                        log(`[MSG] ${dayz} ${timez} | ${mtype} | ${pushname} | ${from.split('@')[0]}${isGrp && groupName ? ` | grp:${groupName}` : ''}${body ? ` | body:${body.slice(0, 80)}` : ''}`)
+                    } else {
+                        lolcatjs.fromString(`┏━━━━━━━━━━━━━『  JUNE ULTRA 』━━━━━━━━━━━━━─`)
+                        lolcatjs.fromString(`»  Sent Time: ${dayz}, ${timez}`)
+                        lolcatjs.fromString(`»  Date: ${datez}`)
+                        lolcatjs.fromString(`»  Message Type: ${mtype}`)
+                        lolcatjs.fromString(`»  Sender Name: ${pushname}`)
+                        lolcatjs.fromString(`»  Chat ID: ${from.split('@')[0]}`)
+                        if (isGrp && groupName) {
+                            lolcatjs.fromString(`»  Group: ${groupName}`)
+                            lolcatjs.fromString(`»  Group JID: ${from.split('@')[0]}`)
+                        }
+                        if (body) lolcatjs.fromString(`»  Message: ${body}`)
+                        lolcatjs.fromString('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─ ⳹\n')
                     }
-                    if (body) lolcatjs.fromString(`»  Message: ${body}`)
-                    lolcatjs.fromString('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─ ⳹\n')
                 } catch (_) {}
             }
             // ───────────────────────────────────────────────────────────────────
