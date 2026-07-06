@@ -560,6 +560,7 @@ const handleMessage = async (sock, msg) => {
       const antispam     = commands.get('antispam');
       const antiviewonce = commands.get('antiviewonce');
       const antibot      = commands.get('antibot');
+      const antiforward  = commands.get('antiforward');
       await Promise.allSettled([
         handleAntigroupmention(sock, msg, groupMetadata),
         handleAntigroupstatus(sock, msg, groupMetadata),
@@ -567,6 +568,7 @@ const handleMessage = async (sock, msg) => {
         antispam?.handleAntispam         ? antispam.handleAntispam(sock, msg, groupMetadata)         : Promise.resolve(),
         antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)                : Promise.resolve(),
         antibot?.handleMessage           ? antibot.handleMessage(sock, msg, groupMetadata)           : Promise.resolve(),
+        antiforward?.handleAntiforward   ? antiforward.handleAntiforward(sock, msg, groupMetadata)   : Promise.resolve(),
         handleAntibadword(sock, msg, groupMetadata),
       ]);
     }
