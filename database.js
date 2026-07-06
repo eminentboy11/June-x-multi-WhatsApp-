@@ -303,6 +303,64 @@ const setBotMode = (mode) => {
   return writeDB(BOTMODE_DB, { mode });
 };
 
+// ── AntiForward Settings ──────────���──────────────────────────────────────────
+// Stores per-group antiforward settings
+// Defaults to: enabled: false, action: 'delete'
+const getAntiforwardSettings = (groupId) => {
+  const groups = readDB(GROUPS_DB);
+  const settings = groups[groupId] || {};
+  return {
+    antiforward: settings.antiforward !== false,  // default: true (on)
+    antiforwardAction: settings.antiforwardAction || 'delete',  // delete | warn | kick
+    antiforwardWarnings: settings.antiforwardWarnings || {},    // { userId: count }
+    antiforwardMaxWarnings: settings.antiforwardMaxWarnings || 3
+  };
+};
+
+const updateAntiforwardSettings = (groupId, antiforwardEnabled, action = 'delete', maxWarnings = 3) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
+  groups[groupId].antiforward = antiforwardEnabled;
+  groups[groupId].antiforwardAction = action;
+  groups[groupId].antiforwardMaxWarnings = maxWarnings;
+  return writeDB(GROUPS_DB, groups);
+};
+
+// Add warning for forwarded message
+const addAntiforwardWarning = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
+  if (!groups[groupId].antiforwardWarnings) groups[groupId].antiforwardWarnings = {};
+  
+  groups[groupId].antiforwardWarnings[userId] = (groups[groupId].antiforwardWarnings[userId] || 0) + 1;
+  writeDB(GROUPS_DB, groups);
+  
+  return groups[groupId].antiforwardWarnings[userId];
+};
+
+// Get warning count for user
+const getAntiforwardWarningCount = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  const settings = groups[groupId] || {};
+  return (settings.antiforwardWarnings && settings.antiforwardWarnings[userId]) || 0;
+};
+
+// Clear warning for user
+const clearAntiforwardWarning = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId] || !groups[groupId].antiforwardWarnings) return false;
+  delete groups[groupId].antiforwardWarnings[userId];
+  return writeDB(GROUPS_DB, groups);
+};
+
+// Clear all warnings for user in group
+const clearAllAntiforwardWarnings = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId] || !groups[groupId].antiforwardWarnings) return false;
+  groups[groupId].antiforwardWarnings[userId] = 0;
+  return writeDB(GROUPS_DB, groups);
+};
+
 module.exports = {
   getGroupSettings,
   updateGroupSettings,
@@ -332,4 +390,11 @@ module.exports = {
   getAllBotSettings,
   updateBotSettings,
   BOT_SETTINGS_DEFAULTS,
+  // AntiForward settings
+  getAntiforwardSettings,
+  updateAntiforwardSettings,
+  addAntiforwardWarning,
+  getAntiforwardWarningCount,
+  clearAntiforwardWarning,
+  clearAllAntiforwardWarnings,
 };
