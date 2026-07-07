@@ -310,7 +310,7 @@ const getAntiforwardSettings = (groupId) => {
   const groups = readDB(GROUPS_DB);
   const settings = groups[groupId] || {};
   return {
-    antiforward: settings.antiforward !== false,  // default: true (on)
+    antiforward: settings.antiforward === true,  // default: true (on)
     antiforwardAction: settings.antiforwardAction || 'delete',  // delete | warn | kick
     antiforwardWarnings: settings.antiforwardWarnings || {},    // { userId: count }
     antiforwardMaxWarnings: settings.antiforwardMaxWarnings || 3
