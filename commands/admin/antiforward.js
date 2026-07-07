@@ -19,14 +19,12 @@ const database = require(require('path').join(global.__CORE__, 'database'));
  */
 function isForwarded(msg) {
     if (!msg.message) return false;
-    
-    // Check extendedTextMessage
+
     const ext = msg.message.extendedTextMessage;
     if (ext?.contextInfo?.forwardingScore && ext.contextInfo.forwardingScore > 0) {
         return true;
     }
-    
-    // Check all message types for forward flag
+
     const msgObj = msg.message;
     for (const key in msgObj) {
         const obj = msgObj[key];
@@ -34,7 +32,7 @@ function isForwarded(msg) {
             return true;
         }
     }
-    
+
     return false;
 }
 
@@ -48,91 +46,79 @@ async function handleAntiforward(sock, msg, groupMetadata) {
         if (!from.endsWith('@g.us')) return false;
 
         const settings = database.getAntiforwardSettings(from);
-        
-        // Antiforward disabled
         if (!settings.antiforward) return false;
-
-        // Check if message is forwarded
         if (!isForwarded(msg)) return false;
 
         const sender = msg.key.participant || msg.key.remoteJid;
         if (!sender) return false;
 
-        // Get group metadata
         const participants = groupMetadata?.participants || [];
         const senderParticipant = participants.find(p => p.id === sender);
         const isAdmin = senderParticipant?.admin;
         const isBot = sender === sock.user?.id;
 
-        // Admins and bot are immune
         if (isAdmin || isBot) return false;
 
         const action = settings.antiforwardAction;
         const maxWarnings = settings.antiforwardMaxWarnings;
         const senderNum = sender.split('@')[0];
 
-        // ─── Handle WARN action ────────────────────────────────────────────
+        // ─── WARN ───
         if (action === 'warn') {
             const warnings = database.addAntiforwardWarning(from, sender);
-            
+
             if (warnings >= maxWarnings) {
-                // Reached max warnings — kick
                 try {
                     await sock.groupParticipantsUpdate(from, [sender], 'remove');
                     await sock.sendMessage(from, {
-                        text: `🚫 *AntiForward* — *@${senderNum}* reached max warnings (${maxWarnings}) and was kicked!`,
+                        text: `🚫 @${senderNum} kicked (max warnings)`,
                         mentions: [sender]
                     });
                 } catch (e) {
-                    console.error('[ANTIFORWARD] Error kicking user:', e.message);
+                    console.error('[antiforward]', e.message);
                 }
                 database.clearAllAntiforwardWarnings(from, sender);
                 return true;
             }
 
-            // Send warning
             try {
                 await sock.sendMessage(from, {
-                    text: `⚠️ *AntiForward Warning* — *@${senderNum}*, forwarded messages are not allowed!\n⚠️ Warnings: *${warnings}/${maxWarnings}*`,
+                    text: `⚠️ @${senderNum} ${warnings}/${maxWarnings}`,
                     mentions: [sender]
                 });
             } catch (e) {
-                console.error('[ANTIFORWARD] Error sending warning:', e.message);
+                console.error('[antiforward]', e.message);
             }
             return true;
         }
 
-        // ─── Handle DELETE action (default) ─────────────────────────────────
+        // ─── DELETE (default) ───
         if (action === 'delete') {
             try {
                 await sock.sendMessage(from, { delete: msg.key });
-                await sock.sendMessage(from, {
-                    text: `🗑️ *AntiForward* — *@${senderNum}* forwarded message deleted!`,
-                    mentions: [sender]
-                });
             } catch (e) {
-                console.error('[ANTIFORWARD] Error deleting message:', e.message);
+                console.error('[antiforward]', e.message);
             }
             return true;
         }
 
-        // ─── Handle KICK action ────────────────────────────────────────────
+        // ─── KICK ───
         if (action === 'kick') {
             try {
                 await sock.groupParticipantsUpdate(from, [sender], 'remove');
                 await sock.sendMessage(from, {
-                    text: `🚫 *AntiForward* — *@${senderNum}* was kicked for forwarding!`,
+                    text: `🚫 @${senderNum} kicked`,
                     mentions: [sender]
                 });
             } catch (e) {
-                console.error('[ANTIFORWARD] Error kicking user:', e.message);
+                console.error('[antiforward]', e.message);
             }
             return true;
         }
 
         return false;
     } catch (e) {
-        console.error('[ANTIFORWARD] Error in handleAntiforward:', e.message);
+        console.error('[antiforward]', e.message);
         return false;
     }
 }
@@ -152,88 +138,50 @@ module.exports = {
         try {
             const { from, reply, react } = extra;
             const sub = (args[0] || '').toLowerCase();
-
             const settings = database.getAntiforwardSettings(from);
 
-            // ─── Show status (no args) ──────────────────────────────────────
+            // ─── Status (no args) ───
             if (!sub) {
-                const status = settings.antiforward ? '✅ ON' : '❌ OFF';
-                const action = settings.antiforwardAction;
-                const maxWarns = settings.antiforwardMaxWarnings;
-
                 return reply(
-                    `🚫 *AntiForward Settings*\n\n` +
-                    `📌 Status: *${status}*\n` +
-                    `⚡ Action: *${action}*\n` +
-                    `⚠️ Max Warnings: *${maxWarns}*\n\n` +
-                    `*Commands:*\n` +
-                    `• \`.antiforward on\` — Enable (default: delete)\n` +
-                    `• \`.antiforward off\` — Disable\n` +
-                    `• \`.antiforward action delete\` — Delete forwarded msgs\n` +
-                    `• \`.antiforward action warn\` — Warn → kick\n` +
-                    `• \`.antiforward action kick\` — Kick immediately\n` +
-                    `• \`.antiforward warns 5\` — Set max warnings`
+                    `AntiForward: ${settings.antiforward ? 'ON' : 'OFF'} (${settings.antiforwardAction}, ${settings.antiforwardMaxWarnings} warns)\n` +
+                    `.antiforward on/off/action <delete|warn|kick>/warns <n>`
                 );
             }
 
-            // ─── Turn ON ────────────────────────────────────────────────────
+            // ─── ON ───
             if (sub === 'on') {
-                if (settings.antiforward) {
-                    return reply('❌ AntiForward is already *ON*.');
-                }
+                if (settings.antiforward) return react('❌');
                 database.updateAntiforwardSettings(from, true, 'delete', settings.antiforwardMaxWarnings);
-                await react('✅');
-                return reply(
-                    `✅ *AntiForward* turned *ON*\n` +
-                    `Action: *delete* (default)\n` +
-                    `Non-admins cannot forward messages now.`
-                );
+                return react('✅');
             }
 
-            // ─── Turn OFF ───────────────────────────────────────────────────
+            // ─── OFF ───
             if (sub === 'off') {
-                if (!settings.antiforward) {
-                    return reply('❌ AntiForward is already *OFF*.');
-                }
+                if (!settings.antiforward) return react('❌');
                 database.updateAntiforwardSettings(from, false, settings.antiforwardAction, settings.antiforwardMaxWarnings);
-                await react('❌');
-                return reply('❌ *AntiForward* turned *OFF*.');
+                return react('✅');
             }
 
-            // ─── Set action ────────────────────────────────────────────────
+            // ─── action ───
             if (sub === 'action') {
                 const newAction = (args[1] || '').toLowerCase();
-                if (!['delete', 'warn', 'kick'].includes(newAction)) {
-                    return reply(
-                        `❌ Invalid action. Use one of:\n` +
-                        `• \`delete\` — Delete forwarded messages (default)\n` +
-                        `• \`warn\` — Warn then kick after max warnings\n` +
-                        `• \`kick\` — Kick immediately`
-                    );
-                }
+                if (!['delete', 'warn', 'kick'].includes(newAction)) return react('❌');
                 database.updateAntiforwardSettings(from, settings.antiforward, newAction, settings.antiforwardMaxWarnings);
-                await react('✅');
-                return reply(`✅ AntiForward action set to *${newAction}*.`);
+                return react('✅');
             }
 
-            // ─── Set max warnings ───────────────────────────────────────────
+            // ─── warns ───
             if (sub === 'warns' || sub === 'warnings') {
                 const num = parseInt(args[1], 10);
-                if (isNaN(num) || num < 1) {
-                    return reply('❌ Please provide a valid number (minimum: 1).');
-                }
+                if (isNaN(num) || num < 1) return react('❌');
                 database.updateAntiforwardSettings(from, settings.antiforward, settings.antiforwardAction, num);
-                await react('✅');
-                return reply(`✅ Max warnings set to *${num}*.`);
+                return react('✅');
             }
 
-            return reply(
-                `❌ Unknown option.\n\n` +
-                `Use: \`.antiforward on | off | action <action> | warns <number>\``
-            );
+            return react('❌');
         } catch (e) {
-            console.error('[ANTIFORWARD] Error in execute:', e.message);
-            return extra.reply('❌ Error executing antiforward command.');
+            console.error('[antiforward]', e.message);
+            return extra.react('❌');
         }
     }
 };
