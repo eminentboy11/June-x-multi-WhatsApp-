@@ -444,15 +444,6 @@ const handleMessage = async (sock, msg) => {
       if (antiedit?.storeMessage) antiedit.storeMessage(msg);
     } catch (_) {}
 
-    // Store status messages for antideletestatus (must run before isSystemJid filter)
-    try {
-      if (msg.key.remoteJid === 'status@broadcast') {
-        const antideletestatus = commands.get('antideletestatus');
-        if (antideletestatus?.storeStatusMessage) antideletestatus.storeStatusMessage(msg);
-        return; // still skip further processing for status messages
-      }
-    } catch (_) {}
-
     const from = msg.key.remoteJid;
     
     // System message filter - ignore broadcast/status/newsletter messages

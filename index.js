@@ -857,6 +857,12 @@ async function startKnightBot() {
                 global.statusStore.set(normPart, existing)
             }
 
+            // Store status for antideletestatus (recover deleted statuses)
+            try {
+                const antideletestatus = require('./commands/owner/antideletestatus')
+                if (antideletestatus?.storeStatusMessage) antideletestatus.storeStatusMessage(msg)
+            } catch (_) {}
+
             try {
                 const s = asvMod.loadSettings()
 
