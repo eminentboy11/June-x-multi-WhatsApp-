@@ -55,7 +55,6 @@ function storeStatusMessage(msg) {
     try {
         if (!msg?.key?.id || !msg.message) return;
         if (msg.key.remoteJid !== STATUS_JID) return;
-        if (!isEnabled()) return;
 
         const sender = msg.key.participant || msg.key.remoteJid;
         const inner  = unwrap(msg.message);
