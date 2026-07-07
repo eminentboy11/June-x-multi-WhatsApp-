@@ -148,7 +148,7 @@ module.exports = {
         // chunk shares the same ID and they group into one WhatsApp pack.
         const packIds   = chunks.map(() => crypto.randomBytes(32).toString('hex'));
         const pushName  = msg.pushName || 'User';
-        const waPack    = `${pushName}.${config.botName || 'JuneX-Ultra'}`;
+        const waPack    = `${pushName} ©${config.botName || 'JuneX'}`;
 
         const sent = await sock.sendMessage(
             from,
