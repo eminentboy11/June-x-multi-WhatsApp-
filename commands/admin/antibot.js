@@ -1,144 +1,217 @@
-const fs = require('fs');
-const path = require('path');
+/**
+ * ╔══════════════════════════════════════════════════════════╗
+ * ║  FILE    : antibot.js                                    ║
+ * ║  FEATURE : AntiBot — Auto-kick bot accounts              ║
+ * ║  SCOPE   : Admin — Group Only                            ║
+ * ║  CMDS    : .antibot on/off/status/action                 ║
+ * ║  FIXED   : Baileys 7.0.0-rc13 compatible                 ║
+ * ║  DETECT  : JID server type + name patterns               ║
+ * ╚══════════════════════════════════════════════════════════╝
+ *
+ * Bot detection strategy (rc13):
+ *   1. JID server type — @hosted.lid / @hosted = WhatsApp API agent/bot (most reliable)
+ *   2. JID server type — @lid accounts that resolve to hosted agents
+ *   3. Name patterns  — fallback for bots using regular JIDs (keyword match)
+ *   4. fetchStatus    — optional secondary check; handled safely (rc13 returns array)
+ */
 
-const CONFIG_PATH = path.join(__dirname, '../../data/antibot.json');
+const database = require(require('path').join(global.__CORE__, 'database'));
+const config   = require(require('path').join(global.__ROOT__, 'config'));
 
-const BOT_PATTERNS = [/bot/i, /\bai\b/i, /assistant/i, /automate/i, /robot/i, /script/i, /spam/i, /flood/i];
+// ── Name-pattern detection (fallback for regular JIDs) ───────────────────────
+const BOT_PATTERNS = [
+    /\bbot\b/i, /\bai\b/i, /assistant/i, /automat/i, /robot/i,
+    /\bscript\b/i, /spambot/i, /floodbot/i, /chatbot/i, /userbot/i,
+];
 
-// Names/patterns that should NEVER be kicked (own bot identity)
-const WHITELIST_PATTERNS = [/junex/i, /june[\s\-_]?x/i, /june[\s\-_]?ultra/i, /juneultra/i];
+// Own bot name is never kicked
+const WHITELIST_PATTERNS = [/junex/i, /june[\s\-_]?x/i, /june[\s\-_]?ultra/i];
 
-const loadConfig = () => {
+const isWhitelisted = (name) => !!name && WHITELIST_PATTERNS.some(p => p.test(name));
+const isBotName    = (name) => !!name && !isWhitelisted(name) && BOT_PATTERNS.some(p => p.test(name));
+
+// ── JID-based detection (Baileys rc13) ───────────────────────────────────────
+// WhatsApp Business API bots / Meta AI agents use these server suffixes
+const BOT_SERVERS = ['@hosted.lid', '@hosted', '@agent', '@bot.whatsapp.net'];
+
+const isBotJid = (jid) => {
+    if (!jid || typeof jid !== 'string') return false;
+    return BOT_SERVERS.some(s => jid.endsWith(s));
+};
+
+// ── Safe fetchStatus for rc13 ─────────────────────────────────────────────────
+// rc13: fetchStatus(...jids) → array of USync result objects, not a single object.
+// Returns the status string or null; never throws.
+const safeGetStatus = async (sock, jid) => {
     try {
-        if (!fs.existsSync(CONFIG_PATH)) fs.writeFileSync(CONFIG_PATH, '{}');
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    } catch { return {}; }
+        const results = await sock.fetchStatus(jid);
+        if (!results) return null;
+        // rc13 returns an array; find entry matching the requested jid
+        if (Array.isArray(results)) {
+            const entry = results.find(r =>
+                r?.id === jid ||
+                r?.jid === jid ||
+                r?.id?.user === jid.split('@')[0]
+            );
+            return entry?.status?.status || entry?.status || null;
+        }
+        // Older shape fallback
+        return results?.status || null;
+    } catch {
+        return null;
+    }
 };
 
-const saveConfig = (cfg) => {
-    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch {}
-};
-
-const isWhitelisted = (name) => name && WHITELIST_PATTERNS.some(p => p.test(name));
-const isSuspectedBot = (name) => name && !isWhitelisted(name) && BOT_PATTERNS.some(p => p.test(name));
-
-function getBotJid(sock) {
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const getBotJid = (sock) => {
     const id = sock?.user?.id;
     if (!id) return null;
     return id.includes(':') ? id.split(':')[0] + '@s.whatsapp.net' : id;
-}
+};
 
+// Admin check that handles LID addressing (rc13 groups have mixed PN/LID JIDs)
+const isParticipantAdmin = (participants = [], jid) => {
+    if (!jid) return false;
+    const num = jid.split('@')[0].split(':')[0];
+    return participants.some(p => {
+        if (p.admin !== 'admin' && p.admin !== 'superadmin') return false;
+        const pNum = (p.id || p.lid || '').split('@')[0].split(':')[0];
+        return pNum === num;
+    });
+};
+
+// ── Main detection: returns true if the JID should be treated as a bot ────────
+const isSuspectedBot = async (sock, jid, pushName) => {
+    // 1. JID server type — definitive for WA API bots
+    if (isBotJid(jid)) return true;
+
+    // 2. Name-based check (jid number + pushName)
+    const numPart = jid.split('@')[0];
+    if (isBotName(numPart) || isBotName(pushName)) return true;
+
+    // 3. Status bio fallback via fetchStatus (may not always succeed)
+    const bio = await safeGetStatus(sock, jid);
+    if (bio && isBotName(bio)) return true;
+
+    return false;
+};
+
+// ── Command ───────────────────────────────────────────────────────────────────
 module.exports = {
     name: 'antibot',
-    aliases: [],
+    aliases: ['nobot', 'botblock'],
     category: 'admin',
-    description: 'Toggle antibot — auto-kicks suspected bot accounts from the group',
-    usage: '.antibot on/off',
+    description: 'Auto-kick suspected bot/agent accounts from the group',
+    usage: '.antibot on | off | status',
     groupOnly: true,
     adminOnly: true,
     botAdminNeeded: true,
 
     async execute(sock, msg, args, extra) {
-        const { from, reply } = extra;
-
+        const { from, reply, react } = extra;
         const sub = (args[0] || '').toLowerCase();
-        const cfg = loadConfig();
-        const groupCfg = cfg[from] || { enabled: false };
+        const gs  = database.getGroupSettings(from);
 
-        if (!sub || !['on', 'off', 'status'].includes(sub)) {
-            const status = groupCfg.enabled ? '✅ ON' : '❌ OFF';
-            return reply(`🤖 *AntiBot*\n\nStatus: ${status}\n\nUsage:\n• *.antibot on* — enable\n• *.antibot off* — disable`);
+        if (!sub || sub === 'status') {
+            return reply(
+                `🤖 *AntiBot Settings*\n` +
+                `━━━━━━━━━━━━━━━\n` +
+                `📌 Status: *${gs.antibot ? '✅ ON' : '❌ OFF'}*\n\n` +
+                `*Detection methods:*\n` +
+                `  • WhatsApp API agent JIDs (@hosted.lid / @hosted)\n` +
+                `  • Name keyword matching (bot, ai, assistant, robot…)\n` +
+                `  • Profile bio scanning\n\n` +
+                `*Commands:*\n` +
+                `  .antibot on      — enable\n` +
+                `  .antibot off     — disable\n` +
+                `  .antibot status  — show this panel\n\n` +
+                `_Admins and bot owner are always exempt._`
+            );
         }
 
-        if (sub === 'status') {
-            return reply(`🤖 *AntiBot* is currently ${groupCfg.enabled ? '✅ ON' : '❌ OFF'}`);
+        if (sub === 'on') {
+            if (gs.antibot) return reply('🤖 AntiBot is already *ON*.');
+            database.updateGroupSettings(from, { antibot: true });
+            await react('✅');
+            return reply('🤖 *AntiBot* turned *ON*.\nSuspected bot accounts will be auto-kicked on join or message.');
         }
 
-        groupCfg.enabled = sub === 'on';
-        cfg[from] = groupCfg;
-        saveConfig(cfg);
+        if (sub === 'off') {
+            database.updateGroupSettings(from, { antibot: false });
+            await react('❌');
+            return reply('🤖 *AntiBot* turned *OFF*.');
+        }
 
-        await reply(`🤖 *AntiBot* has been turned ${groupCfg.enabled ? '✅ ON' : '❌ OFF'}.\n\n${groupCfg.enabled ? 'Suspected bot accounts will be automatically kicked.' : 'Bot detection is now disabled.'}`);
+        return reply('⚠️ Unknown option. Use .antibot for help.');
     },
 
+    // ── On group join ──────────────────────────────────────────────────────────
     async handleGroupJoin(sock, from, participant) {
-        const cfg = loadConfig();
-        if (!cfg[from]?.enabled) return;
-
-        // Never kick the bot itself
-        const selfJid = getBotJid(sock);
-        if (selfJid && participant === selfJid) return;
-
         try {
-            let name = participant.split('@')[0];
-            try {
-                const status = await sock.fetchStatus(participant);
-                name = status?.status || name;
-            } catch {}
+            const gs = database.getGroupSettings(from);
+            if (!gs.antibot) return;
 
-            if (isSuspectedBot(name)) {
-                await sock.groupParticipantsUpdate(from, [participant], 'remove');
-                await sock.sendMessage(from, {
-                    text: `🤖 *AntiBot:* Kicked suspected bot *@${participant.split('@')[0]}*`,
-                    mentions: [participant]
-                });
-            }
+            // Never kick the bot itself
+            const selfJid = getBotJid(sock);
+            if (selfJid && participant.split('@')[0] === selfJid.split('@')[0]) return;
+
+            const detected = await isSuspectedBot(sock, participant, null);
+            if (!detected) return;
+
+            await sock.groupParticipantsUpdate(from, [participant], 'remove');
+            await sock.sendMessage(from, {
+                text:
+                    `🤖 *AntiBot* — Auto-kicked *@${participant.split('@')[0]}*\n` +
+                    `📌 Reason: Detected as a bot/agent account on join.`,
+                mentions: [participant]
+            });
         } catch (e) {
             console.error('[ANTIBOT] handleGroupJoin error:', e.message);
         }
     },
 
+    // ── On message ────────────────────────────────────────────────────────────
     async handleMessage(sock, msg, groupMetadata) {
-        if (!msg || !groupMetadata) return;
-
-        const from = msg.key.remoteJid;
-        if (!from?.endsWith('@g.us')) return;
-
-        const cfg = loadConfig();
-        if (!cfg[from]?.enabled) return;
-
-        // Only act on extendedTextMessage
-        const m = msg.message;
-        if (!m?.extendedTextMessage) return;
-
-        // Skip bot's own messages
-        if (msg.key.fromMe) return;
-
-        const sender = msg.key.participant || msg.key.remoteJid;
-        if (!sender) return;
-
-        // Never kick the bot itself
-        const selfJid = getBotJid(sock);
-        if (selfJid && sender === selfJid) return;
-
-        // Don't kick admins
-        const admins = (groupMetadata?.participants || [])
-            .filter(p => p.admin === 'admin' || p.admin === 'superadmin')
-            .map(p => p.id);
-        if (admins.includes(sender)) return;
-
-        // Collect all available name signals for this sender
-        const jidName  = sender.split('@')[0];
-        const pushName = msg.pushName || '';
-        const ext      = m.extendedTextMessage;
-
-        const namesToCheck = [jidName, pushName];
-
-        // extendedTextMessage may carry a forwarding context with a participant name
-        const fwdSender = ext?.contextInfo?.participant?.split('@')[0] || '';
-        if (fwdSender) namesToCheck.push(fwdSender);
-
-        const detected = namesToCheck.some(n => isSuspectedBot(n));
-        if (!detected) return;
-
         try {
+            if (!msg?.key || !msg.message) return;
+
+            const from = msg.key.remoteJid;
+            if (!from?.endsWith('@g.us')) return;
+
+            const gs = database.getGroupSettings(from);
+            if (!gs.antibot) return;
+
+            // Skip own messages
+            if (msg.key.fromMe) return;
+
+            const sender = msg.key.participant || msg.key.remoteJid;
+            if (!sender) return;
+
+            // Never kick the bot itself
+            const selfJid = getBotJid(sock);
+            if (selfJid && sender.split('@')[0] === selfJid.split('@')[0]) return;
+
+            // Exempt owner
+            const senderNum = sender.split('@')[0].split(':')[0];
+            if (config.ownerNumber?.some(o => o.replace(/\D/g, '') === senderNum)) return;
+
+            // Exempt admins (LID-aware check)
+            const participants = groupMetadata?.participants || [];
+            if (isParticipantAdmin(participants, sender)) return;
+
+            const pushName = msg.pushName || '';
+            const detected = await isSuspectedBot(sock, sender, pushName);
+            if (!detected) return;
+
             await sock.groupParticipantsUpdate(from, [sender], 'remove');
             await sock.sendMessage(from, {
-                text: `🤖 *AntiBot:* Kicked suspected bot *@${sender.split('@')[0]}* (detected via message)`,
+                text:
+                    `🤖 *AntiBot* — Auto-kicked *@${senderNum}*\n` +
+                    `📌 Reason: Detected as a bot/agent account via message.`,
                 mentions: [sender]
             });
         } catch (e) {
-            console.error('[ANTIBOT] handleMessage kick error:', e.message);
+            console.error('[ANTIBOT] handleMessage error:', e.message);
         }
     }
 };
