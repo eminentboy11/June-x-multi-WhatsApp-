@@ -564,6 +564,9 @@ const handleMessage = async (sock, msg) => {
       ]);
     }
     
+    // AntiBug — crash-message protection for groups AND DMs
+    try { await handleAntibug(sock, msg, groupMetadata, isGroup, sender, from); } catch (_) {}
+
     // Track group message statistics
     if (isGroup) {
       addMessage(from, sender);
@@ -1801,10 +1804,20 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
 
     const msgType = resolveType(msg.message);
 
+    // GIF detection: videoMessage with gifPlayback === true
+    const isGif = (() => {
+      const vm = msg.message?.videoMessage ||
+                 msg.message?.ephemeralMessage?.message?.videoMessage ||
+                 msg.message?.viewOnceMessageV2?.message?.videoMessage;
+      return !!(vm?.gifPlayback);
+    })();
+
     const checks = [
-      { enabled: groupSettings.antiimage,   action: groupSettings.antiimageAction   || 'delete', label: 'Anti Image 🖼️',   types: ['imageMessage'] },
-      { enabled: groupSettings.antisticker, action: groupSettings.antistickerAction || 'delete', label: 'Anti Sticker 🎭', types: ['stickerMessage'] },
-      { enabled: groupSettings.antiaudio,   action: groupSettings.antiaudioAction   || 'delete', label: 'Anti Audio 🔇',   types: ['audioMessage', 'pttMessage'] },
+      { enabled: groupSettings.antiimage,   action: groupSettings.antiimageAction   || 'delete', label: 'Anti Image 🖼️',    types: ['imageMessage'] },
+      { enabled: groupSettings.antisticker, action: groupSettings.antistickerAction || 'delete', label: 'Anti Sticker 🎭',  types: ['stickerMessage'] },
+      { enabled: groupSettings.antiaudio,   action: groupSettings.antiaudioAction   || 'delete', label: 'Anti Audio 🔇',    types: ['audioMessage', 'pttMessage'] },
+      { enabled: groupSettings.anticontact, action: groupSettings.anticontactAction || 'delete', label: 'Anti Contact 📇',  types: ['contactMessage', 'contactsArrayMessage'] },
+      { enabled: groupSettings.antigif && isGif, action: groupSettings.antigifAction || 'delete', label: 'Anti GIF 🎞️',    types: ['videoMessage'] },
     ];
 
     for (const check of checks) {
@@ -1902,6 +1915,130 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
   }
 };
 
+// ── AntiBug crash-pattern detection ─────────────────────────────────────────
+const CRASH_PATTERNS = [
+  /\u0000/,                       // Null byte injection
+  /\u202E{2,}/,                   // RTL override repeated
+  /[\u200B-\u200D\uFEFF]{10,}/,   // Invisible / zero-width char flood
+  /[\u0300-\u036f]{8,}/,          // Zalgo combining-mark attack
+  /(.)\1{500,}/,                  // Single character repeated 500+ times
+  /[\u{E0000}-\u{E007F}]/u,       // Unicode tag block (known WA crash vector)
+];
+
+const isCrashMessage = (text) => {
+  if (!text || typeof text !== 'string') return false;
+  for (const p of CRASH_PATTERNS) {
+    try { if (p.test(text)) return true; } catch (_) {}
+  }
+  return false;
+};
+
+// ── AntiBug handler — called for every incoming message ─────────────────────
+const handleAntibug = async (sock, msg, groupMetadata, isGroup, sender, from) => {
+  try {
+    if (!database.getBotSetting('antibug')) return;
+    if (msg.key.fromMe) return;
+
+    const text =
+      msg.message?.conversation ||
+      msg.message?.extendedTextMessage?.text ||
+      msg.message?.imageMessage?.caption ||
+      msg.message?.videoMessage?.caption ||
+      msg.message?.documentMessage?.caption || '';
+
+    if (!isCrashMessage(text)) return;
+
+    const senderNum = (sender || from).split('@')[0].split(':')[0];
+    const action    = database.getBotSetting('antibugAction') || 'delete';
+
+    console.log(`[ANTIBUG] Crash message detected from ${senderNum} in ${isGroup ? 'group' : 'DM'} ${from}`);
+
+    if (isGroup) {
+      const senderIsAdminVal = await isAdmin(sock, sender, from, groupMetadata);
+      const senderIsOwnerVal = isOwner(sender);
+      if (senderIsAdminVal || senderIsOwnerVal) return;
+
+      const botIsAdminVal = await isBotAdmin(sock, from, groupMetadata);
+
+      if (!botIsAdminVal) {
+        // Cannot delete — leave group to protect bot
+        try { await sock.groupLeave(from); } catch (_) {}
+        for (const ownerNum of config.ownerNumber) {
+          try {
+            await sock.sendMessage(`${ownerNum}@s.whatsapp.net`, {
+              text:
+                `🛡️ *AntiBug Alert*\n` +
+                `Left group *${groupMetadata?.subject || from}*\n` +
+                `Reason: crash message detected from *${senderNum}* but bot is not admin.`
+            });
+          } catch (_) {}
+        }
+        return;
+      }
+
+      // Bot is admin — delete message then take action
+      try { await sock.sendMessage(from, { delete: msg.key }); } catch (_) {}
+
+      if (action === 'kick') {
+        try {
+          await sock.groupParticipantsUpdate(from, [sender], 'remove');
+          await sock.sendMessage(from, {
+            text: `🛡️ *AntiBug* — @${senderNum} was *removed* for sending a crash message.`,
+            mentions: [sender]
+          });
+        } catch (_) {}
+
+      } else if (action === 'warn') {
+        const result   = database.addWarning(from, sender, 'Crash message (AntiBug)');
+        const maxWarns = config.maxWarnings || 3;
+        if (result.count >= maxWarns) {
+          try {
+            await sock.groupParticipantsUpdate(from, [sender], 'remove');
+            database.clearWarnings(from, sender);
+            await sock.sendMessage(from, {
+              text:
+                `🛡️ *AntiBug* — @${senderNum} was *removed*.\n` +
+                `Reached max warnings (${maxWarns}/${maxWarns}) for crash messages.`,
+              mentions: [sender]
+            });
+          } catch (_) {}
+        } else {
+          await sock.sendMessage(from, {
+            text:
+              `🛡️ *AntiBug* ⚠️ Warning to @${senderNum}\n` +
+              `Crash message deleted. Warnings: *${result.count}/${maxWarns}*`,
+            mentions: [sender]
+          });
+        }
+
+      } else {
+        // delete-only
+        try {
+          await sock.sendMessage(from, {
+            text: `🛡️ *AntiBug* — Crash message from @${senderNum} deleted.`,
+            mentions: [sender]
+          });
+        } catch (_) {}
+      }
+
+    } else {
+      // DM — block sender + notify owner
+      try { await sock.updateBlockStatus(sender, 'block'); } catch (_) {}
+      for (const ownerNum of config.ownerNumber) {
+        try {
+          await sock.sendMessage(`${ownerNum}@s.whatsapp.net`, {
+            text:
+              `🛡️ *AntiBug Alert — DM*\n` +
+              `Blocked *${senderNum}* for sending a crash/bug message in private chat.`
+          });
+        } catch (_) {}
+      }
+    }
+  } catch (e) {
+    console.error('[ANTIBUG]', e.message);
+  }
+};
+
 module.exports = {
   handleMessage,
   handleGroupUpdate,
@@ -1910,6 +2047,7 @@ module.exports = {
   handleAntigroupmention,
   handleAntigroupstatus,
   handleAntiMedia,
+  handleAntibug,
   initializeAntiCall,
   isOwner,
   isAdmin,

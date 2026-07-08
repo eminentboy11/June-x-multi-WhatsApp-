@@ -60,7 +60,11 @@ module.exports = {
       antiaudioAction: 'delete',
       antibadword: false,
       antibadwordAction: 'warn',
-      badwords: []
+      badwords: [],
+      anticontact: false,
+      anticontactAction: 'delete',
+      antigif: false,
+      antigifAction: 'delete',
     },
     
     apiKeys: {
