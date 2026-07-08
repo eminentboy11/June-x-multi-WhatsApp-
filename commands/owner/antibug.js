@@ -43,27 +43,11 @@ module.exports = {
 
         if (!sub || sub === 'status') {
             return reply(
-                `🛡️ *AntiBug — Crash Message Protection*\n` +
-                `━━━━━━━━━━━━━━━━━━━━\n` +
-                `📌 Status: *${enabled ? '✅ ON' : '❌ OFF'}*\n` +
-                `⚡ Action (groups): *${action}*\n\n` +
-                `*What it blocks:*\n` +
-                `  • Null-byte injection\n` +
-                `  • RTL override spam\n` +
-                `  • Invisible / zero-width char floods\n` +
-                `  • Zalgo combining-mark attacks\n` +
-                `  • Excessively repeated characters\n` +
-                `  • Known crash Unicode sequences\n\n` +
-                `*Group behaviour:*\n` +
-                `  Bot is admin  → delete + ${action} sender\n` +
-                `  Bot not admin → leave group automatically\n\n` +
-                `*DM behaviour:*\n` +
-                `  → Block sender + notify owner\n\n` +
-                `*Commands:*\n` +
-                `  .antibug on\n` +
-                `  .antibug off\n` +
-                `  .antibug action delete|warn|kick\n` +
-                `  .antibug status`
+                `🛡️ *AntiBug* — ${enabled ? '✅ ON' : '❌ OFF'} (action: *${action}*)\n\n` +
+                `Group: admin → delete+${action} | not admin → leave\n` +
+                `DM: block sender + notify owner\n\n` +
+                `.antibug on/off\n` +
+                `.antibug action delete|warn|kick`
             );
         }
 
