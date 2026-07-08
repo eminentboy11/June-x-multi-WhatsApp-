@@ -757,7 +757,7 @@ async function startKnightBot() {
             handler.initializeAntiCall(sock)
 
             // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
-            const newsletters = ["120363405182019728@newsletter", ""];
+            const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             global.newsletters = newsletters;
             const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM"];
             global.groupInvites = groupInvites;
@@ -1022,7 +1022,7 @@ async function startKnightBot() {
     // ── Newsletter Auto-React ───────────────────────────────────────────────────
     const NEWSLETTERS = [
         '120363405182019728@newsletter',
-        '120363405182019728@newsletter',
+        '120363407337963331@newsletter',
         '120363366284524544@newsletter',
     ];
     const _newsletterEmojis = ['❤️','💛','👍','💜','😮','🤍','💙'];
