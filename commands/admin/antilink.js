@@ -18,7 +18,7 @@ const config   = require(require('path').join(global.__ROOT__, 'config'));
 
 module.exports = {
     name: 'antilink',
-    aliases: ['antilinkgc'],
+    aliases: ['al'],
     category: 'admin',
     description: 'Block links in the group — delete, kick, or warn the sender',
     usage: '.antilink on | off | delete | kick | warn',
@@ -43,13 +43,9 @@ module.exports = {
                 }[action] || action;
 
                 return reply(
-                    `🔗 *Antilink Settings*\n` +
-                    `━━━━━━━━━━━━━━━━━━━━\n` +
-                    `📌 Status: *${status}*\n` +
-                    `⚙️ Action: *${actionLabel}*\n\n` +
-                    `*Commands:*\n` +
-                    `  .antilink <on>/ <off> /<delete>/< warn> — enable/delete + warn +  links` 
-                    
+                    `🔗 *Antilink*\n` +
+                    `Status: *${status}* | Action: *${actionLabel}*\n\n` +
+                    `.antilink delete | kick | warn | on | off`
                 );
             }
 
