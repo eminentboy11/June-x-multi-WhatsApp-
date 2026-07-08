@@ -556,6 +556,7 @@ const handleMessage = async (sock, msg) => {
         handleAntigroupmention(sock, msg, groupMetadata),
         handleAntigroupstatus(sock, msg, groupMetadata),
         handleAntiMedia(sock, msg, groupMetadata),
+        handleAntilink(sock, msg, groupMetadata),
         antispam?.handleAntispam         ? antispam.handleAntispam(sock, msg, groupMetadata)         : Promise.resolve(),
         antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)                : Promise.resolve(),
         antibot?.handleMessage           ? antibot.handleMessage(sock, msg, groupMetadata)           : Promise.resolve(),
@@ -1310,7 +1311,9 @@ const handleAntilink = async (sock, msg, groupMetadata) => {
                   msg.message?.imageMessage?.caption || 
                   msg.message?.videoMessage?.caption || '';
     
-    // antilink partern
+    // Link detection: matches URLs with a protocol, or well-known link patterns.
+    // Requires http(s):// for generic domains so version strings like "v1.2.3"
+    // or decimals like "5.00" are NOT falsely flagged.
     const linkPattern = /https?:\/\/[^\s]+|t\.me\/[^\s]+|wa\.me\/[^\s]+|chat\.whatsapp\.com\/[^\s]+/i;
     
     // Check for any links (with or without protocol)
