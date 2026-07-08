@@ -1,222 +1,283 @@
+/**
+ * ╔══════════════════════════════════════════════════════════════╗
+ * ║  FILE    : chatbot.js                                        ║
+ * ║  FEATURE : AI Chatbot — Groups + DMs                         ║
+ * ║  SCOPE   : Admin (groups) / Owner (chats toggle)             ║
+ * ║  API     : apis.keithsite.top — multi-endpoint with fallback ║
+ * ║  CMDS    : .chatbot on | off | pm | chat                     ║
+ * ╚══════════════════════════════════════════════════════════════╝
+ *
+ * .chatbot on   → enable in group (replies to ALL messages)
+ * .chatbot off  → silence / disable (group or DM)
+ * .chatbot pm   → toggle auto-reply in private/DM chats (owner)
+ * .chatbot chat → alias for pm
+ *
+ * AI API: apis.keithsite.top
+ *   Tries endpoints in order until one succeeds.
+ */
+
+const axios    = require('axios');
 const database = require(require('path').join(global.__CORE__, 'database'));
-const fs   = require('fs');
-const path = require('path');
-const axios = require('axios');
+const config   = require(require('path').join(global.__ROOT__, 'config'));
 
-const SETTINGS_FILE = path.join(__dirname, '../../data/chatbot_settings.json');
+// ── API config ────────────────────────────────────────────────────────────────
+const BASE = 'https://apis.keithsite.top';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Settings — persists pm toggle. Default: PM OFF.
-// ─────────────────────────────────────────────────────────────────────────────
+// Endpoints tried in order — first success wins
+const AI_ENDPOINTS = [
+    (q) => `${BASE}/keithai?q=${encodeURIComponent(q)}`,
+    (q) => `${BASE}/ai/gpt?q=${encodeURIComponent(q)}`,
+    (q) => `${BASE}/ai/chatgpt4?q=${encodeURIComponent(q)}`,
+    (q) => `${BASE}/ai/gpt4?q=${encodeURIComponent(q)}`,
+    (q) => `${BASE}/ai/deepseekV3?q=${encodeURIComponent(q)}`,
+    (q) => `${BASE}/ai/mistral?q=${encodeURIComponent(q)}`,
+];
 
-function loadSettings() {
-    try {
-        if (fs.existsSync(SETTINGS_FILE)) {
-            const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-            if (typeof parsed.pmEnabled !== 'boolean') parsed.pmEnabled = false;
-            return parsed;
-        }
-    } catch {}
-    return { pmEnabled: false };
+// ── In-memory state ────────────────────────────────────────────────────────────
+// Conversation history: chatJid → [ { role, text }, … ] (max 5 pairs = 10 entries)
+const history = new Map();
+const HISTORY_MAX = 10;
+
+// Rate limiting: senderJid → lastRequestMs
+const lastRequest = new Map();
+const RATE_MS = 4000; // 4 seconds between requests per user
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Build a context-aware prompt from conversation history + new message.
+ * Keeps the payload short so keithsite doesn't time out.
+ */
+function buildPrompt(chatJid, newText) {
+    const hist = history.get(chatJid) || [];
+    if (!hist.length) return newText;
+
+    const ctx = hist
+        .slice(-6)                         // last 3 exchanges max
+        .map(h => `${h.role === 'user' ? 'User' : 'Bot'}: ${h.text}`)
+        .join('\n');
+    return `${ctx}\nUser: ${newText}\nBot:`;
 }
 
-function saveSettings(data) {
-    try {
-        const dir = path.dirname(SETTINGS_FILE);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(data, null, 2));
-    } catch (e) {
-        console.error('[Chatbot] Failed to save settings:', e.message);
-    }
+/** Store a turn in conversation history, capping at HISTORY_MAX entries. */
+function pushHistory(chatJid, role, text) {
+    if (!history.has(chatJid)) history.set(chatJid, []);
+    const h = history.get(chatJid);
+    h.push({ role, text: text.slice(0, 300) }); // cap each entry at 300 chars
+    if (h.length > HISTORY_MAX) h.splice(0, h.length - HISTORY_MAX);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AI API — iamtkm GPT-5 endpoint
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function getTextReply(prompt) {
-    try {
-        const { data } = await axios.get(
-            'https://iamtkm.vercel.app/ai/gpt5',
-            {
-                params: { apikey: 'tkm', text: prompt },
-                timeout: 60000
+/** Call the AI — tries all endpoints, returns first successful result. */
+async function callAI(prompt) {
+    let lastErr = null;
+    for (const makeUrl of AI_ENDPOINTS) {
+        try {
+            const { data } = await axios.get(makeUrl(prompt), {
+                timeout: 25000,
+                headers: { 'User-Agent': 'JuneXUltra/2.0' },
+            });
+            if (data?.status === true && data?.result) {
+                return String(data.result).trim();
             }
-        );
-        // Handle common response shapes
-        if (data?.reply)   return data.reply;
-        if (data?.result)  return data.result;
-        if (data?.message) return data.message;
-        if (data?.text)    return data.text;
-        if (typeof data === 'string' && data.trim()) return data.trim();
-        throw new Error('No reply from GPT-5 API');
-    } catch (err) {
-        throw err;
+        } catch (e) {
+            lastErr = e;
+        }
     }
+    throw lastErr || new Error('All AI endpoints failed');
 }
 
-function getImageUrl(prompt) {
-    return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true&enhance=true`;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Auto-reply — called from handler.js on every non-command message
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function handleAutoReply(sock, msg, extra) {
-    const { from, isGroup } = extra;
-
-    // ── Check if chatbot is active for this context ──────────────────────────
-    let active = false;
-    if (isGroup) {
-        const gs = database.getGroupSettings(from);
-        active = gs.chatbot === true;
-    } else {
-        const settings = loadSettings();
-        active = settings.pmEnabled === true;
-    }
-
-    if (!active) return;
-
-    // ── Extract message text ─────────────────────────────────────────────────
-    const m = msg.message;
-    const text = (
-        m?.conversation ||
-        m?.extendedTextMessage?.text ||
-        m?.imageMessage?.caption ||
-        m?.videoMessage?.caption ||
+/** Extract plain text from any message type. */
+function extractText(msg) {
+    const m = msg?.message;
+    if (!m) return '';
+    const inner =
+        m.ephemeralMessage?.message ||
+        m.viewOnceMessageV2?.message ||
+        m;
+    return (
+        inner.conversation ||
+        inner.extendedTextMessage?.text ||
+        inner.imageMessage?.caption ||
+        inner.videoMessage?.caption ||
+        inner.documentMessage?.caption ||
+        inner.buttonsResponseMessage?.selectedDisplayText ||
         ''
     ).trim();
+}
 
-    if (!text) return;
+/** True if the message body mentions the bot's own number. */
+function mentionsBot(msg, sock) {
+    const botNum = (sock?.user?.id || '').split(':')[0].split('@')[0];
+    if (!botNum) return false;
 
-    // ── Show typing indicator ────────────────────────────────────────────────
-    try { await sock.sendPresenceUpdate('composing', from); } catch (_) {}
+    // Explicit @mention in contextInfo
+    const ctx = msg?.message?.extendedTextMessage?.contextInfo;
+    if (ctx?.mentionedJid?.some(j => j.includes(botNum))) return true;
 
-    // ── Decide: image generation or text reply ───────────────────────────────
-    const imageKeywords = ['generate', 'draw', 'create image', 'make image', 'image of', 'picture of', 'paint'];
-    const isImageRequest = imageKeywords.some(k => text.toLowerCase().includes(k));
+    // Raw text contains @botNum
+    const text = extractText(msg);
+    return text.includes(`@${botNum}`);
+}
 
+// ── Auto-reply — called by handler.js on every non-command message ─────────────
+
+async function handleAutoReply(sock, msg, extra) {
     try {
-        if (isImageRequest) {
-            const url = getImageUrl(text);
-            await sock.sendMessage(from, {
-                image: { url },
-                caption: `🎨 *AI Image*\n\n_Prompt:_ ${text}`,
-            }, { quoted: msg });
+        const { from, isGroup } = extra;
+        if (msg.key.fromMe) return;
+
+        // ── Rate limit per sender ───────────────────────────────────────────
+        const sender = msg.key.participant || msg.key.remoteJid || from;
+        const now    = Date.now();
+        if (lastRequest.has(sender) && now - lastRequest.get(sender) < RATE_MS) return;
+
+        // ── Check if chatbot is active for this context ─────────────────────
+        let shouldReply = false;
+        let mode        = 'off';
+
+        if (isGroup) {
+            const gs = database.getGroupSettings(from);
+            mode = gs.chatbotMode || (gs.chatbot ? 'on' : 'off');
+
+            if (mode === 'on') {
+                shouldReply = true;
+            } else if (mode === 'mention') {
+                shouldReply = mentionsBot(msg, sock);
+            }
         } else {
-            const reply = await getTextReply(text);
-            await sock.sendMessage(from, { text: reply }, { quoted: msg });
+            // DM — global owner-controlled toggle
+            const dmOn = database.getBotSetting('chatbotDm') ?? false;
+            if (dmOn) shouldReply = true;
         }
-    } catch (err) {
-        console.error('[Chatbot] Auto-reply error:', err.message);
-        // Fail silently — don't send error to chat
+
+        if (!shouldReply) return;
+
+        // ── Extract text ────────────────────────────────────────────────────
+        let text = extractText(msg);
+        if (!text) return;
+
+        // Strip @botNumber mention prefix so the AI gets clean input
+        const botNum = (sock?.user?.id || '').split(':')[0].split('@')[0];
+        if (botNum) text = text.replace(new RegExp(`@${botNum}\\s*`, 'g'), '').trim();
+        if (!text) return;
+
+        // ── Mark rate limit before the async API call ────────────────────────
+        lastRequest.set(sender, now);
+
+        // ── Typing indicator ─────────────────────────────────────────────────
+        try { await sock.sendPresenceUpdate('composing', from); } catch (_) {}
+
+        // ── Build prompt with history ────────────────────────────────────────
+        const prompt = buildPrompt(from, text);
+
+        // ── Call AI ──────────────────────────────────────────────────────────
+        const reply = await callAI(prompt);
+
+        // ── Store turn in history ────────────────────────────────────────────
+        pushHistory(from, 'user', text);
+        pushHistory(from, 'bot',  reply);
+
+        // ── Send reply ───────────────────────────────────────────────────────
+        await sock.sendMessage(from, { text: reply }, { quoted: msg });
+
+    } catch (e) {
+        console.error('[CHATBOT] handleAutoReply error:', e.message);
+        // Fail silently — never crash the handler
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Command
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Command ───────────────────────────────────────────────────────────────────
 
 module.exports = {
     name: 'chatbot',
-    aliases: ['cb'],
+    aliases: ['cb', 'ai', 'bot'],
     category: 'admin',
-    description: 'Toggle AI chatbot per group or for DMs',
-    usage: '.chatbot | .chatbot on | .chatbot off | .chatbot pm',
+    description: 'AI chatbot — auto-replies in groups and DMs via apis.keithsite.top',
+    usage: '.chatbot on | off | pm | chat',
 
     async execute(sock, msg, args, extra) {
-        const { from, isGroup, isOwner, isAdmin, reply } = extra;
+        const { from, isGroup, isOwner, isAdmin, reply, react } = extra;
         const sub = (args[0] || '').toLowerCase();
-        const settings = loadSettings();
+        const gs  = database.getGroupSettings(from);
 
-        // ── No args — show status ─────────────────────────────────────────────
-        if (!sub) {
+        // ── Status / no args ────────────────────────────────────────────────
+        if (!sub || sub === 'status') {
             if (isGroup) {
-                const gs  = database.getGroupSettings(from);
-                const on  = gs.chatbot === true;
+                const mode      = gs.chatbotMode || (gs.chatbot ? 'on' : 'off');
+                const modeLabel = { on: '✅ ON', off: '❌ OFF' }[mode] || '❌ OFF';
                 return reply(
-                    `🤖 *Chatbot Status*\n\n` +
-                    `┃ 👥 This group: ${on ? '✅ ON' : '❌ OFF'}\n\n` +
-                    `*Commands (admin only):*\n` +
-                    `• *.chatbot on* — Enable chatbot in this group\n` +
-                    `• *.chatbot off* — Disable chatbot in this group`
+                    `🤖 *Chatbot — Group*\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n` +
+                    `📌 Status: *${modeLabel}*\n\n` +
+                    `*Commands (admin):*\n` +
+                    `  .chatbot on  — enable (replies to all messages)\n` +
+                    `  .chatbot off — silence / disable\n\n` +
+                    `*Commands (owner):*\n` +
+                    `  .chatbot pm / chat — toggle private chat replies`
                 );
             } else {
-                const pmOn = settings.pmEnabled;
+                const chatsOn = database.getBotSetting('chatbotDm') ?? false;
                 return reply(
-                    `🤖 *Chatbot Status*\n\n` +
-                    `┃ 💬 PM/DM: ${pmOn ? '✅ ON' : '❌ OFF'}\n\n` +
-                    `*Commands (owner only):*\n` +
-                    `• *.chatbot pm* — Toggle PM chatbot on/off`
+                    `🤖 *Chatbot — Private Chats*\n` +
+                    `━━━━━━━━━━━━━━━━━━━━\n` +
+                    `📌 Status: *${chatsOn ? '✅ ON' : '❌ OFF'}*\n\n` +
+                    `*Commands (owner):*\n` +
+                    `  .chatbot pm / chat — toggle auto-reply in private chats\n` +
+                    `  .chatbot off       — disable`
                 );
             }
         }
 
-        // ── ON — enable for this group ────────────────────────────────────────
+        // ── ON — enable in group (reply to all messages) ─────────────────────
         if (sub === 'on') {
-            if (!isGroup) return reply('ℹ️ Use *.chatbot pm* to toggle DM chatbot.');
-            if (!isAdmin && !isOwner) return reply('❌ Only group admins can enable the chatbot.');
-            if (database.getGroupSettings(from).chatbot === true) {
-                return reply('ℹ️ Chatbot is already *ON* in this group.');
-            }
-            database.updateGroupSettings(from, { chatbot: true });
-            return reply(
-                `🤖 *Chatbot Enabled ✅*\n\n` +
-                `The bot will now auto-reply to all messages in this group.\n\n` +
-                `_Use *.chatbot off* to disable._`
-            );
+            if (!isGroup) return reply('ℹ️ Use *.chatbot pm* to toggle chatbot in private chats.');
+            if (!isAdmin && !isOwner) return reply('❌ Only admins can change chatbot settings.');
+            database.updateGroupSettings(from, { chatbot: true, chatbotMode: 'on' });
+            await react('✅');
+            return reply('🤖 *Chatbot ON* ✅\nBot will now auto-reply to all messages in this group.');
         }
 
-        // ── OFF — disable for this group (or PM if in DM) ────────────────────
+        // ── OFF — silence / disable ───────────────────────────────────────────
         if (sub === 'off') {
             if (isGroup) {
-                if (!isAdmin && !isOwner) return reply('❌ Only group admins can disable the chatbot.');
-                if (database.getGroupSettings(from).chatbot !== true) {
-                    return reply('ℹ️ Chatbot is already *OFF* in this group.');
-                }
-                database.updateGroupSettings(from, { chatbot: false });
-                return reply(
-                    `🤖 *Chatbot Disabled ❌*\n\n` +
-                    `The bot will no longer auto-reply in this group.\n\n` +
-                    `_Use *.chatbot on* to re-enable._`
-                );
+                if (!isAdmin && !isOwner) return reply('❌ Only admins can change chatbot settings.');
+                database.updateGroupSettings(from, { chatbot: false, chatbotMode: 'off' });
+                await react('❌');
+                return reply('🤖 *Chatbot OFF* ❌\nBot will no longer auto-reply in this group.');
             } else {
-                if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
-                settings.pmEnabled = false;
-                saveSettings(settings);
-                return reply(
-                    `🤖 *PM Chatbot Disabled ❌*\n\n` +
-                    `The bot will no longer auto-reply to DMs.\n\n` +
-                    `_Use *.chatbot pm* to re-enable._`
-                );
+                if (!isOwner) return reply('❌ Only the bot owner can toggle chatbot in private chats.');
+                database.setBotSetting('chatbotDm', false);
+                await react('❌');
+                return reply('🤖 *Chatbot OFF* ❌\nBot will no longer auto-reply in private chats.');
             }
         }
 
-        // ── PM / DM — owner toggle for private messages ───────────────────────
-        if (sub === 'pm' || sub === 'dm') {
-            if (!isOwner) return reply('❌ Only the bot owner can toggle PM chatbot.');
-            const newState = !settings.pmEnabled;
-            settings.pmEnabled = newState;
-            saveSettings(settings);
+        // ── PM / CHAT — owner toggle for private chat auto-reply ─────────────
+        if (sub === 'pm' || sub === 'chat' || sub === 'chats' || sub === 'dm') {
+            if (!isOwner) return reply('❌ Only the bot owner can toggle chatbot in private chats.');
+            const current = database.getBotSetting('chatbotDm') ?? false;
+            const next    = !current;
+            database.setBotSetting('chatbotDm', next);
+            await react(next ? '✅' : '❌');
             return reply(
-                newState
-                    ? `🤖 *PM Chatbot Enabled ✅*\n\nThe bot will auto-reply to all private messages.\n\n_Use *.chatbot pm* again to turn off._`
-                    : `🤖 *PM Chatbot Disabled ❌*\n\nThe bot will no longer auto-reply to DMs.\n\n_Use *.chatbot pm* again to turn on._`
+                next
+                    ? '🤖 *Chatbot — Private Chats ON* ✅\nBot will now auto-reply to private messages.'
+                    : '🤖 *Chatbot — Private Chats OFF* ❌\nBot will no longer auto-reply to private messages.'
             );
         }
 
-        // ── Unknown subcommand ────────────────────────────────────────────────
+        // ── CLEAR — wipe conversation history for this chat ──────────────────
+        if (sub === 'clear' || sub === 'reset') {
+            history.delete(from);
+            await react('🗑️');
+            return reply('🗑️ *Conversation history cleared.*\nThe bot will start fresh in this chat.');
+        }
+
         return reply(
             `❓ Unknown option: *${sub}*\n\n` +
-            `Usage:\n` +
-            `• *.chatbot* — Show status\n` +
-            `• *.chatbot on* — Enable in this group\n` +
-            `• *.chatbot off* — Disable in this group / DM\n` +
-            `• *.chatbot pm* / *.chatbot dm* — Toggle PM chatbot (owner)`
+            `Usage: *.chatbot on | off | chats | clear | status*`
         );
     },
 
     handleAutoReply,
-    loadSettings,
 };
