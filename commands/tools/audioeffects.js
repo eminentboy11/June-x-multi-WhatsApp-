@@ -4,6 +4,7 @@ const os = require('os');
 const { execFile } = require('child_process');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { toPTT } = require('../../utils/converter');
+const { resolveQuoted } = require('../../utils/quotedMedia');
 const ffmpegPath = require('ffmpeg-static');
 
 const TEMP_DIR = path.join(os.tmpdir(), 'june-x-audio');
@@ -14,20 +15,10 @@ function rand(ext) {
 }
 
 async function downloadAudio(sock, msg) {
-    const ctx = msg.message?.extendedTextMessage?.contextInfo;
-    if (!ctx?.quotedMessage) return null;
-    const quotedMsg = ctx.quotedMessage;
-    if (!quotedMsg.audioMessage) return null;
-
-    const fullQuoted = {
-        key: {
-            remoteJid: ctx.remoteJid || msg.key.remoteJid,
-            fromMe: false,
-            id: ctx.stanzaId,
-            participant: ctx.participant
-        },
-        message: quotedMsg
-    };
+    const resolved = resolveQuoted(msg);
+    if (!resolved) return null;
+    const { quotedMessage, fullQuoted } = resolved;
+    if (!quotedMessage.audioMessage) return null;
 
     const buffer = await downloadMediaMessage(fullQuoted, 'buffer', {}, { logger: undefined });
     const inputPath = rand('.ogg');
@@ -47,8 +38,8 @@ function runFfmpeg(inputPath, outputPath, ffArgs) {
 
 async function applyEffect(sock, msg, ffArgs, replyFn) {
     const chatId = msg.key.remoteJid;
-    const ctx = msg.message?.extendedTextMessage?.contextInfo;
-    if (!ctx?.quotedMessage?.audioMessage) {
+    const resolved = resolveQuoted(msg);
+    if (!resolved?.quotedMessage?.audioMessage) {
         return replyFn('Reply to an *audio file* with this command to apply the effect.');
     }
     try {
