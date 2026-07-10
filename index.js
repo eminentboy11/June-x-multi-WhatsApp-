@@ -1,52 +1,4 @@
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /**
  * A WhatsApp Bot
  * Built on Baileys | Inspired by JUNE-X structure
@@ -770,9 +722,9 @@ async function startKnightBot() {
             handler.initializeAntiCall(sock)
 
             // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
-            const newsletters = ["120363405182019728@newsletter", ""];
+            const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             global.newsletters = newsletters;
-            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM"];
+            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "K7pxCVFfbQp1GlfyacoQMM"];
             global.groupInvites = groupInvites;
 
             // Run in background so they don't delay the bot becoming ready
