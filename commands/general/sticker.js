@@ -3,7 +3,7 @@
  */
 
 const { Sticker, createSticker, StickerTypes } = require('wa-sticker-formatter');
-const config = require('../config');
+const config = require('../../config');
 
 /**
  * Create sticker from image/video buffer
