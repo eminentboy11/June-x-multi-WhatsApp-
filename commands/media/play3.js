@@ -31,7 +31,7 @@ module.exports = {
 
             // ── Step 2: Call API ──────────────────────────────────────────
             const { data: apiRes } = await axios.get(
-                `https://ravenn.site/download/audio?url=${encodeURIComponent(video.url)}&format=mp3`,
+                `https://apiskeith2-production-ec66.up.railway.app/download/audio?url=${encodeURIComponent(video.url)}&format=mp3`,
                 { timeout: 30000 }
             );
 
