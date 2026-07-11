@@ -7,8 +7,6 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
-const BASE = 'https://apiskeith2-production-ec66.up.railway.app';
-
 // ── Shared send helpers ───────────────────────────────────────────────────────
 
 const react = (sock, msg, emoji) =>
@@ -49,11 +47,11 @@ function cleanResult(result) {
 // ── ravenn.site API helpers ───────────────────────────────────────────────────
 
 /**
- * Call a ravenn.site JSON endpoint. Returns `data.result`.
+ * Call a ravenn.site JSON endpoint (full URL). Returns `data.result`.
  * Throws if status is false or result is a nested error object.
  */
-async function ravenn(path, params = {}) {
-    const { data } = await axios.get(BASE + path, { params, timeout: 60000 });
+async function ravenn(url, params = {}) {
+    const { data } = await axios.get(url, { params, timeout: 60000 });
     if (!data.status) throw new Error(data.error || 'Service temporarily unavailable');
     // Some endpoints wrap a nested error inside result
     if (data.result && typeof data.result === 'object' && data.result.status === false) {
@@ -63,11 +61,11 @@ async function ravenn(path, params = {}) {
 }
 
 /**
- * Call a ravenn.site endpoint that returns raw binary (e.g. JPEG).
+ * Call a ravenn.site endpoint that returns raw binary (e.g. JPEG). Takes a full URL.
  * Returns a Buffer. Detects accidental JSON error envelopes and throws them.
  */
-async function ravennBinary(path, params = {}) {
-    const resp = await axios.get(BASE + path, {
+async function ravennBinary(url, params = {}) {
+    const resp = await axios.get(url, {
         params,
         responseType: 'arraybuffer',
         timeout: 60000,
@@ -145,12 +143,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Keith AI (custom model) a question',
         usage: '.ai <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/keithai',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .ai How does the internet work?');
             await react(sock, msg, '⚡');
             try {
-                const result = await ravenn('/keithai', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `⚡ *Keith AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -167,12 +166,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask GPT AI a question',
         usage: '.chatgpt <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/gpt',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .chatgpt What is JavaScript?');
             await react(sock, msg, '🤖');
             try {
-                const result = await ravenn('/ai/gpt', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🤖 *ChatGPT*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -189,12 +189,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask GPT-4 a question',
         usage: '.gpt4o <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/chatgpt4',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gpt4o How does a black hole form?');
             await react(sock, msg, '🤖');
             try {
-                const result = await ravenn('/ai/chatgpt4', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🤖 *GPT-4*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -211,12 +212,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Claude AI a question',
         usage: '.claude <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/claudeai',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .claude Explain recursion');
             await react(sock, msg, '🧠');
             try {
-                const result = await ravenn('/ai/claudeai', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🧠 *Claude AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -233,12 +235,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Google Gemini a question',
         usage: '.gemini <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/gemini',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .gemini Explain quantum physics');
             await react(sock, msg, '♊');
             try {
-                const result = await ravenn('/ai/gemini', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `♊ *Google Gemini*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -255,12 +258,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Mistral AI a question',
         usage: '.mistral <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/mistral',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .mistral What is machine learning?');
             await react(sock, msg, '🔍');
             try {
-                const result = await ravenn('/ai/mistral', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🔍 *Mistral AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -277,12 +281,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Microsoft Copilot a question',
         usage: '.copilot <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/copilot',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .copilot How are you?');
             await react(sock, msg, '🪟');
             try {
-                const result = await ravenn('/ai/copilot', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🪟 *Microsoft Copilot*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -299,12 +304,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Meta AI a question',
         usage: '.metaai <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/metai',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .metaai Hello, how are you?');
             await react(sock, msg, '💭');
             try {
-                const result = await ravenn('/ai/metai', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `💭 *Meta AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -321,12 +327,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Llama AI a question',
         usage: '.llama <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/ilama',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .llama What is deep learning?');
             await react(sock, msg, '🦙');
             try {
-                const result = await ravenn('/ai/ilama', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🦙 *Llama AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -343,12 +350,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Blackbox AI a question',
         usage: '.blackbox <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/blackbox',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .blackbox Explain recursion');
             await react(sock, msg, '📦');
             try {
-                const result = await ravenn('/ai/blackbox', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `📦 *Blackbox AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -365,12 +373,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Google Bard a question',
         usage: '.bard <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/bard',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .bard Explain black holes');
             await react(sock, msg, '✨');
             try {
-                const result = await ravenn('/ai/bard', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `✨ *Google Bard*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -387,12 +396,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Perplexity AI a question',
         usage: '.perplexity <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/perplexity',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .perplexity What is quantum computing?');
             await react(sock, msg, '🔎');
             try {
-                const result = await ravenn('/ai/perplexity', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🔎 *Perplexity AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -409,12 +419,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Venice AI a question',
         usage: '.venice <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/venice',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .venice What is life?');
             await react(sock, msg, '🌊');
             try {
-                const result = await ravenn('/ai/venice', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🌊 *Venice AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -431,12 +442,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask O3 AI a question',
         usage: '.o3 <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/o3',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .o3 What is consciousness?');
             await react(sock, msg, '🔵');
             try {
-                const result = await ravenn('/ai/o3', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🔵 *O3 AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -453,12 +465,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Grok AI a question',
         usage: '.grok <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/grok',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .grok Explain dark matter');
             await react(sock, msg, '🚀');
             try {
-                const result = await ravenn('/ai/grok', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🚀 *Grok AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -475,12 +488,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Deepseek R1 (reasoning model) a question',
         usage: '.deepseek <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/deepseek',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .deepseek Analyze the trolley problem');
             await react(sock, msg, '🧠');
             try {
-                const result = await ravenn('/ai/deepseek', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 // Strip <think>...</think> reasoning chain for cleaner output
                 const clean = cleanResult(result).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                 await send(sock, msg, `🧠 *Deepseek R1*\n\n${clean}`);
@@ -499,12 +513,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Deepseek V3 a question',
         usage: '.deepseekv3 <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/deepseekV3',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .deepseekv3 Write a poem about rain');
             await react(sock, msg, '💙');
             try {
-                const result = await ravenn('/ai/deepseekV3', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `💙 *Deepseek V3*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -521,12 +536,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask Qwen AI a question',
         usage: '.qwen <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/qwenai',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .qwen What is Alibaba?');
             await react(sock, msg, '🟣');
             try {
-                const result = await ravenn('/ai/qwenai', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🟣 *Qwen AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -543,12 +559,13 @@ module.exports = [
         category: 'ai',
         description: 'Ask WormGPT a question',
         usage: '.wormgpt <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/wormgpt',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .wormgpt hi');
             await react(sock, msg, '😈');
             try {
-                const result = await ravenn('/ai/wormgpt', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `😈 *WormGPT*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -569,12 +586,13 @@ module.exports = [
         category: 'ai',
         description: 'AI-powered web search — get detailed answers from the web',
         usage: '.searchai <query>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/searchai',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a search query\n\nExample: .searchai latest AI news');
             await react(sock, msg, '🌐');
             try {
-                const result = await ravenn('/ai/searchai', { query });
+                const result = await ravenn(this.apiUrl, { query });
                 // result can be a string or array of search objects
                 let text;
                 if (typeof result === 'string') {
@@ -608,12 +626,13 @@ module.exports = [
         category: 'ai',
         description: 'Summarize text using AI',
         usage: '.summarize <text>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/keithai',
         async execute(sock, msg, args, extra) {
             const text = args.join(' ').trim();
             if (!text) return extra.reply('❌ Please provide text to summarize\n\nExample: .summarize Paste your long text here');
             await react(sock, msg, '📝');
             try {
-                const result = await ravenn('/keithai', { q: `Summarize the following text concisely:\n\n${text}` });
+                const result = await ravenn(this.apiUrl, { q: `Summarize the following text concisely:\n\n${text}` });
                 await send(sock, msg, `📝 *Summary*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -630,12 +649,13 @@ module.exports = [
         category: 'ai',
         description: 'AI-powered academic/research question answering',
         usage: '.scite <research question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/keithai',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please provide a research question\n\nExample: .scite Effects of caffeine on sleep');
             await react(sock, msg, '🔬');
             try {
-                const result = await ravenn('/keithai', { q: `Answer this academic/research question in detail: ${query}` });
+                const result = await ravenn(this.apiUrl, { q: `Answer this academic/research question in detail: ${query}` });
                 await send(sock, msg, `🔬 *Research AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -656,12 +676,13 @@ module.exports = [
         category: 'ai',
         description: 'Generate code in any language using AI',
         usage: '.codegen <description>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/codegen',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please describe the code to generate\n\nExample: .codegen REST API in Node.js');
             await react(sock, msg, '💻');
             try {
-                const result = await ravenn('/ai/codegen', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `💻 *Code Generator*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -678,12 +699,13 @@ module.exports = [
         category: 'ai',
         description: 'Explain what a piece of code does',
         usage: '.codedescribe <code>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/whatdoesthiscodedo',
         async execute(sock, msg, args, extra) {
             const code = args.join(' ').trim();
             if (!code) return extra.reply('❌ Please provide code to explain\n\nExample: .codedescribe console.log(\'hello\')');
             await react(sock, msg, '🔍');
             try {
-                const result = await ravenn('/whatdoesthiscodedo', { code });
+                const result = await ravenn(this.apiUrl, { code });
                 await send(sock, msg, `🔍 *Code Explained*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -704,6 +726,7 @@ module.exports = [
         category: 'ai',
         description: 'Generate song lyrics. Format: .lyricsgen topic | genre | mood | structure | language',
         usage: '.lyricsgen heartbreak | blues | sad | verse_chorus_bridge | en',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/lyricsgen',
         async execute(sock, msg, args, extra) {
             const input = args.join(' ').trim();
             if (!input) {
@@ -718,7 +741,7 @@ module.exports = [
             const [topic = input, genre = 'pop', mood = 'happy', structure = 'verse_chorus', language = 'en'] = parts;
             await react(sock, msg, '🎵');
             try {
-                const result = await ravenn('/ai/lyricsgen', { topic, genre, mood, structure, language });
+                const result = await ravenn(this.apiUrl, { topic, genre, mood, structure, language });
                 await send(sock, msg, `🎵 *Generated Lyrics*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -735,6 +758,7 @@ module.exports = [
         category: 'ai',
         description: 'Write a speech on any topic. Format: .speechwriter topic | length | type | tone',
         usage: '.speechwriter how to pass exams | short | dedication | serious',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/speechwriter',
         async execute(sock, msg, args, extra) {
             const input = args.join(' ').trim();
             if (!input) {
@@ -751,7 +775,7 @@ module.exports = [
             const [topic = input, length = 'short', type = 'informative', tone = 'formal'] = parts;
             await react(sock, msg, '🎤');
             try {
-                const result = await ravenn('/ai/speechwriter', { topic, length, type, tone });
+                const result = await ravenn(this.apiUrl, { topic, length, type, tone });
                 await send(sock, msg, `🎤 *Speech*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -768,12 +792,13 @@ module.exports = [
         category: 'ai',
         description: 'Interpret and analyze your dreams using AI',
         usage: '.dreamanalyzer <describe your dream>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/dreamanalyzer',
         async execute(sock, msg, args, extra) {
             const query = args.join(' ').trim();
             if (!query) return extra.reply('❌ Please describe your dream\n\nExample: .dreamanalyzer I dreamt about flying over the ocean');
             await react(sock, msg, '🌙');
             try {
-                const result = await ravenn('/ai/dreamanalyzer', { q: query });
+                const result = await ravenn(this.apiUrl, { q: query });
                 await send(sock, msg, `🌙 *Dream Analysis*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -794,6 +819,7 @@ module.exports = [
         category: 'ai',
         description: 'Analyze an image using AI vision. Reply to an image or provide a URL.',
         usage: '.vision <question> (reply to image) | .vision <url> <question>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/vision',
         async execute(sock, msg, args, extra) {
             await react(sock, msg, '👁️');
             try {
@@ -808,7 +834,7 @@ module.exports = [
                     );
                 }
                 const q = remainingArgs.join(' ').trim() || "What's in this image?";
-                const result = await ravenn('/ai/vision', { image: imageUrl, q });
+                const result = await ravenn(this.apiUrl, { image: imageUrl, q });
                 await send(sock, msg, `👁️ *AI Vision*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -829,12 +855,13 @@ module.exports = [
         category: 'ai',
         description: 'Convert text to speech using AI voices',
         usage: '.tts <text>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/tts',
         async execute(sock, msg, args, extra) {
             const text = args.join(' ').trim();
             if (!text) return extra.reply('❌ Please provide text\n\nExample: .tts Hello, how are you today?');
             await react(sock, msg, '🔊');
             try {
-                const result = await ravenn('/ai/tts', { q: text });
+                const result = await ravenn(this.apiUrl, { q: text });
                 const voices = Array.isArray(result) ? result : [];
                 if (!voices.length) throw new Error('No voices returned');
                 // Send first voice's audio
@@ -862,6 +889,7 @@ module.exports = [
         category: 'ai',
         description: 'Transcribe audio from a URL using AI',
         usage: '.whisper <audio url>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/transcribe',
         async execute(sock, msg, args, extra) {
             const url = args[0]?.trim();
             if (!url || !url.startsWith('http')) {
@@ -869,7 +897,7 @@ module.exports = [
             }
             await react(sock, msg, '🎙️');
             try {
-                const result = await ravenn('/ai/transcribe', { q: url });
+                const result = await ravenn(this.apiUrl, { q: url });
                 const text = typeof result === 'string' ? result
                     : (result?.text || result?.transcript || cleanResult(result));
                 await send(sock, msg, `🎙️ *Transcription*\n\n${text}`);
@@ -892,12 +920,13 @@ module.exports = [
         category: 'ai',
         description: 'Generate an AI image using Magic Studio',
         usage: '.magicstudio <prompt>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/magicstudio',
         async execute(sock, msg, args, extra) {
             const prompt = args.join(' ').trim();
             if (!prompt) return extra.reply('❌ Please provide a prompt\n\nExample: .magicstudio a futuristic city at sunset');
             await react(sock, msg, '✨');
             try {
-                const buffer = await ravennBinary('/ai/magicstudio', { prompt });
+                const buffer = await ravennBinary(this.apiUrl, { prompt });
                 await sock.sendMessage(extra.from, {
                     image: buffer,
                     caption: `✨ *Magic Studio AI*\n\n_Prompt:_ ${prompt}`,
@@ -917,12 +946,13 @@ module.exports = [
         category: 'ai',
         description: 'Generate an AI image using Flux (ravenn.site)',
         usage: '.generate <prompt>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/flux',
         async execute(sock, msg, args, extra) {
             const prompt = args.join(' ').trim();
             if (!prompt) return extra.reply('❌ Please provide a prompt\n\nExample: .generate sunset over mountains');
             await react(sock, msg, '🎨');
             try {
-                const resp = await axios.get(`${BASE}/ai/flux`, {
+                const resp = await axios.get(this.apiUrl, {
                     params: { q: prompt },
                     responseType: 'arraybuffer',
                     timeout: 60000,
@@ -980,6 +1010,7 @@ module.exports = [
         category: 'ai',
         description: 'Remove the background from an image. Reply to image or provide URL.',
         usage: '.removebg (reply to image) | .removebg <url>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/removebg',
         async execute(sock, msg, args, extra) {
             await react(sock, msg, '✂️');
             try {
@@ -987,7 +1018,7 @@ module.exports = [
                 if (!url) {
                     return extra.reply('❌ Reply to an image or provide an image URL\n\nExample: .removebg https://example.com/image.jpg');
                 }
-                const result = await ravenn('/ai/removebg', { url });
+                const result = await ravenn(this.apiUrl, { url });
                 const imgUrl = typeof result === 'string' ? result
                     : Array.isArray(result) ? result[0] : result?.url || cleanResult(result);
                 await sock.sendMessage(extra.from, {
@@ -1009,6 +1040,7 @@ module.exports = [
         category: 'ai',
         description: 'Enhance an image to HD quality using AI. Reply to image or provide URL.',
         usage: '.imagehd (reply to image) | .imagehd <url>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/hd',
         async execute(sock, msg, args, extra) {
             await react(sock, msg, '🔆');
             try {
@@ -1016,7 +1048,7 @@ module.exports = [
                 if (!url) {
                     return extra.reply('❌ Reply to an image or provide an image URL\n\nExample: .imagehd https://example.com/image.jpg');
                 }
-                const result = await ravenn('/ai/hd', { url });
+                const result = await ravenn(this.apiUrl, { url });
                 // result is an array with one URL
                 const imgUrl = Array.isArray(result) ? result[0]
                     : typeof result === 'string' ? result : null;
@@ -1040,6 +1072,7 @@ module.exports = [
         category: 'ai',
         description: 'Edit an image with an AI instruction. Reply to image or provide URL.',
         usage: '.imageedit <instruction> (reply to image) | .imageedit <url> <instruction>',
+        apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/imageedit',
         async execute(sock, msg, args, extra) {
             await react(sock, msg, '🖌️');
             try {
@@ -1054,7 +1087,7 @@ module.exports = [
                         `_.imageedit https://example.com/img.jpg make him smile_`
                     );
                 }
-                const result = await ravenn('/ai/imageedit', { q: instruction, url });
+                const result = await ravenn(this.apiUrl, { q: instruction, url });
                 const imgUrl = typeof result === 'string' ? result
                     : Array.isArray(result) ? result[0] : result?.url || null;
                 if (!imgUrl) throw new Error('No edited image returned');
