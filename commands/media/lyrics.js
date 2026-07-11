@@ -25,7 +25,7 @@ module.exports = {
 
     try {
       const res = await axios.get(
-        `https://ravenn.site/search/lyrics?query=${encodeURIComponent(query)}`,
+        `https://apiskeith2-production-ec66.up.railway.app/search/lyrics?query=${encodeURIComponent(query)}`,
         { timeout: 15000 }
       );
 
