@@ -21,7 +21,7 @@ const database = require(require('path').join(global.__CORE__, 'database'));
 const config   = require(require('path').join(global.__ROOT__, 'config'));
 
 // ── API config ────────────────────────────────────────────────────────────────
-const BASE = 'https://apis.keithsite.top';
+const BASE = 'https://apiskeith2-production-ec66.up.railway.app';
 
 // Endpoints tried in order — first success wins
 const AI_ENDPOINTS = [
