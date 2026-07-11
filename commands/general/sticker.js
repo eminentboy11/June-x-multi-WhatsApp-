@@ -1,8 +1,7 @@
 /**
  * Sticker Command
- * Convert any image/video/sticker into a WhatsApp sticker.
- * Unlike .crop, this fits the media inside a 512x512 canvas with padding
- * (letterboxed) instead of cropping content away.
+ * Convert any image/video/gif into a perfect square WhatsApp sticker
+ * (animated for videos), cropping to fill 512x512 like .crop.
  */
 
 const fs = require('fs');
@@ -39,22 +38,22 @@ const resolveMedia = (message) => {
 
 module.exports = {
   name: 'sticker',
-  aliases: ['stick', 's'],
-  description: 'Convert image/video/sticker into a WhatsApp sticker (fit, not cropped)',
-  usage: '.sticker (reply to sticker/image/video)',
+  aliases: ['s', 'stiker', 'take'],
+  description: 'Convert image/video/gif to a perfect square sticker (animated for videos)',
+  usage: '.sticker (reply to image/video/gif) [packname|author]',
   category: 'general',
-  
+
   async execute(sock, msg, args, extra) {
     // Declare temp files outside try block so they're available in finally
     const tmpDir = getTempDir();
     const tempInput = path.join(tmpDir, `temp_${Date.now()}`);
     const tempOutput = path.join(tmpDir, `sticker_${Date.now()}.webp`);
     const tempFiles = [tempInput, tempOutput];
-    
+
     try {
       // The message that will be quoted in the reply
       const messageToQuote = msg;
-      
+
       // The message object that contains the media to be downloaded
       let targetMessage = msg;
 
@@ -72,16 +71,16 @@ module.exports = {
       }
 
       const mediaInfo = resolveMedia(targetMessage);
-      
+
       if (!mediaInfo) {
-        return extra.reply('🖼️ Reply to a *sticker*, *image*, or *video* to convert it into a sticker.');
+        return extra.reply('🖼️ Reply to an *image*, *video*, or *gif* that you want to turn into a sticker.');
       }
 
       const { type, media } = mediaInfo;
       const mediaMessage = media;
 
       if (!mediaMessage) {
-        return extra.reply('🖼️ Please reply to an image/video/sticker with .sticker, or send an image/video/sticker with .sticker as the caption.');
+        return extra.reply('🖼️ Please reply to an image/video/gif with .sticker, or send one with .sticker as the caption.');
       }
 
       // Download media
@@ -105,8 +104,8 @@ module.exports = {
       fs.writeFileSync(tempInput, mediaBuffer);
 
       // Check if media is animated (GIF or video)
-      const isAnimated = mediaMessage.mimetype?.includes('gif') || 
-                        mediaMessage.mimetype?.includes('video') || 
+      const isAnimated = mediaMessage.mimetype?.includes('gif') ||
+                        mediaMessage.mimetype?.includes('video') ||
                         mediaMessage.seconds > 0 ||
                         type === 'videoMessage';
 
@@ -118,22 +117,18 @@ module.exports = {
       // For videos: more aggressive compression, lower quality, shorter duration
       // For images: standard compression
       let ffmpegCommand;
-      
-      // Fit inside 512x512 preserving aspect ratio, pad with transparency
-      // instead of cropping content away (that's what .crop is for).
-      const padFilter = 'scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=#00000000';
 
       if (isAnimated) {
         if (isLargeFile) {
           // Large video: very aggressive compression, max 2 seconds, very low quality
-          ffmpegCommand = `ffmpeg -i "${tempInput}" -t 2 -vf "${padFilter},fps=8" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 100k -max_muxing_queue_size 1024 "${tempOutput}"`;
+          ffmpegCommand = `ffmpeg -i "${tempInput}" -t 2 -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,fps=8" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 30 -compression_level 6 -b:v 100k -max_muxing_queue_size 1024 "${tempOutput}"`;
         } else {
           // Normal video: aggressive compression, max 3 seconds, lower quality
-          ffmpegCommand = `ffmpeg -i "${tempInput}" -t 3 -vf "${padFilter},fps=12" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 50 -compression_level 6 -b:v 150k -max_muxing_queue_size 1024 "${tempOutput}"`;
+          ffmpegCommand = `ffmpeg -i "${tempInput}" -t 3 -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,fps=12" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 50 -compression_level 6 -b:v 150k -max_muxing_queue_size 1024 "${tempOutput}"`;
         }
       } else {
         // Image: standard compression
-        ffmpegCommand = `ffmpeg -i "${tempInput}" -vf "${padFilter},format=rgba" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 75 -compression_level 6 "${tempOutput}"`;
+        ffmpegCommand = `ffmpeg -i "${tempInput}" -vf "crop=min(iw\\,ih):min(iw\\,ih),scale=512:512,format=rgba" -c:v libwebp -preset default -loop 0 -vsync 0 -pix_fmt yuva420p -quality 75 -compression_level 6 "${tempOutput}"`;
       }
 
       await new Promise((resolve, reject) => {
@@ -161,11 +156,11 @@ module.exports = {
 
       // Read the WebP file
       let webpBuffer = fs.readFileSync(tempOutput);
-      
+
       // Check final file size
       const finalSizeKB = webpBuffer.length / 1024;
       console.log(`Final sticker size: ${Math.round(finalSizeKB)} KB`);
-      
+
       // If still too large, we'll send it anyway but log a warning
       if (finalSizeKB > 1000) { // 1MB limit for WhatsApp stickers
         console.log(`⚠️ Warning: Sticker size (${Math.round(finalSizeKB)} KB) exceeds recommended limit but will be sent anyway`);
@@ -175,11 +170,16 @@ module.exports = {
       const img = new webp.Image();
       await img.load(webpBuffer);
 
+      // Optional args: .sticker packname|author
+      const input = args.join(' ').trim();
+      const [packArg, authorArg] = input ? input.split('|').map(s => s.trim()) : [];
+
       // Create metadata
       const json = {
         'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-        'sticker-pack-name': config.packname || 'Made by',
-        'emojis': ['🤖']
+        'sticker-pack-name': packArg || config.packname || 'Made by',
+        'sticker-pack-publisher': authorArg || config.author || '',
+        'emojis': ['🖼️']
       };
 
       // Create exif buffer
@@ -195,13 +195,13 @@ module.exports = {
       const finalBuffer = await img.save(null);
 
       // Send the sticker
-      await sock.sendMessage(extra.from, { 
+      await sock.sendMessage(extra.from, {
         sticker: finalBuffer
       }, { quoted: messageToQuote });
 
     } catch (error) {
       console.error('Sticker command error:', error);
-      await extra.reply('❌ Failed to create sticker! Try with an image or video.');
+      await extra.reply('❌ Failed to create sticker! Try with an image, video, or gif.');
     } finally {
       // Always cleanup temp files
       tempFiles.forEach(file => deleteTempFile(file));
