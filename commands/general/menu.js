@@ -236,7 +236,7 @@ module.exports = {
             {
               name: 'cta_url',
               buttonParamsJson: JSON.stringify({
-                display_text: '🔗 Open Repo',
+                display_text: '🔗 𝙾𝙿𝙴𝙽 𝚁𝙴𝙿𝙾',
                 url: repoUrl,
               }),
             },
@@ -269,7 +269,7 @@ module.exports = {
             {
               name: 'cta_url',
               buttonParamsJson: JSON.stringify({
-                display_text: '🔗 Open Repo',
+                display_text: '🔗 𝙾𝙿𝙴𝙽 𝚁𝙴𝙿𝙾',
                 url: repoUrl,
               }),
             },
