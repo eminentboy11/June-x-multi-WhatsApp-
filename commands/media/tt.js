@@ -24,7 +24,7 @@ module.exports = [
       await extra.react('⏳');
 
       try {
-        const res = await axios.get('https://ravenn.site/download/tiktokdl3', {
+        const res = await axios.get('https://apiskeith2-production-ec66.up.railway.app/download/tiktokdl3', {
           params: { url },
           timeout: 15000
         });
