@@ -7,7 +7,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 
-const BASE = 'https://ravenn.site';
+const BASE = 'https://apiskeith2-production-ec66.up.railway.app';
 
 // ── Shared send helpers ───────────────────────────────────────────────────────
 
@@ -16,6 +16,35 @@ const react = (sock, msg, emoji) =>
 
 const send = (sock, msg, text) =>
     sock.sendMessage(msg.key.remoteJid, { text }, { quoted: msg });
+
+/**
+ * Turn any API result shape (string, object, array, nested) into clean
+ * human-readable text — never dumps raw JSON at the user.
+ */
+function cleanResult(result) {
+    if (result == null) return '';
+    if (typeof result === 'string') return result.trim();
+    if (typeof result === 'number' || typeof result === 'boolean') return String(result);
+
+    if (Array.isArray(result)) {
+        return result.map(r => cleanResult(r)).filter(Boolean).join('\n\n');
+    }
+
+    if (typeof result === 'object') {
+        const candidate =
+            result.text ?? result.message ?? result.response ?? result.answer ??
+            result.result ?? result.output ?? result.content ?? result.reply ?? null;
+        if (candidate != null) return cleanResult(candidate);
+        // No known text field — fall back to a compact, readable key:value list
+        // instead of a raw JSON blob.
+        return Object.entries(result)
+            .filter(([, v]) => v != null && typeof v !== 'object')
+            .map(([k, v]) => `${k}: ${v}`)
+            .join('\n') || JSON.stringify(result);
+    }
+
+    return String(result);
+}
 
 // ── ravenn.site API helpers ───────────────────────────────────────────────────
 
@@ -122,7 +151,7 @@ module.exports = [
             await react(sock, msg, '⚡');
             try {
                 const result = await ravenn('/keithai', { q: query });
-                await send(sock, msg, `⚡ *Keith AI*\n\n${result}`);
+                await send(sock, msg, `⚡ *Keith AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[keithai]', err.message);
@@ -144,7 +173,7 @@ module.exports = [
             await react(sock, msg, '🤖');
             try {
                 const result = await ravenn('/ai/gpt', { q: query });
-                await send(sock, msg, `🤖 *ChatGPT*\n\n${result}`);
+                await send(sock, msg, `🤖 *ChatGPT*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[chatgpt]', err.message);
@@ -166,7 +195,7 @@ module.exports = [
             await react(sock, msg, '🤖');
             try {
                 const result = await ravenn('/ai/chatgpt4', { q: query });
-                await send(sock, msg, `🤖 *GPT-4*\n\n${result}`);
+                await send(sock, msg, `🤖 *GPT-4*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gpt4o]', err.message);
@@ -188,7 +217,7 @@ module.exports = [
             await react(sock, msg, '🧠');
             try {
                 const result = await ravenn('/ai/claudeai', { q: query });
-                await send(sock, msg, `🧠 *Claude AI*\n\n${result}`);
+                await send(sock, msg, `🧠 *Claude AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[claude]', err.message);
@@ -210,7 +239,7 @@ module.exports = [
             await react(sock, msg, '♊');
             try {
                 const result = await ravenn('/ai/gemini', { q: query });
-                await send(sock, msg, `♊ *Google Gemini*\n\n${result}`);
+                await send(sock, msg, `♊ *Google Gemini*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[gemini]', err.message);
@@ -232,7 +261,7 @@ module.exports = [
             await react(sock, msg, '🔍');
             try {
                 const result = await ravenn('/ai/mistral', { q: query });
-                await send(sock, msg, `🔍 *Mistral AI*\n\n${result}`);
+                await send(sock, msg, `🔍 *Mistral AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[mistral]', err.message);
@@ -254,7 +283,7 @@ module.exports = [
             await react(sock, msg, '🪟');
             try {
                 const result = await ravenn('/ai/copilot', { q: query });
-                await send(sock, msg, `🪟 *Microsoft Copilot*\n\n${result}`);
+                await send(sock, msg, `🪟 *Microsoft Copilot*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[copilot]', err.message);
@@ -276,7 +305,7 @@ module.exports = [
             await react(sock, msg, '💭');
             try {
                 const result = await ravenn('/ai/metai', { q: query });
-                await send(sock, msg, `💭 *Meta AI*\n\n${result}`);
+                await send(sock, msg, `💭 *Meta AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[metaai]', err.message);
@@ -298,7 +327,7 @@ module.exports = [
             await react(sock, msg, '🦙');
             try {
                 const result = await ravenn('/ai/ilama', { q: query });
-                await send(sock, msg, `🦙 *Llama AI*\n\n${result}`);
+                await send(sock, msg, `🦙 *Llama AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[llama]', err.message);
@@ -320,7 +349,7 @@ module.exports = [
             await react(sock, msg, '📦');
             try {
                 const result = await ravenn('/ai/blackbox', { q: query });
-                await send(sock, msg, `📦 *Blackbox AI*\n\n${result}`);
+                await send(sock, msg, `📦 *Blackbox AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[blackbox]', err.message);
@@ -342,7 +371,7 @@ module.exports = [
             await react(sock, msg, '✨');
             try {
                 const result = await ravenn('/ai/bard', { q: query });
-                await send(sock, msg, `✨ *Google Bard*\n\n${result}`);
+                await send(sock, msg, `✨ *Google Bard*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[bard]', err.message);
@@ -364,7 +393,7 @@ module.exports = [
             await react(sock, msg, '🔎');
             try {
                 const result = await ravenn('/ai/perplexity', { q: query });
-                await send(sock, msg, `🔎 *Perplexity AI*\n\n${result}`);
+                await send(sock, msg, `🔎 *Perplexity AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[perplexity]', err.message);
@@ -386,7 +415,7 @@ module.exports = [
             await react(sock, msg, '🌊');
             try {
                 const result = await ravenn('/ai/venice', { q: query });
-                await send(sock, msg, `🌊 *Venice AI*\n\n${result}`);
+                await send(sock, msg, `🌊 *Venice AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[venice]', err.message);
@@ -408,7 +437,7 @@ module.exports = [
             await react(sock, msg, '🔵');
             try {
                 const result = await ravenn('/ai/o3', { q: query });
-                await send(sock, msg, `🔵 *O3 AI*\n\n${result}`);
+                await send(sock, msg, `🔵 *O3 AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[o3]', err.message);
@@ -430,7 +459,7 @@ module.exports = [
             await react(sock, msg, '🚀');
             try {
                 const result = await ravenn('/ai/grok', { q: query });
-                await send(sock, msg, `🚀 *Grok AI*\n\n${result}`);
+                await send(sock, msg, `🚀 *Grok AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[grok]', err.message);
@@ -451,10 +480,10 @@ module.exports = [
             if (!query) return extra.reply('❌ Please provide a question\n\nExample: .deepseek Analyze the trolley problem');
             await react(sock, msg, '🧠');
             try {
-                let result = await ravenn('/ai/deepseek', { q: query });
-                // Strip <think>...</think> tags from reasoning chain for cleaner output
-                result = String(result).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                await send(sock, msg, `🧠 *Deepseek R1*\n\n${result}`);
+                const result = await ravenn('/ai/deepseek', { q: query });
+                // Strip <think>...</think> reasoning chain for cleaner output
+                const clean = cleanResult(result).replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                await send(sock, msg, `🧠 *Deepseek R1*\n\n${clean}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[deepseek]', err.message);
@@ -476,7 +505,7 @@ module.exports = [
             await react(sock, msg, '💙');
             try {
                 const result = await ravenn('/ai/deepseekV3', { q: query });
-                await send(sock, msg, `💙 *Deepseek V3*\n\n${result}`);
+                await send(sock, msg, `💙 *Deepseek V3*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[deepseekv3]', err.message);
@@ -498,7 +527,7 @@ module.exports = [
             await react(sock, msg, '🟣');
             try {
                 const result = await ravenn('/ai/qwenai', { q: query });
-                await send(sock, msg, `🟣 *Qwen AI*\n\n${result}`);
+                await send(sock, msg, `🟣 *Qwen AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[qwen]', err.message);
@@ -520,7 +549,7 @@ module.exports = [
             await react(sock, msg, '😈');
             try {
                 const result = await ravenn('/ai/wormgpt', { q: query });
-                await send(sock, msg, `😈 *WormGPT*\n\n${result}`);
+                await send(sock, msg, `😈 *WormGPT*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[wormgpt]', err.message);
@@ -553,11 +582,11 @@ module.exports = [
                 } else if (Array.isArray(result)) {
                     text = result.slice(0, 3).map((r, i) => {
                         const ans = r?.question?.answer;
-                        const body = ans?.body || ans?.text || JSON.stringify(r);
+                        const body = ans?.body || ans?.text || cleanResult(r);
                         return `*${i + 1}.* ${body}`;
                     }).join('\n\n');
                 } else {
-                    text = JSON.stringify(result, null, 2);
+                    text = cleanResult(result);
                 }
                 await send(sock, msg, `🌐 *AI Web Search*\n\n${text}`);
                 await react(sock, msg, '✅');
@@ -585,7 +614,7 @@ module.exports = [
             await react(sock, msg, '📝');
             try {
                 const result = await ravenn('/keithai', { q: `Summarize the following text concisely:\n\n${text}` });
-                await send(sock, msg, `📝 *Summary*\n\n${result}`);
+                await send(sock, msg, `📝 *Summary*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[summarize]', err.message);
@@ -607,7 +636,7 @@ module.exports = [
             await react(sock, msg, '🔬');
             try {
                 const result = await ravenn('/keithai', { q: `Answer this academic/research question in detail: ${query}` });
-                await send(sock, msg, `🔬 *Research AI*\n\n${result}`);
+                await send(sock, msg, `🔬 *Research AI*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[scite]', err.message);
@@ -633,8 +662,7 @@ module.exports = [
             await react(sock, msg, '💻');
             try {
                 const result = await ravenn('/ai/codegen', { q: query });
-                const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                await send(sock, msg, `💻 *Code Generator*\n\n${text}`);
+                await send(sock, msg, `💻 *Code Generator*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[codegen]', err.message);
@@ -656,8 +684,7 @@ module.exports = [
             await react(sock, msg, '🔍');
             try {
                 const result = await ravenn('/whatdoesthiscodedo', { code });
-                const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                await send(sock, msg, `🔍 *Code Explained*\n\n${text}`);
+                await send(sock, msg, `🔍 *Code Explained*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[codedescribe]', err.message);
@@ -692,8 +719,7 @@ module.exports = [
             await react(sock, msg, '🎵');
             try {
                 const result = await ravenn('/ai/lyricsgen', { topic, genre, mood, structure, language });
-                const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                await send(sock, msg, `🎵 *Generated Lyrics*\n\n${text}`);
+                await send(sock, msg, `🎵 *Generated Lyrics*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[lyricsgen]', err.message);
@@ -726,8 +752,7 @@ module.exports = [
             await react(sock, msg, '🎤');
             try {
                 const result = await ravenn('/ai/speechwriter', { topic, length, type, tone });
-                const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                await send(sock, msg, `🎤 *Speech*\n\n${text}`);
+                await send(sock, msg, `🎤 *Speech*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[speechwriter]', err.message);
@@ -749,8 +774,7 @@ module.exports = [
             await react(sock, msg, '🌙');
             try {
                 const result = await ravenn('/ai/dreamanalyzer', { q: query });
-                const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
-                await send(sock, msg, `🌙 *Dream Analysis*\n\n${text}`);
+                await send(sock, msg, `🌙 *Dream Analysis*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[dreamanalyzer]', err.message);
@@ -785,7 +809,7 @@ module.exports = [
                 }
                 const q = remainingArgs.join(' ').trim() || "What's in this image?";
                 const result = await ravenn('/ai/vision', { image: imageUrl, q });
-                await send(sock, msg, `👁️ *AI Vision*\n\n${result}`);
+                await send(sock, msg, `👁️ *AI Vision*\n\n${cleanResult(result)}`);
                 await react(sock, msg, '✅');
             } catch (err) {
                 console.error('[vision]', err.message);
@@ -847,7 +871,7 @@ module.exports = [
             try {
                 const result = await ravenn('/ai/transcribe', { q: url });
                 const text = typeof result === 'string' ? result
-                    : result?.text || result?.transcript || JSON.stringify(result);
+                    : (result?.text || result?.transcript || cleanResult(result));
                 await send(sock, msg, `🎙️ *Transcription*\n\n${text}`);
                 await react(sock, msg, '✅');
             } catch (err) {
@@ -965,7 +989,7 @@ module.exports = [
                 }
                 const result = await ravenn('/ai/removebg', { url });
                 const imgUrl = typeof result === 'string' ? result
-                    : Array.isArray(result) ? result[0] : result?.url || JSON.stringify(result);
+                    : Array.isArray(result) ? result[0] : result?.url || cleanResult(result);
                 await sock.sendMessage(extra.from, {
                     image: { url: imgUrl },
                     caption: '✂️ *Background Removed*',
