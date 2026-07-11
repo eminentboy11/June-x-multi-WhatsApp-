@@ -275,7 +275,7 @@ module.exports = {
             },
             {
               id:   `${prefix}ping`,
-              text: '🏓 Ping',
+              text: '📍 𝙿𝙸𝙽𝙶',
             },
           ],
         }, { quoted: msg });
