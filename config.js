@@ -8,6 +8,8 @@ module.exports = {
     sessionName: '',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
+    JUNE_API_URL: 'https://domestic-monique-eminentbo-b3648b07.koyeb.app',
+    JUNE_BOT_ID:  'june-ultra-main',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
     packname: '✮⃝𝐒ᵘᵖʳᵉᵐᵉ',
