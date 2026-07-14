@@ -14,23 +14,21 @@
 const database = require(require('path').join(global.__CORE__, 'database'));
 
 /**
- * Check if a message is forwarded
- * Forwarded messages have contextInfo with forwardingScore > 0
+ * Check if a message is forwarded.
+ * Baileys marks forwarded messages in two ways:
+ *   1. contextInfo.forwardingScore > 0
+ *   2. contextInfo.isForwarded === true
+ * Both are checked so no forwarded message slips through.
  */
 function isForwarded(msg) {
     if (!msg.message) return false;
 
-    const ext = msg.message.extendedTextMessage;
-    if (ext?.contextInfo?.forwardingScore && ext.contextInfo.forwardingScore > 0) {
-        return true;
-    }
-
     const msgObj = msg.message;
-    for (const key in msgObj) {
-        const obj = msgObj[key];
-        if (obj?.contextInfo?.forwardingScore && obj.contextInfo.forwardingScore > 0) {
-            return true;
-        }
+    for (const key of Object.keys(msgObj)) {
+        const ctx = msgObj[key]?.contextInfo;
+        if (!ctx) continue;
+        if (ctx.isForwarded === true) return true;
+        if (typeof ctx.forwardingScore === 'number' && ctx.forwardingScore > 0) return true;
     }
 
     return false;
@@ -53,15 +51,27 @@ async function handleAntiforward(sock, msg, groupMetadata) {
         if (!sender) return false;
 
         const participants = groupMetadata?.participants || [];
-        const senderParticipant = participants.find(p => p.id === sender);
-        const isAdmin = senderParticipant?.admin;
-        const isBot = sender === sock.user?.id;
+        const senderParticipant = participants.find(
+            p => p.id === sender || p.id?.split(':')[0] === sender.split(':')[0]
+        );
+        const senderIsAdmin = !!senderParticipant?.admin;
+        const botIsAdmin = !!participants.find(
+            p => (p.id === sock.user?.id || p.id?.split(':')[0] === sock.user?.id?.split(':')[0]) && p.admin
+        );
+        const isBot = sender === sock.user?.id || sender.split(':')[0] === sock.user?.id?.split(':')[0];
 
-        if (isAdmin || isBot) return false;
+        // Admins, owners and the bot itself are exempt
+        if (senderIsAdmin || isBot) return false;
 
-        const action = settings.antiforwardAction;
-        const maxWarnings = settings.antiforwardMaxWarnings;
+        // Bot needs admin to take any meaningful action
+        if (!botIsAdmin) return false;
+
+        const action = settings.antiforwardAction || 'delete';
+        const maxWarnings = settings.antiforwardMaxWarnings || 3;
         const senderNum = sender.split('@')[0];
+
+        // Always delete the forwarded message first
+        try { await sock.sendMessage(from, { delete: msg.key }); } catch (_) {}
 
         // ─── WARN ───
         if (action === 'warn') {
@@ -71,31 +81,21 @@ async function handleAntiforward(sock, msg, groupMetadata) {
                 try {
                     await sock.groupParticipantsUpdate(from, [sender], 'remove');
                     await sock.sendMessage(from, {
-                        text: `🚫 @${senderNum} kicked (max warnings)`,
+                        text: `🚫 *AntiForward* — @${senderNum} was *removed*.\nReached max warnings (${maxWarnings}/${maxWarnings}) for forwarding messages.`,
                         mentions: [sender]
                     });
+                    database.clearAllAntiforwardWarnings(from, sender);
                 } catch (e) {
                     console.error('[antiforward]', e.message);
                 }
-                database.clearAllAntiforwardWarnings(from, sender);
                 return true;
             }
 
             try {
                 await sock.sendMessage(from, {
-                    text: `⚠️ @${senderNum} ${warnings}/${maxWarnings}`,
+                    text: `↩️ *AntiForward* ⚠️ Warning to @${senderNum}\nForwarded message deleted. Warnings: *${warnings}/${maxWarnings}*`,
                     mentions: [sender]
                 });
-            } catch (e) {
-                console.error('[antiforward]', e.message);
-            }
-            return true;
-        }
-
-        // ─── DELETE (default) ───
-        if (action === 'delete') {
-            try {
-                await sock.sendMessage(from, { delete: msg.key });
             } catch (e) {
                 console.error('[antiforward]', e.message);
             }
@@ -107,7 +107,7 @@ async function handleAntiforward(sock, msg, groupMetadata) {
             try {
                 await sock.groupParticipantsUpdate(from, [sender], 'remove');
                 await sock.sendMessage(from, {
-                    text: `🚫 @${senderNum} kicked`,
+                    text: `🚫 *AntiForward* — @${senderNum} was *removed* for forwarding messages.`,
                     mentions: [sender]
                 });
             } catch (e) {
@@ -116,7 +116,17 @@ async function handleAntiforward(sock, msg, groupMetadata) {
             return true;
         }
 
-        return false;
+        // ─── DELETE (default) ───
+        // Message already deleted above — just notify
+        try {
+            await sock.sendMessage(from, {
+                text: `↩️ *AntiForward* — @${senderNum}'s forwarded message was deleted.`,
+                mentions: [sender]
+            });
+        } catch (e) {
+            console.error('[antiforward]', e.message);
+        }
+        return true;
     } catch (e) {
         console.error('[antiforward]', e.message);
         return false;
