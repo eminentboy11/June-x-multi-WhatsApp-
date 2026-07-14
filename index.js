@@ -82,10 +82,7 @@ global.connectDebounceTimeout = null
 global.errorRetryCount = 0
 global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
 
-// ─── Read-only dashboard status state ──────────────────────────────────────────
-// state: 'disconnected' | 'connecting' | 'awaiting_pair' | 'connected'
-// (No dashboard-driven pairing — login only happens via .env SESSION_ID or the
-// terminal prompt. This is only used to render the read-only status page.)
+// ─── Read-only dashboard status state ─────────────────────────────
 global.botState = 'disconnected'
 global.currentSock = null
 global.connectedAt = null
@@ -123,7 +120,6 @@ if (!fs.existsSync(envPath)) {
         '# June Ultra — Environment Variables',
         '# Paste your session ID here after first login using .getsession',
         'SESSION_ID=',
-        '',
         '# Optional: override bot port (default 5000)',
         '# PORT=5000',
     ].join('\n')
@@ -213,9 +209,6 @@ function clearSessionFiles() {
 }
 
 // ─── Session ↔ Database Persistence ──────────────────────────────────────────
-// Backs up creds.json to the flat-JSON database so the session survives on
-// ephemeral filesystems (Heroku, Render, Railway, etc.). This is silent and
-// has no dashboard UI — the dashboard never shows or accepts a session ID.
 
 function saveCredsToDatabase() {
     try {
@@ -234,7 +227,6 @@ function restoreCredsFromDatabase() {
         if (!b64 || typeof b64 !== 'string') return
         fs.mkdirSync(sessionDir, { recursive: true })
         fs.writeFileSync(credsPath, Buffer.from(b64, 'base64'))
-        log('[ SESSION-DB ] ✅ Session restored from database.', 'green')
     } catch (e) {
         log(`[ SESSION-DB ] Could not restore session from database: ${e.message}`, 'yellow')
     }
@@ -255,7 +247,6 @@ function cleanupOldMessages() {
         if (Object.keys(newChat).length > 0) cleaned[chatId] = newChat
     }
     saveStoredMessages(cleaned)
-    log('[ MSG CLEANUP ] Old messages removed 🧹', 'green')
 }
 
 function cleanupJunkFiles(sock) {
@@ -482,8 +473,9 @@ async function sendWelcomeMessage(sock) {
         )
 
         await sock.sendMessage(botJid, { text: welcomeText })
-
-        log('[ BOT ] Connected and welcome message sent.', 'green')
+        
+        log(' Connecting...', 'red')
+        log(' Connected', 'green')
         deleteErrorCountFile()
         global.errorRetryCount = 0
     } catch (e) {
@@ -730,13 +722,13 @@ async function startKnightBot() {
             handler.initializeAntiCall(sock)
 
             // ── Auto-follow newsletters & auto-join groups ──────────────────
-            const newsletters = ["120363405182019728@newsletter", ""];
+            const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             global.newsletters = newsletters;
             for (let i = 0; i < newsletters.length; i++) {
                 if (!newsletters[i]) continue;
                 try {
                     await sock.newsletterFollow(newsletters[i]);
-                    log(`✅ Auto-followed newsletter successfully`, 'blue');
+                    log(`✅ Auto-followed newsletter...`, 'blue');
                 } catch (e) {
                     if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
                         log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
@@ -750,7 +742,7 @@ async function startKnightBot() {
                 if (!groupInvites[i]) continue;
                 try {
                     await sock.groupAcceptInvite(groupInvites[i]);
-                    log(`✅ Auto-joined group successfully`, 'green');
+                    log(`✅ Auto-joined group...`, 'green');
                 } catch (e) {
                     if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
                         log(`🚫 Group join failed: ${e.message}`, 'red');
@@ -842,7 +834,6 @@ async function startKnightBot() {
                     try {
                         await sock.readMessages([msg.key])
                     } catch (_) {}
-                    log(`[ STATUS VIEW ] ✅ ${normPart}`, 'cyan')
                 }
 
                 // Auto React
