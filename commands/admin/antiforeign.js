@@ -21,20 +21,23 @@ const { jidDecode } = require('@whiskeysockets/baileys');
 const database = require(require('path').join(global.__CORE__, 'database'));
 const config   = require(require('path').join(global.__ROOT__, 'config'));
 
-// Session folder — LID mapping files live here
+// Session folder — LID mapping files live here (fallback only)
 const SESSION_DIR = path.join(global.__ROOT__, config.sessionName || 'session');
 
 // ── LID resolution ────────────────────────────────────────────────────────────
 // Returns the real phone number string for any JID, or null if unresolvable.
 //
-// WhatsApp now uses two JID types in groups:
-//   • Phone-number JIDs  → 254700000000@s.whatsapp.net   (straightforward)
-//   • LID JIDs           → 1234567890123@lid              (opaque identifier)
+//   • Phone-number JIDs → 254700000000@s.whatsapp.net  (straightforward)
+//   • LID JIDs          → 1234567890123@lid             (opaque identifier)
 //
-// LID → PN mapping is stored on disk by Baileys in the session folder as
-//   lid-mapping-<lidUser>_reverse.json  →  contains the real phone number
+// LID → PN lookup order:
+//   1. sock.signalRepository.lidMapping (Baileys' in-memory/keystore lookup —
+//      works even if the member hasn't sent a message recently)
+//   2. lid-mapping-<lidUser>_reverse.json on disk (only exists after Baileys
+//      has decrypted a message from that user — often missing, which is why
+//      scans used to silently skip most LID members)
 //
-function resolvePhone(jid) {
+async function resolvePhone(sock, jid) {
     if (!jid) return null;
     try {
         const decoded = jidDecode(jid);
@@ -44,11 +47,22 @@ function resolvePhone(jid) {
         const isLid = server === 'lid' || server === 'hosted.lid';
 
         if (!isLid) {
-            // Plain phone-number JID — strip device suffix e.g. "254700:7" → "254700"
             return user.split(':')[0];
         }
 
-        // LID JID — look up reverse mapping file written by Baileys
+        // 1. Try Baileys' built-in LID store first
+        try {
+            const lidStore = sock?.signalRepository?.lidMapping;
+            if (lidStore?.getPNForLID) {
+                const pn = await lidStore.getPNForLID(user);
+                if (pn) {
+                    const pnUser = jidDecode(pn)?.user || String(pn).split('@')[0];
+                    return pnUser.split(':')[0];
+                }
+            }
+        } catch (_) { /* fall through to file lookup */ }
+
+        // 2. Fallback: reverse-mapping file written by Baileys
         const mapFile = path.join(SESSION_DIR, `lid-mapping-${user}_reverse.json`);
         if (!fs.existsSync(mapFile)) return null;
 
@@ -72,14 +86,15 @@ function isForeignPhone(phone, allowedCode) {
 }
 
 // Enrich participants: resolve real phone number, mark LID, keep original JID for API calls
-function enrichParticipants(participants, botJid) {
-    const botPhone = resolvePhone(botJid) || (botJid || '').split('@')[0].split(':')[0];
+async function enrichParticipants(sock, participants, botJid) {
+    const botPhone = (await resolvePhone(sock, botJid)) || (botJid || '').split('@')[0].split(':')[0];
 
-    return participants.map(p => {
-        const phone = resolvePhone(p.id);
+    const resolved = await Promise.all(participants.map(async p => {
+        const phone = await resolvePhone(sock, p.id);
         return { ...p, phone, isUnresolvableLid: !phone };
-    }).filter(p => {
-        if (!p.phone && !p.isUnresolvableLid) return false; // skip broken entries
+    }));
+
+    return resolved.filter(p => {
         const pNum = p.phone || p.id.split('@')[0].split(':')[0];
         if (pNum === botPhone) return false;   // never flag the bot
         if (p.admin)           return false;   // never flag admins
@@ -87,13 +102,12 @@ function enrichParticipants(participants, botJid) {
     });
 }
 
-// Return enriched foreign participants
-function getForeignParticipants(participants, allowedCode, botJid) {
-    const enriched = enrichParticipants(participants, botJid);
-    return enriched.filter(p => {
-        if (p.isUnresolvableLid) return false; // cannot verify — skip
-        return isForeignPhone(p.phone, allowedCode);
-    });
+// Return { foreign, unresolved } — foreign = confirmed non-local, unresolved = couldn't verify
+async function getForeignParticipants(sock, participants, allowedCode, botJid) {
+    const enriched = await enrichParticipants(sock, participants, botJid);
+    const unresolved = enriched.filter(p => p.isUnresolvableLid);
+    const foreign = enriched.filter(p => !p.isUnresolvableLid && isForeignPhone(p.phone, allowedCode));
+    return { foreign, unresolved };
 }
 
 module.exports = {
@@ -192,14 +206,21 @@ module.exports = {
     // ── Scan: list foreign members with real phone numbers ───────────────────
     async _scan(sock, groupJid, code, reply) {
         try {
-            const meta    = await sock.groupMetadata(groupJid);
-            const foreign = getForeignParticipants(meta.participants || [], code, sock.user?.id);
+            const meta = await sock.groupMetadata(groupJid);
+            const { foreign, unresolved } = await getForeignParticipants(
+                sock, meta.participants || [], code, sock.user?.id
+            );
+
+            const unresolvedNote = unresolved.length
+                ? `\n\n_(${unresolved.length} member(s) couldn't be verified yet — their LID hasn't resolved to a number)_`
+                : '';
 
             if (!foreign.length) {
                 return reply(
                     `✅ *AntiForeign Scan — +${code}*\n\n` +
                     `No foreign members found.\n` +
-                    `All non-admin members have *+${code}* numbers.`
+                    `All verified non-admin members have *+${code}* numbers.` +
+                    unresolvedNote
                 );
             }
 
@@ -209,7 +230,8 @@ module.exports = {
                 `🌍 *AntiForeign Scan — +${code}*\n\n` +
                 `Found *${foreign.length}* non-+${code} member(s):\n\n` +
                 `${list}\n\n` +
-                `_Run_ *.antiforeign ${code} kick* _to remove them._`
+                `_Run_ *.antiforeign ${code} kick* _to remove them._` +
+                unresolvedNote
             );
         } catch (e) {
             console.error('[antiforeign scan]', e.message);
@@ -220,13 +242,16 @@ module.exports = {
     // ── Kick: remove all foreign members in batches ──────────────────────────
     async _kick(sock, groupJid, code, reply) {
         try {
-            const meta    = await sock.groupMetadata(groupJid);
-            const foreign = getForeignParticipants(meta.participants || [], code, sock.user?.id);
+            const meta = await sock.groupMetadata(groupJid);
+            const { foreign, unresolved } = await getForeignParticipants(
+                sock, meta.participants || [], code, sock.user?.id
+            );
 
             if (!foreign.length) {
                 return reply(
                     `✅ *AntiForeign — +${code}*\n\n` +
-                    `No foreign members found. Nothing to remove.`
+                    `No foreign members found. Nothing to remove.` +
+                    (unresolved.length ? `\n\n_(${unresolved.length} member(s) unverified — skipped)_` : '')
                 );
             }
 
@@ -257,7 +282,7 @@ module.exports = {
         const gs = database.getGroupSettings(groupJid);
         if (!gs.antiforeign || !gs.antiforegnCode) return;
 
-        const phone = resolvePhone(participantJid);
+        const phone = await resolvePhone(sock, participantJid);
         if (!phone) return; // cannot resolve — don't kick blindly
 
         if (isForeignPhone(phone, gs.antiforegnCode)) {
