@@ -47,14 +47,15 @@ async function resolvePhone(sock, jid) {
         const isLid = server === 'lid' || server === 'hosted.lid';
 
         if (!isLid) {
+            // Plain phone-number JID — user is the number, strip device suffix
             return user.split(':')[0];
         }
 
-        // 1. Try Baileys' built-in LID store first
+        // 1. Try Baileys' built-in LID store — pass the FULL JID, not just the user part
         try {
             const lidStore = sock?.signalRepository?.lidMapping;
             if (lidStore?.getPNForLID) {
-                const pn = await lidStore.getPNForLID(user);
+                const pn = await lidStore.getPNForLID(jid);   // was: getPNForLID(user) — bug
                 if (pn) {
                     const pnUser = jidDecode(pn)?.user || String(pn).split('@')[0];
                     return pnUser.split(':')[0];
@@ -63,13 +64,19 @@ async function resolvePhone(sock, jid) {
         } catch (_) { /* fall through to file lookup */ }
 
         // 2. Fallback: reverse-mapping file written by Baileys
+        //    Key stored as  `${lidUser}_reverse`  inside the session auth-state keystore
         const mapFile = path.join(SESSION_DIR, `lid-mapping-${user}_reverse.json`);
-        if (!fs.existsSync(mapFile)) return null;
+        if (fs.existsSync(mapFile)) {
+            try {
+                const raw = fs.readFileSync(mapFile, 'utf8').trim();
+                if (raw) {
+                    const pn = JSON.parse(raw);
+                    if (pn) return String(pn).split(':')[0];
+                }
+            } catch (_) {}
+        }
 
-        const raw = fs.readFileSync(mapFile, 'utf8').trim();
-        if (!raw) return null;
-        const pn = JSON.parse(raw);
-        return pn ? String(pn).split(':')[0] : null;
+        return null;
     } catch (_) {
         return null;
     }
@@ -124,7 +131,14 @@ async function enrichParticipants(sock, participants, botJid) {
     const botPhone = (await resolvePhone(sock, botJid)) || (botJid || '').split('@')[0].split(':')[0];
 
     const resolved = await Promise.all(participants.map(async p => {
-        const phone = await resolvePhone(sock, p.id);
+        // Baileys v7 already includes phoneNumber on LID participants from groupMetadata()
+        let phone = null;
+        if (p.phoneNumber) {
+            const dec = jidDecode(p.phoneNumber);
+            phone = dec?.user?.split(':')[0] || String(p.phoneNumber).split('@')[0].split(':')[0];
+        }
+        // Fallback to full LID resolution if phoneNumber wasn't in the metadata
+        if (!phone) phone = await resolvePhone(sock, p.id);
         return { ...p, phone, isUnresolvableLid: !phone };
     }));
 
