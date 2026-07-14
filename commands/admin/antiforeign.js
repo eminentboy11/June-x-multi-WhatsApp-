@@ -75,6 +75,40 @@ async function resolvePhone(sock, jid) {
     }
 }
 
+// ── Preload: give WhatsApp time to push LID↔PN mapping data ──────────────────
+// LID mappings only populate once Baileys sees a stanza (message, receipt,
+// presence) from that user. On a fresh scan, most LID members won't have
+// resolved yet. This nudges resolution by subscribing to presence for every
+// LID participant, then polls resolvePhone() with a short delay until either
+// everyone resolves or maxWaitMs is hit — instead of giving up instantly.
+async function preloadLidResolution(sock, participants, { maxWaitMs = 12000, intervalMs = 1500 } = {}) {
+    const lidParticipants = participants.filter(p => {
+        const decoded = jidDecode(p.id);
+        return decoded && (decoded.server === 'lid' || decoded.server === 'hosted.lid');
+    });
+    if (!lidParticipants.length) return { attempted: 0, resolved: 0 };
+
+    // Nudge WhatsApp to push mapping data for each LID participant
+    await Promise.all(lidParticipants.map(async p => {
+        try { await sock.presenceSubscribe(p.id); } catch (_) { /* ignore */ }
+    }));
+
+    const start = Date.now();
+    let resolvedCount = 0;
+
+    while (Date.now() - start < maxWaitMs) {
+        const results = await Promise.all(
+            lidParticipants.map(p => resolvePhone(sock, p.id))
+        );
+        resolvedCount = results.filter(Boolean).length;
+
+        if (resolvedCount === lidParticipants.length) break; // all resolved, stop early
+        await new Promise(r => setTimeout(r, intervalMs));
+    }
+
+    return { attempted: lidParticipants.length, resolved: resolvedCount };
+}
+
 // Strip leading + and whitespace, return digits only
 function normaliseCode(raw) {
     return String(raw).replace(/^\+/, '').trim();
@@ -207,6 +241,10 @@ module.exports = {
     async _scan(sock, groupJid, code, reply) {
         try {
             const meta = await sock.groupMetadata(groupJid);
+
+            await reply('⏳ Resolving member numbers, this can take a few seconds…');
+            await preloadLidResolution(sock, meta.participants || []);
+
             const { foreign, unresolved } = await getForeignParticipants(
                 sock, meta.participants || [], code, sock.user?.id
             );
@@ -243,6 +281,10 @@ module.exports = {
     async _kick(sock, groupJid, code, reply) {
         try {
             const meta = await sock.groupMetadata(groupJid);
+
+            await reply('⏳ Resolving member numbers, this can take a few seconds…');
+            await preloadLidResolution(sock, meta.participants || []);
+
             const { foreign, unresolved } = await getForeignParticipants(
                 sock, meta.participants || [], code, sock.user?.id
             );
@@ -282,8 +324,16 @@ module.exports = {
         const gs = database.getGroupSettings(groupJid);
         if (!gs.antiforeign || !gs.antiforegnCode) return;
 
-        const phone = await resolvePhone(sock, participantJid);
-        if (!phone) return; // cannot resolve — don't kick blindly
+        // Give a joining member's LID a brief window to resolve before giving up
+        let phone = await resolvePhone(sock, participantJid);
+        if (!phone) {
+            try { await sock.presenceSubscribe(participantJid); } catch (_) { /* ignore */ }
+            for (let i = 0; i < 3 && !phone; i++) {
+                await new Promise(r => setTimeout(r, 1000));
+                phone = await resolvePhone(sock, participantJid);
+            }
+        }
+        if (!phone) return; // still unresolved — don't kick blindly
 
         if (isForeignPhone(phone, gs.antiforegnCode)) {
             try {
