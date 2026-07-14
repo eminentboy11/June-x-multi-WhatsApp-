@@ -83,6 +83,13 @@ global.connectDebounceTimeout = null
 global.errorRetryCount = 0
 global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
 
+// ─── Web Dashboard Pairing State ───────────────────────────────────────────────
+// state: 'disconnected' | 'connecting' | 'awaiting_pair' | 'connected'
+global.botState = 'disconnected'
+global.currentSock = null
+global.pairingCode = null
+global.connectedAt = null
+
 // Track active intervals so we can clear them on reconnect
 global._activeIntervals = []
 
@@ -238,6 +245,34 @@ function deleteErrorCountFile() {
     }
 }
 
+// ─── Session ↔ Database Persistence ──────────────────────────────────────────
+// Saves creds.json to the flat-JSON database so session survives on ephemeral
+// filesystems (Heroku, Render, Railway, etc.).
+
+function saveCredsToDatabase() {
+    try {
+        const db = require('./database')
+        const ok = db.saveSession(credsPath)
+        if (ok) log('[ SESSION-DB ] Session saved to database.', 'cyan')
+    } catch (e) {
+        log(`[ SESSION-DB ] Failed to save session to database: ${e.message}`, 'yellow')
+    }
+}
+
+function restoreCredsFromDatabase() {
+    try {
+        if (fs.existsSync(credsPath)) return // already on disk, nothing to do
+        const db = require('./database')
+        const b64 = db.getSession()
+        if (!b64 || typeof b64 !== 'string') return
+        fs.mkdirSync(sessionDir, { recursive: true })
+        fs.writeFileSync(credsPath, Buffer.from(b64, 'base64'))
+        log('[ SESSION-DB ] ✅ Session restored from database.', 'green')
+    } catch (e) {
+        log(`[ SESSION-DB ] Could not restore session from database: ${e.message}`, 'yellow')
+    }
+}
+
 // ─── Cleanup Functions ────────────────────────────────────────────────────────
 
 function clearSessionFiles() {
@@ -247,6 +282,11 @@ function clearSessionFiles() {
         if (fs.existsSync(loginFile)) fs.unlinkSync(loginFile)
         deleteErrorCountFile()
         global.errorRetryCount = 0
+        // Also wipe the persisted session from the database
+        try {
+            const db = require('./database')
+            db.clearSession()
+        } catch (_) {}
         log('[ SESSION ] files cleared successfully.', 'green')
     } catch (e) {
         log(`Failed to clear session files: ${e.message}`, 'red', true)
@@ -356,7 +396,11 @@ async function downloadSessionData() {
             const sid = global.SESSION_ID
             let sessionData
 
-            if (sid.startsWith('Ultra-X:~')) {
+            if (sid.startsWith('JUNE-MD:~')) {
+                const b64 = sid.split('JUNE-MD:~')[1]
+                sessionData = Buffer.from(b64, 'base64')
+                JSON.parse(sessionData.toString('utf8'))
+            } else if (sid.startsWith('Ultra-X:~')) {
                 const b64 = sid.split('Ultra-X:~')[1]
                 sessionData = Buffer.from(b64, 'base64')
                 JSON.parse(sessionData.toString('utf8'))
@@ -377,6 +421,7 @@ async function downloadSessionData() {
         }
     } catch (e) {
         log(`Error loading session data: ${e.message}`, 'red', true)
+        throw e
     }
 }
 
@@ -443,13 +488,78 @@ async function requestPairingCode(socket) {
         await delay(3000)
         let code = await socket.requestPairingCode(global.phoneNumber)
         code = code?.match(/.{1,4}/g)?.join('-') || code
+        global.pairingCode = code
         log(chalk.black.bgCyanBright(`\n🔑 Your Pairing Code: ${code}\n`), 'white')
         log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
         return true
     } catch (e) {
         log(`Failed to get pairing code: ${e.message}`, 'red', true)
+        global.pairingCode = null
         return false
     }
+}
+
+// ─── Web Dashboard: Pair by Phone Number ──────────────────────────────────────
+
+async function startPairingByNumber(rawPhone) {
+    const phone = String(rawPhone || '').replace(/[^0-9]/g, '')
+    if (phone.length < 7 || phone.length > 20) {
+        throw new Error('Enter a valid number with country code (7-20 digits, no + or spaces).')
+    }
+    if (global.botState === 'connecting' || global.botState === 'connected') {
+        throw new Error('A connection is already in progress or active. Reset first to pair a new number.')
+    }
+
+    global.phoneNumber = phone
+    global.botState = 'connecting'
+    global.pairingCode = null
+    await saveLoginMethod('number')
+
+    const sock = await startKnightBot()
+    const ok = await requestPairingCode(sock)
+    if (!ok || !global.pairingCode) {
+        global.botState = 'awaiting_pair'
+        throw new Error('Failed to generate a pairing code. Please try again.')
+    }
+    return global.pairingCode
+}
+
+// ─── Web Dashboard: Pair via Session ID ───────────────────────────────────────
+
+async function startPairingBySession(rawSessionId) {
+    const sessionId = String(rawSessionId || '').trim()
+    if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
+        throw new Error("Invalid Session ID format. It must start with 'JUNE-MD:~', 'Ultra-X:~', or 'June-Ultra:~'.")
+    }
+    if (global.botState === 'connecting' || global.botState === 'connected') {
+        throw new Error('A connection is already in progress or active. Reset first to use a different session.')
+    }
+
+    global.SESSION_ID = sessionId
+    global.botState = 'connecting'
+    global.pairingCode = null
+    await saveLoginMethod('session')
+    await downloadSessionData()
+    await startKnightBot()
+    return true
+}
+
+// ─── Web Dashboard: Reset / Disconnect ────────────────────────────────────────
+
+async function resetConnection() {
+    if (global.currentSock) {
+        try { await global.currentSock.logout() } catch (e) { /* ignore */ }
+        try { global.currentSock.end?.(undefined) } catch (e) { /* ignore */ }
+    }
+    clearSessionFiles()
+    global.currentSock = null
+    global.isBotConnected = false
+    global.welcomeSent = false
+    global.pairingCode = null
+    global.phoneNumber = null
+    global.connectedAt = null
+    global.botState = 'awaiting_pair'
+    return true
 }
 
 // ─── Welcome Message ───────────────────────────────────────────────────────────
@@ -651,6 +761,7 @@ async function startKnightBot() {
 
     store.bind(sock.ev)
     sock.botStore = store
+    global.currentSock = sock
 
     // ── Connection Updates ──────────────────────────────────────────────────────
     sock.ev.on('connection.update', async (update) => {
@@ -663,6 +774,9 @@ async function startKnightBot() {
 
             if (loggedOut) {
                 log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session...`), 'white')
+                global.botState = 'awaiting_pair'
+                global.pairingCode = null
+                global.connectedAt = null
                 clearSessionFiles()
                 log('Session cleared. Returning to login menu in 10 seconds...', 'yellow')
                 for (let i = 10; i > 0; i--) {
@@ -703,6 +817,7 @@ async function startKnightBot() {
                 }
 
                 log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
+                global.botState = 'connecting'
                 await delay(waitMs)
                 global.isReconnecting = false
                 startKnightBot()
@@ -710,6 +825,9 @@ async function startKnightBot() {
         } else if (connection === 'open') {
             global.isReconnecting = false
             global.errorRetryCount = 0
+            global.botState = 'connected'
+            global.pairingCode = null
+            global.connectedAt = Date.now()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`🌿 Connected as: +${botNum}`, 'yellow')
             log('JUNE ULTRA CONNECTED ✅', 'green')
@@ -951,7 +1069,10 @@ async function startKnightBot() {
     })
 
     // ── Credentials + Group Events ─────────────────────────────────────────────
-    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('creds.update', async () => {
+        await saveCreds()
+        saveCredsToDatabase()
+    })
 
     // ── Presence Tracker ───────────────────────────────────────────────────────
     if (!global.presenceStore) global.presenceStore = {}
@@ -1040,6 +1161,7 @@ async function main() {
         log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
 
         global.SESSION_ID = envSessionID
+        global.botState = 'connecting'
 
         if (!sessionExists()) {
             log('[ SESSION_ID ] No stored session found — downloading from SESSION_ID...', 'magenta')
@@ -1066,18 +1188,35 @@ async function main() {
 
     log('[ALERT] No SESSION_ID in .env. Checking stored session...', 'blue')
 
-    // 4. Integrity check on stored session
+    // 4. Try restoring session from database (for ephemeral-filesystem platforms)
+    restoreCredsFromDatabase()
+
+    // 5. Integrity check on stored session
     await checkSessionIntegrityAndClean()
 
-    // 5. Use existing stored session if valid
+    // 6. Use existing stored session if valid
     if (sessionExists()) {
         log('[ALERT] Valid stored session found. Starting bot...', 'green')
+        global.botState = 'connecting'
         await startKnightBot()
         checkEnvStatus()
         return
     }
 
-    // 6. Interactive login (TTY) or exit
+    // 6. No stored session — dashboard is the default on ALL platforms
+    //    (Heroku, Replit, Railway, Render, VPS, etc.)
+    //    The web server is already running; just set state and wait for the
+    //    user to pair via the dashboard UI at the root URL.
+    global.botState = 'awaiting_pair'
+
+    const useCLI = process.env.FORCE_CLI_LOGIN === 'true' && !!process.stdin.isTTY
+    if (!useCLI) {
+        log('[ALERT] Waiting for pairing via the web dashboard...', 'yellow')
+        checkEnvStatus()
+        return
+    }
+
+    // CLI fallback — only reached when FORCE_CLI_LOGIN=true in a real terminal (local dev)
     const loginMethod = await getLoginMethod()
     let sock
 
@@ -1096,7 +1235,8 @@ async function main() {
     if (loginMethod === 'number' && !sessionExists() && fs.existsSync(sessionDir)) {
         log('[ALERT] Pairing code login failed. Cleaning up and restarting...', 'red')
         clearSessionFiles()
-        process.exit(1)
+        global.botState = 'awaiting_pair'
+        return
     }
 
     checkEnvStatus()
@@ -1109,14 +1249,69 @@ function startKeepAliveServer() {
     const http    = require('http');
     const app     = express();
 
+    app.use(express.json());
+
+    // ── Dashboard (pairing UI) ──────────────────────────────────────────────
     app.get('/', (req, res) => {
+        res.sendFile(path.join(__dirname, 'utils', 'dashboard.html'));
+    });
+
+    // ── Status (polled by the dashboard) ────────────────────────────────────
+    app.get('/api/status', (req, res) => {
+        const mem = process.memoryUsage();
+        const totalMemMB = Math.round(os.totalmem() / 1024 / 1024);
+        const usedMemMB = Math.round(mem.rss / 1024 / 1024);
         res.status(200).json({
-            status:  'online',
-            bot:     config.botName || 'June-Ultra',
-            uptime:  Math.floor(process.uptime()) + 's',
-            version: config.version || '2.8.1'
+            state: global.botState || 'disconnected',
+            connected: global.botState === 'connected',
+            botNumber: global.currentSock?.user?.id?.split(':')[0] || null,
+            phoneNumber: global.phoneNumber || null,
+            pairingCode: global.pairingCode || null,
+            connectedAt: global.connectedAt || null,
+            uptime: Math.floor(process.uptime()),
+            bot: config.botName || 'June-Ultra',
+            version: config.version || '2.8.1',
+            owner: Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName,
+            prefix: config.prefix === '' ? 'none' : (config.prefix || '.'),
+            mode: config.selfMode ? 'Private' : 'Public',
+            nodeVersion: process.version,
+            platform: detectPlatform(),
+            commandCount: handler.getCommandCount ? handler.getCommandCount() : null,
+            memory: { used: usedMemMB, total: totalMemMB },
+            serverTime: Date.now()
         });
     });
+
+    // ── Pair by phone number ────────────────────────────────────────────────
+    app.post('/api/pair', async (req, res) => {
+        try {
+            const code = await startPairingByNumber(req.body?.number);
+            res.status(200).json({ success: true, code });
+        } catch (e) {
+            res.status(400).json({ success: false, error: e.message });
+        }
+    });
+
+    // ── Pair via Session ID (kept as an alternative login option) ──────────
+    app.post('/api/session', async (req, res) => {
+        try {
+            await startPairingBySession(req.body?.sessionId);
+            res.status(200).json({ success: true });
+        } catch (e) {
+            res.status(400).json({ success: false, error: e.message });
+        }
+    });
+
+    // ── Reset / disconnect ──────────────────────────────────────────────────
+    app.post('/api/reset', async (req, res) => {
+        try {
+            await resetConnection();
+            res.status(200).json({ success: true });
+        } catch (e) {
+            res.status(400).json({ success: false, error: e.message });
+        }
+    });
+
     app.get('/health', (req, res) => res.status(200).send('OK'));
 
     const server = http.createServer(app);
