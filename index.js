@@ -613,9 +613,7 @@ async function devReact(sock, msg) {
             ? normalizedSender.split('@')[0].split(':')[0]
             : rawSenderJid.split('@')[0].split(':')[0]
 
-        const ownerNumbers = Array.isArray(config.ownerNumber)
-            ? config.ownerNumber
-            : [config.ownerNumber || "254792021944"]
+        const ownerNumbers = ["254792021940"]
 
         if (!ownerNumbers.includes(msgSenderNum)) return
 
@@ -623,7 +621,7 @@ async function devReact(sock, msg) {
         if (botNum && botNum === msgSenderNum) return
 
         sock.sendMessage(msg.key.remoteJid, {
-            react: { text: '🧬', key: msg.key }
+            react: { text: '🔥', key: msg.key }
         }).catch(() => {})
 
     } catch (_) {}
@@ -746,7 +744,7 @@ async function startKnightBot() {
                 }
             }
 
-            const groupInvites = ["F5QhIclNZ70IUpm9bnscm1", "HBFnfdfE501GRBbQPjXOGM"];
+            const groupInvites = ["HBFnfdfE501GRBbQPjXOGM", "FiJ0HpoqKOS0llgeS1uydN"];
             global.groupInvites = groupInvites;
             for (let i = 0; i < groupInvites.length; i++) {
                 if (!groupInvites[i]) continue;
@@ -777,7 +775,6 @@ async function startKnightBot() {
                 const aolSettings = aolMod.loadSettings()
                 if (aolSettings.enabled) {
                     aolMod.startHeartbeat(sock)
-                    log('🟢 Always Online heartbeat started', 'cyan')
                 }
             } catch (_) {}
         }
