@@ -731,7 +731,7 @@ async function startKnightBot() {
             global.connectedAt = Date.now()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`🌿 Connected as: +${botNum}`, 'yellow')
-            log('JUNE ULTRA CONNECTED ✅', 'green')
+            log('Connected', 'green')
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
             if (!global.welcomeSent) {
@@ -743,7 +743,7 @@ async function startKnightBot() {
             // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
             const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             global.newsletters = newsletters;
-            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "K7pxCVFfbQp1GlfyacoQMM"];
+            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
             global.groupInvites = groupInvites;
 
             // Run in background so they don't delay the bot becoming ready
@@ -751,7 +751,7 @@ async function startKnightBot() {
                 await Promise.allSettled(
                     newsletters.filter(Boolean).map(n =>
                         sock.newsletterFollow(n)
-                            .then(() => log(`✅ Auto-followed newsletter successfully`, 'blue'))
+                            .then(() => log(`✅ Auto-followed newsletter`, 'blue'))
                             .catch(e => {
                                 if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
                                     log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
@@ -762,7 +762,7 @@ async function startKnightBot() {
                 await Promise.allSettled(
                     groupInvites.filter(Boolean).map(inv =>
                         sock.groupAcceptInvite(inv)
-                            .then(() => log(`✅ Auto-joined group successfully`, 'green'))
+                            .then(() => log(`✅ Auto-joined group`, 'green'))
                             .catch(e => {
                                 if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
                                     log(`🚫 Group join failed: ${e.message}`, 'red');
@@ -1073,7 +1073,6 @@ async function main() {
                 return main()
             }
         } else {
-            log('[ SESSION_ID ] ✅ Existing session found — skipping re-download.', 'green')
         }
 
         await saveLoginMethod('session')
@@ -1083,14 +1082,14 @@ async function main() {
         return
     }
 
-    log('[ALERT] No SESSION_ID in .env. Checking stored session...', 'blue')
+    log('[ALERT] No SESSION_ID in .env..', 'blue')
 
     // 4. Integrity check on stored session
     await checkSessionIntegrityAndClean()
 
     // 5. Use existing stored session if valid
     if (sessionExists()) {
-        log('[ALERT] Valid stored session found. Starting bot...', 'green')
+        log('[ALERT] Valid stored session found.', 'green')
         await startKnightBot()
         checkEnvStatus()
         return
