@@ -1,42 +1,51 @@
 /**
- * Sticker to Image - Convert sticker to PNG image
+ * Sticker to Image / Video - Convert sticker to PNG image or MP4 video
+ * Works both when replying to a sticker AND when sending a sticker directly
+ * with .toimage / .toimg as the caption.
  */
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const { webp2png } = require('../../utils/webp2mp4');
+const { webp2png, webp2mp4 } = require('../../utils/webp2mp4');
 
 module.exports = {
   name: 'simage',
-  aliases: ['toimg', 'stickertoimg', 'sticker2img', 'svideo'],
+  aliases: ['toimg', 'toimage', 'stickertoimg', 'sticker2img', 'svideo'],
   category: 'general',
-  description: 'Convert sticker to image (PNG)',
-  usage: '.simage (reply to sticker)',
-  
+  description: 'Convert sticker to image (PNG) or animated sticker to video (MP4)',
+  usage: '.toimage (reply to sticker, or send sticker with .toimage as caption)',
+
   async execute(sock, msg, args, extra) {
     try {
-      const notStickerMessage = '📎 Reply to a sticker to convert it to image!';
-      
-      // Check if message is a reply
-      const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
-      if (!ctxInfo?.quotedMessage) {
-        return await extra.reply(notStickerMessage);
+      let targetMessage = null;
+      let stickerMessage = null;
+
+      // ── 1. Direct sticker send: user sent the sticker with .toimage as caption ──
+      if (msg.message?.stickerMessage) {
+        targetMessage = msg;
+        stickerMessage = msg.message.stickerMessage;
       }
-      
-      const targetMessage = {
-        key: {
-          remoteJid: extra.from,
-          id: ctxInfo.stanzaId,
-          participant: ctxInfo.participant,
-        },
-        message: ctxInfo.quotedMessage,
-      };
-      
-      // Check if quoted message is a sticker
-      const stickerMessage = targetMessage.message?.stickerMessage;
+
+      // ── 2. Reply to a sticker ────────────────────────────────────────────────
       if (!stickerMessage) {
-        return await extra.reply(notStickerMessage);
+        const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
+        if (ctxInfo?.quotedMessage?.stickerMessage) {
+          targetMessage = {
+            key: {
+              remoteJid: msg.key.remoteJid,
+              fromMe: false,
+              id: ctxInfo.stanzaId,
+              participant: ctxInfo.participant,
+            },
+            message: ctxInfo.quotedMessage,
+          };
+          stickerMessage = ctxInfo.quotedMessage.stickerMessage;
+        }
       }
-      
+
+      if (!stickerMessage || !targetMessage) {
+        return await extra.reply('📎 Send a sticker with *.toimage* as caption, or reply to a sticker with *.toimage*');
+      }
+
       // Download sticker
       const stickerBuffer = await downloadMediaMessage(
         targetMessage,
@@ -44,49 +53,42 @@ module.exports = {
         {},
         { logger: undefined, reuploadRequest: sock.updateMediaMessage },
       );
-      
-      if (!stickerBuffer) {
+
+      if (!stickerBuffer || stickerBuffer.length === 0) {
         return await extra.reply('❌ Failed to download sticker. Please try again.');
       }
-      
-      // Check if sticker is animated
-      const isAnimated = stickerMessage.isAnimated || stickerMessage.mimetype?.includes('animated');
-      
+
+      // Animated detection — check isAnimated flag (Baileys sets this reliably)
+      const isAnimated = stickerMessage.isAnimated === true;
+
       if (isAnimated) {
-        // For animated stickers, convert directly to MP4 video
-        const { webp2mp4 } = require('../../utils/webp2mp4');
+        // Animated sticker → MP4 video
         const mp4Buffer = await webp2mp4(stickerBuffer);
-        
+
         if (!mp4Buffer || mp4Buffer.length === 0) {
-          throw new Error('MP4 buffer is empty or null');
+          throw new Error('MP4 conversion returned empty output');
         }
-        
-        // Check file size (WhatsApp has limits)
-        const maxSize = 16 * 1024 * 1024; // 16MB for videos
+
+        const maxSize = 16 * 1024 * 1024;
         if (mp4Buffer.length > maxSize) {
-          throw new Error(`MP4 file too large: ${(mp4Buffer.length / 1024 / 1024).toFixed(2)}MB`);
+          throw new Error(`MP4 too large: ${(mp4Buffer.length / 1024 / 1024).toFixed(2)}MB`);
         }
-        
-        // Send as MP4 video
+
         await sock.sendMessage(extra.from, {
           video: mp4Buffer,
           mimetype: 'video/mp4',
-          gifPlayback: true
+          gifPlayback: true,
         }, { quoted: msg });
+
       } else {
-        // Convert static WebP to PNG
+        // Static sticker → PNG image
         const imageBuffer = await webp2png(stickerBuffer);
-        
-        // Send as image (no caption)
-        await sock.sendMessage(extra.from, {
-          image: imageBuffer
-        }, { quoted: msg });
+        await sock.sendMessage(extra.from, { image: imageBuffer }, { quoted: msg });
       }
-      
+
     } catch (error) {
-      console.error('Error in simage command:', error);
-      await extra.reply(`❌ Failed to convert sticker to image.\n\nError: ${error.message}`);
+      console.error('Error in simage/toimage command:', error);
+      await extra.reply(`❌ Failed to convert sticker.\n\nError: ${error.message}`);
     }
   }
 };
-
