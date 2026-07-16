@@ -212,12 +212,12 @@ const APIs = {
 
   getEliteProTechVideoByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(youtubeUrl)}&format=mp4`, DOWNLOAD_HEADERS)
+      axios.get(`https://apissupreme.vercel.app/media/ytmp4?apikey=supreme&url=${encodeURIComponent(youtubeUrl)}&format=mp4`, DOWNLOAD_HEADERS)
     );
-    if (res?.data?.status && res?.data?.data?.url) {
+    if (res?.data?.status && res?.data?.downloadUrl) {
       return {
-        download: res.data.data.url,
-        title: res.data.data.title
+        download: res.data.downloadUurl,
+        title: res.data.title
       };
     }
     throw new Error('video: no download URL returned');
