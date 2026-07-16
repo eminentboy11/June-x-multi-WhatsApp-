@@ -577,7 +577,7 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        log('[ Connecting...', 'red')
+        log('Connected', 'red')
         deleteErrorCountFile()
         global.errorRetryCount = 0
     } catch (e) {
@@ -803,7 +803,7 @@ async function startKnightBot() {
             global.connectedAt = Date.now()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`🌿 Connected as: +${botNum}`, 'yellow')
-            log('Connected', 'green')
+            log('Connecting...', 'green')
             // Auto-export the session to .env so restarts never need re-login
             autoExportSessionToEnv(true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
