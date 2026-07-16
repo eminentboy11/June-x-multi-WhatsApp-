@@ -216,7 +216,7 @@ const APIs = {
     );
     if (res?.data?.status && res?.data?.downloadUrl) {
       return {
-        download: res.data.downloadUurl,
+        download: res.data.downloadUrl,
         title: res.data.title
       };
     }
