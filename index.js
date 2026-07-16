@@ -157,10 +157,9 @@ try {
             // Neither file nor DB data available — clear the stale flag
             db.setBotSetting('menuImageCustom', false);
             db.setBotSetting('menuImageData', null);
-            log('[ SETTINGS ] Custom menu image missing from both disk and database; reset flag.', 'yellow');
+            log('[ SETTINGS ] Custom menu image missing from both disk and database.', 'yellow');
         }
     }
-    log('[ SETTINGS ] Runtime settings loaded and applied from database.', 'cyan');
 } catch (e) {
     log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
 }
@@ -412,10 +411,9 @@ async function restoreSessionFromDB() {
         const data = Buffer.from(b64, 'base64')
         JSON.parse(data.toString('utf8')) // validate
         await fs.promises.writeFile(credsPath, data)
-        log('✅ Session restored from database — no login needed.', 'green')
         return true
     } catch (e) {
-        log(`⚠️ DB session restore failed: ${e.message}`, 'yellow')
+        log(`⚠️ DB session restore failed`, 'yellow')
         clearSession()
         return false
     }
@@ -458,7 +456,7 @@ async function autoExportSessionToEnv(force = false) {
             fs.writeFileSync(envPath, envContent)
             process.env.SESSION_ID = sessionID
             _lastSessionExport = now
-            log('✅ Session auto-exported to .env — bot will restore this session on restart.', 'green')
+
         }
     } catch (e) {
         log(`⚠️ Auto session export failed: ${e.message}`, 'yellow')
@@ -470,12 +468,10 @@ async function autoExportSessionToEnv(force = false) {
 async function getLoginMethod() {
     const lastMethod = await getLastLoginMethod()
     if (lastMethod && sessionExists()) {
-        log(`Last login method: ${lastMethod}. Using it automatically.`, 'blue')
         return lastMethod
     }
 
     if (!sessionExists() && fs.existsSync(loginFile)) {
-        log('Session missing. Removing stale login preference for clean re-login.', 'blue')
         fs.unlinkSync(loginFile)
     }
 
@@ -581,7 +577,7 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        log('[ BOT ] Connected and welcome message sent.', 'green')
+        log('[ Connecting...', 'red')
         deleteErrorCountFile()
         global.errorRetryCount = 0
     } catch (e) {
@@ -767,7 +763,6 @@ async function startKnightBot() {
                 return main()
             } else {
                 if (global.isReconnecting) {
-                    log(`[RECONNECT] Already reconnecting — skipping duplicate close event.`, 'yellow')
                     return
                 }
                 global.isReconnecting = true
