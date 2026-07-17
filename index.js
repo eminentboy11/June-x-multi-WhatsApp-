@@ -5,7 +5,9 @@
  */
 
 // --- Environment Setup ---
-require('dotenv').config();
+// override: true ensures .env values always win, even if the platform
+// (e.g. Replit) has already injected a blank SESSION_ID into process.env.
+require('dotenv').config({ override: true });
 
 /*************************************
  * Raw Output Suppression
@@ -1110,6 +1112,10 @@ async function startKnightBot() {
 
 async function main() {
 
+    // 0. Re-read .env every time main() runs (including recursive calls after
+    //    logout) so the latest SESSION_ID is always picked up.
+    require('dotenv').config({ override: true, path: envPath })
+
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
 
@@ -1119,6 +1125,7 @@ async function main() {
 
     // 3. PRIORITY MODE: SESSION_ID from .env always wins
     const envSessionID = process.env.SESSION_ID?.trim()
+    log(`[ SESSION_ID ] Detected: ${envSessionID ? envSessionID.slice(0, 20) + '...' : '(none)'}`, 'cyan')
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
         log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
