@@ -5,7 +5,9 @@
  */
 
 // --- Environment Setup ---
-require('dotenv').config();
+// override: true ensures .env values always win, even if the platform
+// (e.g. Replit) has already injected a blank SESSION_ID into process.env.
+require('dotenv').config({ override: true });
 
 /*************************************
  * Raw Output Suppression
@@ -185,6 +187,31 @@ if (!fs.existsSync(envPath)) {
     fs.writeFileSync(envPath, defaultEnv, 'utf8')
     log('[ .env ] No .env file found — created with default template.', 'green')
 }
+
+// ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
+// dotenv v17 (dotenvx) mangles long base64 values. We bypass it entirely and
+// read SESSION_ID straight from the file so no truncation or re-encoding occurs.
+function readSessionIDFromEnv() {
+    try {
+        if (!fs.existsSync(envPath)) return ''
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
+            // Everything after the first '=' is the value (preserves '=' inside base64)
+            const value = trimmed.slice('SESSION_ID='.length).trim()
+            return value
+        }
+    } catch (e) {
+        log(`[ .env ] Failed to read SESSION_ID: ${e.message}`, 'red', true)
+    }
+    return ''
+}
+
+// Inject the directly-read value into process.env so the rest of the code
+// (config.js, etc.) that reads process.env.SESSION_ID also gets the right value.
+const _rawSessionID = readSessionIDFromEnv()
+if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
 // ─── Message Backup Store ─────────────────────────────────────────────────────
 
@@ -1110,6 +1137,12 @@ async function startKnightBot() {
 
 async function main() {
 
+    // 0. Re-read SESSION_ID directly from .env every time main() runs so that
+    //    recursive calls (after logout) always see the latest value, and dotenvx
+    //    quirks (which mangle long base64 values) are bypassed entirely.
+    const _freshSessionID = readSessionIDFromEnv()
+    if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
+
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
 
@@ -1119,6 +1152,7 @@ async function main() {
 
     // 3. PRIORITY MODE: SESSION_ID from .env always wins
     const envSessionID = process.env.SESSION_ID?.trim()
+    log(`[ SESSION_ID ] Detected: ${envSessionID ? envSessionID.slice(0, 20) + '...' : '(none)'}`, 'cyan')
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
         log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
