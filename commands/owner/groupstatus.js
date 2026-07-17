@@ -6,7 +6,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const { PassThrough } = require('stream');
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpegPath = require('../../utils/ffmpegPath');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PURPLE_COLOR = '#9C27B0';
