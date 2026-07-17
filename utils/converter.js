@@ -12,7 +12,7 @@
 const fs = require('fs')
 const path = require('path')
 const { spawn } = require('child_process')
-const ffmpegBin = require('ffmpeg-static')
+const ffmpegBin = require('./ffmpegPath')
 
 function ffmpeg(buffer, args = [], ext = '', ext2 = '') {
   return new Promise(async (resolve, reject) => {
