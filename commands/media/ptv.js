@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpegPath = require('../../utils/ffmpegPath');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
 const MAX_DURATION = 60;   // seconds — WhatsApp PTV cap
