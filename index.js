@@ -356,37 +356,30 @@ async function checkAndHandleSessionFormat() {
 // ─── Download Session from SESSION_ID ─────────────────────────────────────────
 
 async function downloadSessionData() {
-    try {
-        await fs.promises.mkdir(sessionDir, { recursive: true })
-        if (!fs.existsSync(credsPath) && global.SESSION_ID) {
-            const sid = global.SESSION_ID
-            let sessionData
+    // NOTE: this function intentionally does NOT catch errors — callers in
+    // priority mode have their own try/catch with retry logic, and swallowing
+    // errors here would silently leave creds.json unwritten.
+    await fs.promises.mkdir(sessionDir, { recursive: true })
+    if (!fs.existsSync(credsPath) && global.SESSION_ID) {
+        const sid = global.SESSION_ID
+        let sessionData
 
-            if (sid.startsWith('Ultra-X:~')) {
-                const b64 = sid.split('Ultra-X:~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('June-Ultra:~')) {
-                const b64 = sid.split('June-Ultra:~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('JUNE-MD:~')) {
-                const b64 = sid.split('JUNE-MD:~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('June::~')) {
-                const b64 = sid.split('June::~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else {
-                throw new Error('Unknown session format')
-            }
+        const prefixMap = [
+            'Ultra-X:~',
+            'June-Ultra:~',
+            'JUNE-MD:~',
+            'June::~',
+        ]
+        const matched = prefixMap.find(p => sid.startsWith(p))
+        if (!matched) throw new Error(`Unknown session format — ID must start with one of: ${prefixMap.join(', ')}`)
 
-            await fs.promises.writeFile(credsPath, sessionData)
-            log('✅ Session saved from SESSION_ID successfully.', 'green')
-        }
-    } catch (e) {
-        log(`Error loading session data: ${e.message}`, 'red', true)
+        const b64 = sid.slice(matched.length)
+        sessionData = Buffer.from(b64, 'base64')
+        // Validate that the decoded content is valid JSON before writing
+        JSON.parse(sessionData.toString('utf8'))
+
+        await fs.promises.writeFile(credsPath, sessionData)
+        log('✅ Session saved from SESSION_ID successfully.', 'green')
     }
 }
 
@@ -1137,6 +1130,11 @@ async function main() {
             await fs.promises.mkdir(sessionDir, { recursive: true })
             try {
                 await downloadSessionData()
+                // Verify the file was actually written — downloadSessionData can
+                // return without writing if something went silently wrong.
+                if (!sessionExists()) {
+                    throw new Error('creds.json was not written after download — SESSION_ID may be corrupt or expired')
+                }
                 log('[ SESSION_ID ] ✅ Session downloaded successfully.', 'green')
             } catch (e) {
                 log(`[ SESSION_ID ] ❌ Failed to download session: ${e.message}`, 'red', true)
@@ -1144,7 +1142,6 @@ async function main() {
                 await delay(5000)
                 return main()
             }
-        } else {
         }
 
         await saveLoginMethod('session')
@@ -1176,29 +1173,12 @@ async function main() {
         return
     }
 
-    // 6. Interactive login (TTY) or exit
-    const loginMethod = await getLoginMethod()
-    let sock
-
-    if (loginMethod === 'session') {
-        await downloadSessionData()
-        sock = await startKnightBot()
-    } else if (loginMethod === 'number') {
-        sock = await startKnightBot()
-        await requestPairingCode(sock)
-    } else {
-        log('[ALERT] Could not determine login method.', 'red')
-        return
-    }
-
-    // 7. Clean up if pairing code flow failed before creds were saved
-    if (loginMethod === 'number' && !sessionExists() && fs.existsSync(sessionDir)) {
-        log('[ALERT] Pairing code login failed. Cleaning up and restarting...', 'red')
-        clearSessionFiles()
-        process.exit(1)
-    }
-
-    checkEnvStatus()
+    // 6. No SESSION_ID and no stored session — tell the user what to do and exit.
+    log(chalk.black.bgRedBright('[ ERROR ] No SESSION_ID found and no stored session available.'), 'white')
+    log(chalk.yellowBright('👉 Add your SESSION_ID to the .env file:'), 'white')
+    log(chalk.greenBright('   SESSION_ID=Ultra-X:~<your_base64_here>'), 'white')
+    log(chalk.yellowBright('   Then restart the bot.'), 'white')
+    process.exit(1)
 }
 
 // ─── Keep-Alive HTTP Server ────────────────────────────────────────────────────
