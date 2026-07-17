@@ -5,9 +5,7 @@
  */
 
 // --- Environment Setup ---
-// override: true ensures .env values always win, even if the platform
-// (e.g. Replit) has already injected a blank SESSION_ID into process.env.
-require('dotenv').config({ override: true });
+require('dotenv').config();
 
 /*************************************
  * Raw Output Suppression
@@ -167,7 +165,7 @@ try {
 }
 
 const handler = require('./handler')
-const { saveSession, getSession, clearSession, saveSessionID, getSavedSessionID } = require('./database')
+const { saveSession, getSession, clearSession } = require('./database')
 
 const sessionDir = path.join(__dirname, config.sessionName || 'session')
 const credsPath = path.join(sessionDir, 'creds.json')
@@ -187,31 +185,6 @@ if (!fs.existsSync(envPath)) {
     fs.writeFileSync(envPath, defaultEnv, 'utf8')
     log('[ .env ] No .env file found — created with default template.', 'green')
 }
-
-// ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
-// dotenv v17 (dotenvx) mangles long base64 values. We bypass it entirely and
-// read SESSION_ID straight from the file so no truncation or re-encoding occurs.
-function readSessionIDFromEnv() {
-    try {
-        if (!fs.existsSync(envPath)) return ''
-        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
-        for (const line of lines) {
-            const trimmed = line.trim()
-            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
-            // Everything after the first '=' is the value (preserves '=' inside base64)
-            const value = trimmed.slice('SESSION_ID='.length).trim()
-            return value
-        }
-    } catch (e) {
-        log(`[ .env ] Failed to read SESSION_ID: ${e.message}`, 'red', true)
-    }
-    return ''
-}
-
-// Inject the directly-read value into process.env so the rest of the code
-// (config.js, etc.) that reads process.env.SESSION_ID also gets the right value.
-const _rawSessionID = readSessionIDFromEnv()
-if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
 // ─── Message Backup Store ─────────────────────────────────────────────────────
 
@@ -440,12 +413,6 @@ let _lastSessionExport = 0
 const SESSION_EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 async function autoExportSessionToEnv(force = false) {
-    // NOTE: We deliberately do NOT write back to .env here.
-    // Writing long base64 values to .env caused corruption on panel/VPS hosts
-    // and races with the file watcher. Session persistence is handled by:
-    //   1. database/session.json  (saveSession on every creds.update)
-    //   2. database/session.json  (saveSessionID stores the bootstrap SESSION_ID)
-    // .env is treated as read-only input, never written by the bot at runtime.
     try {
         const now = Date.now()
         if (!force && (now - _lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
@@ -453,12 +420,29 @@ async function autoExportSessionToEnv(force = false) {
 
         const credsJson = fs.readFileSync(credsPath, 'utf8')
         JSON.parse(credsJson) // validate — throws if corrupt
-
-        // Keep in-memory process.env in sync so other code that reads it is correct
         const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
         const sessionID = `Ultra-X:~${base64}`
-        process.env.SESSION_ID = sessionID
-        _lastSessionExport = now
+
+        // Skip if nothing has changed
+        if (process.env.SESSION_ID?.trim() === sessionID) {
+            _lastSessionExport = now
+            return
+        }
+
+        if (fs.existsSync(envPath)) {
+            // Suppress the .env watcher so this write doesn't trigger a restart
+            global._suppressEnvWatcher = true
+            let envContent = fs.readFileSync(envPath, 'utf8')
+            if (/^SESSION_ID=/m.test(envContent)) {
+                envContent = envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
+            } else {
+                envContent = envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
+            }
+            fs.writeFileSync(envPath, envContent)
+            process.env.SESSION_ID = sessionID
+            _lastSessionExport = now
+
+        }
     } catch (e) {
         log(`⚠️ Auto session export failed: ${e.message}`, 'yellow')
     }
@@ -1126,12 +1110,6 @@ async function startKnightBot() {
 
 async function main() {
 
-    // 0. Re-read SESSION_ID directly from .env every time main() runs so that
-    //    recursive calls (after logout) always see the latest value, and dotenvx
-    //    quirks (which mangle long base64 values) are bypassed entirely.
-    const _freshSessionID = readSessionIDFromEnv()
-    if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
-
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
 
@@ -1139,35 +1117,21 @@ async function main() {
     global.errorRetryCount = loadErrorCount().count
     log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
 
-    // 3. PRIORITY MODE: .env first, then database fallback
-    //    Panel/VPS hosts often reset .env on restart — the database copy
-    //    ensures we can still bootstrap without user intervention.
-    let envSessionID = _freshSessionID  // already read from .env above
-
-    if (!envSessionID || !VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
-        const dbSessionID = getSavedSessionID()
-        if (dbSessionID && VALID_PREFIXES.some(p => dbSessionID.startsWith(p))) {
-            log(chalk.black.bgCyanBright('[ SESSION_ID ] .env empty — restoring SESSION_ID from database.'), 'white')
-            envSessionID = dbSessionID
-            process.env.SESSION_ID = dbSessionID
-        }
-    }
-
-    log(`[ SESSION_ID ] Detected: ${envSessionID ? envSessionID.slice(0, 20) + '...' : '(none)'}`, 'cyan')
+    // 3. PRIORITY MODE: SESSION_ID from .env always wins
+    const envSessionID = process.env.SESSION_ID?.trim()
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
-        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected — using as priority login.'), 'white')
+        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
 
         global.SESSION_ID = envSessionID
-
-        // Persist SESSION_ID to DB so it survives future .env resets
-        saveSessionID(envSessionID)
 
         if (!sessionExists()) {
             log('[ SESSION_ID ] No stored session found — downloading from SESSION_ID...', 'magenta')
             await fs.promises.mkdir(sessionDir, { recursive: true })
             try {
                 await downloadSessionData()
+                // Verify the file was actually written — downloadSessionData can
+                // return without writing if something went silently wrong.
                 if (!sessionExists()) {
                     throw new Error('creds.json was not written after download — SESSION_ID may be corrupt or expired')
                 }
@@ -1187,7 +1151,7 @@ async function main() {
         return
     }
 
-    log('[ALERT] No SESSION_ID in .env or database.', 'blue')
+    log('[ALERT] No SESSION_ID in .env..', 'blue')
 
     // 4. Integrity check on stored session
     await checkSessionIntegrityAndClean()
