@@ -1,9 +1,12 @@
+
 /**
  * A WhatsApp Bot
  * Built on Baileys | Inspired by JUNE-X structure
  */
 
 // --- Environment Setup ---
+// override: true ensures .env values always win, even if the platform
+// (e.g. Replit) has already injected a blank SESSION_ID into process.env.
 require('dotenv').config();
 
 /*************************************
@@ -85,6 +88,11 @@ global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
 // Track active intervals so we can clear them on reconnect
 global._activeIntervals = []
 
+// ─── Dashboard state ──────────────────────────────────────────────
+global.botState   = 'disconnected'
+global.currentSock = null
+global.connectedAt = null
+
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 global.__CORE__ = __dirname
@@ -93,16 +101,73 @@ global.__ROOT__ = __dirname
 const config = require('./config')
 
 // ─── Apply Persisted Runtime Settings ─────────────────────────────────────────
-// Overrides config values with any owner-changed settings saved in data/settings.json
+// Overrides config values with any owner-changed settings saved in database/bot-settings.json
 try {
-    const runtimeSettings = require('./utils/settings');
-    runtimeSettings.applyToConfig(config);
-    log('[ SETTINGS ] Runtime settings loaded and applied.', 'cyan');
+    const db = require('./database');
+    const all = db.getAllBotSettings();
+    // Apply scalar config keys
+    const CONFIG_KEYS = ['prefix', 'botName', 'timezone', 'autoReact', 'autoReactMode'];
+    for (const key of CONFIG_KEYS) {
+        if (key in all && all[key] !== undefined) config[key] = all[key];
+    }
+    // Restore autoRead from stored mode (autoread command stores 'on'|'group'|'pm'|'off')
+    if (all.autoReadMode && all.autoReadMode !== 'off') {
+        config.autoRead = (all.autoReadMode === 'on' || all.autoReadMode === 'group');
+    }
+    // Restore presence flags so .botstatus/.getsettings reflect the correct state
+    if (all.presenceMode === 'typing')     config.autoTyping     = true;
+    if (all.presenceMode === 'recording')  config.autoRecording  = true;
+    if (all.presenceMode === 'recordtype') { config.autoRecording = true; config.autoRecordType = true; }
+    // Restore custom menu image if one was set before restart
+    if (all.menuImageCustom) {
+        const PERSIST_PATH = path.join(__dirname, 'data/custom_menu.jpg');
+        const IMAGE_PATH   = path.join(__dirname, 'utils/bot_image.jpg');
+        const MENU1_PATH   = path.join(__dirname, 'assets/menu1.jpg');
+
+        let buf = null;
+
+        // 1. Try restoring from the persistent file on disk
+        if (fs.existsSync(PERSIST_PATH)) {
+            try { buf = fs.readFileSync(PERSIST_PATH); } catch {}
+        }
+
+        // 2. If the file is gone, rebuild it from the base64 copy in the database
+        if (!buf && all.menuImageData) {
+            try {
+                const decoded = Buffer.from(all.menuImageData, 'base64');
+                if (!decoded || decoded.length < 100) throw new Error('Decoded image data is empty or too small to be valid.');
+                buf = decoded;
+                // Re-write the persistent file so future restarts use the faster path
+                try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); } catch {}
+                fs.writeFileSync(PERSIST_PATH, buf);
+                log('[ SETTINGS ] Custom menu image rebuilt from database.', 'cyan');
+            } catch (rebuildErr) {
+                log(`[ SETTINGS ] Could not rebuild menu image from database: ${rebuildErr.message}`, 'yellow');
+                buf = null;
+            }
+        }
+
+        if (buf) {
+            try {
+                fs.writeFileSync(IMAGE_PATH, buf);
+                try { fs.writeFileSync(MENU1_PATH, buf); } catch {}
+                log('[ SETTINGS ] Custom menu image restored successfully.', 'cyan');
+            } catch (imgErr) {
+                log(`[ SETTINGS ] Could not restore custom menu image: ${imgErr.message}`, 'yellow');
+            }
+        } else {
+            // Neither file nor DB data available — clear the stale flag
+            db.setBotSetting('menuImageCustom', false);
+            db.setBotSetting('menuImageData', null);
+            log('[ SETTINGS ] Custom menu image missing from both disk and database.', 'yellow');
+        }
+    }
 } catch (e) {
     log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
 }
 
 const handler = require('./handler')
+const { saveSession, getSession, clearSession } = require('./database')
 
 const sessionDir = path.join(__dirname, config.sessionName || 'session')
 const credsPath = path.join(sessionDir, 'creds.json')
@@ -122,6 +187,31 @@ if (!fs.existsSync(envPath)) {
     fs.writeFileSync(envPath, defaultEnv, 'utf8')
     log('[ .env ] No .env file found — created with default template.', 'green')
 }
+
+// ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
+// dotenv v17 (dotenvx) mangles long base64 values. We bypass it entirely and
+// read SESSION_ID straight from the file so no truncation or re-encoding occurs.
+function readSessionIDFromEnv() {
+    try {
+        if (!fs.existsSync(envPath)) return ''
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
+            // Everything after the first '=' is the value (preserves '=' inside base64)
+            const value = trimmed.slice('SESSION_ID='.length).trim()
+            return value
+        }
+    } catch (e) {
+        log(`[ .env ] Failed to read SESSION_ID: ${e.message}`, 'red', true)
+    }
+    return ''
+}
+
+// Inject the directly-read value into process.env so the rest of the code
+// (config.js, etc.) that reads process.env.SESSION_ID also gets the right value.
+const _rawSessionID = readSessionIDFromEnv()
+if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
 // ─── Message Backup Store ─────────────────────────────────────────────────────
 
@@ -197,6 +287,7 @@ function clearSessionFiles() {
         if (fs.existsSync(loginFile)) fs.unlinkSync(loginFile)
         deleteErrorCountFile()
         global.errorRetryCount = 0
+        clearSession()
         log('[ SESSION ] files cleared successfully.', 'green')
     } catch (e) {
         log(`Failed to clear session files: ${e.message}`, 'red', true)
@@ -271,26 +362,16 @@ function sessionExists() {
 // ─── Session Format Validator ─────────────────────────────────────────────────
 // Session ID formats: JUNE-MD:~<base64> | Ultra-X:~<base64> | June-Ultra:~<base64>
 
-const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~']
+const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'June::~']
 
 async function checkAndHandleSessionFormat() {
     const sessionId = process.env.SESSION_ID
     if (sessionId && sessionId.trim() !== '') {
         if (!VALID_PREFIXES.some(p => sessionId.trim().startsWith(p))) {
             log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
-            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", or "June-Ultra:~".'), 'white')
-            log(chalk.black.bgYellowBright('Clearing invalid SESSION_ID and restarting...'), 'white')
-            try {
-                if (fs.existsSync(envPath)) {
-                    let envContent = fs.readFileSync(envPath, 'utf8')
-                    envContent = envContent.replace(/^SESSION_ID=.*$/m, 'SESSION_ID=')
-                    fs.writeFileSync(envPath, envContent)
-                    log('✅ Cleared invalid SESSION_ID from .env file.', 'green')
-                }
-            } catch (e) {
-                log(`Failed to modify .env: ${e.message}`, 'red', true)
-            }
-            log('Restarting in 20 seconds...', 'blue')
+            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", "June-Ultra:~", or "June::~".'), 'white')
+            log(chalk.black.bgYellowBright('Please fix your SESSION_ID and restart. Exiting in 20 seconds...'), 'white')
+
             await delay(20000)
             process.exit(1)
         }
@@ -300,33 +381,88 @@ async function checkAndHandleSessionFormat() {
 // ─── Download Session from SESSION_ID ─────────────────────────────────────────
 
 async function downloadSessionData() {
+    await fs.promises.mkdir(sessionDir, { recursive: true })
+    if (!fs.existsSync(credsPath) && global.SESSION_ID) {
+        const sid = global.SESSION_ID
+        let sessionData
+
+        const prefixMap = [
+            'Ultra-X:~',
+            'June-Ultra:~',
+            'JUNE-MD:~',
+            'June::~',
+        ]
+        const matched = prefixMap.find(p => sid.startsWith(p))
+        if (!matched) throw new Error(`Unknown session Format: ${prefixMap.join(', ')}`)
+
+        const b64 = sid.slice(matched.length)
+        sessionData = Buffer.from(b64, 'base64')
+        // Validate that the decoded content is valid JSON before writing
+        JSON.parse(sessionData.toString('utf8'))
+
+        await fs.promises.writeFile(credsPath, sessionData)
+        log('✅ Session saved from SESSION_ID successfully.', 'green')
+    }
+}
+
+// ─── Restore Session from Database ────────────────────────────────────────────
+// If session/creds.json is missing but the DB has a saved copy, write it back
+// to disk so Baileys can pick it up without re-authentication.
+
+async function restoreSessionFromDB() {
+    if (sessionExists()) return false // already on disk, nothing to do
+    const b64 = getSession()
+    if (!b64) return false
     try {
         await fs.promises.mkdir(sessionDir, { recursive: true })
-        if (!fs.existsSync(credsPath) && global.SESSION_ID) {
-            const sid = global.SESSION_ID
-            let sessionData
+        const data = Buffer.from(b64, 'base64')
+        JSON.parse(data.toString('utf8')) // validate
+        await fs.promises.writeFile(credsPath, data)
+        return true
+    } catch (e) {
+        log(`⚠️ DB session restore failed`, 'yellow')
+        clearSession()
+        return false
+    }
+}
 
-            if (sid.startsWith('Ultra-X:~')) {
-                const b64 = sid.split('Ultra-X:~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('June-Ultra:~')) {
-                const b64 = sid.split('June-Ultra:~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
-            } else if (sid.startsWith('June::~')) {
-                const b64 = sid.split('June::~')[1]
-                sessionData = Buffer.from(b64, 'base64')
-                JSON.parse(sessionData.toString('utf8'))
+
+let _lastSessionExport = 0
+const SESSION_EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
+
+async function autoExportSessionToEnv(force = false) {
+    try {
+        const now = Date.now()
+        if (!force && (now - _lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
+        if (!fs.existsSync(credsPath)) return
+
+        const credsJson = fs.readFileSync(credsPath, 'utf8')
+        JSON.parse(credsJson) // validate — throws if corrupt
+        const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
+        const sessionID = `Ultra-X:~${base64}`
+
+        // Skip if nothing has changed
+        if (process.env.SESSION_ID?.trim() === sessionID) {
+            _lastSessionExport = now
+            return
+        }
+
+        if (fs.existsSync(envPath)) {
+            // Suppress the .env watcher so this write doesn't trigger a restart
+            global._suppressEnvWatcher = true
+            let envContent = fs.readFileSync(envPath, 'utf8')
+            if (/^SESSION_ID=/m.test(envContent)) {
+                envContent = envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
             } else {
-                throw new Error('Unknown session format')
+                envContent = envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
             }
+            fs.writeFileSync(envPath, envContent)
+            process.env.SESSION_ID = sessionID
+            _lastSessionExport = now
 
-            await fs.promises.writeFile(credsPath, sessionData)
-            log('✅ Session saved from SESSION_ID successfully.', 'green')
         }
     } catch (e) {
-        log(`Error loading session data: ${e.message}`, 'red', true)
+        log(`⚠️ Auto session export failed: ${e.message}`, 'yellow')
     }
 }
 
@@ -335,12 +471,10 @@ async function downloadSessionData() {
 async function getLoginMethod() {
     const lastMethod = await getLastLoginMethod()
     if (lastMethod && sessionExists()) {
-        log(`Last login method: ${lastMethod}. Using it automatically.`, 'blue')
         return lastMethod
     }
 
     if (!sessionExists() && fs.existsSync(loginFile)) {
-        log('Session missing. Removing stale login preference for clean re-login.', 'blue')
         fs.unlinkSync(loginFile)
     }
 
@@ -437,7 +571,7 @@ async function sendWelcomeMessage(sock) {
 ┃✧ Prefix: [ ${prefix} ]
 ┃✧ Owner: ${ownerName}
 ┃✧ Platform: ${platform}
-┃✧ Status: Online ✅
+┃✧ Status: 🟢 Online 
 ┃✧ Time: ${new Date().toLocaleString()}
 ┃✧ T.Group: t.me/juneOff
 ┃✧ Telegram: t.me/supremlord
@@ -446,7 +580,7 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        log('[ BOT ] Connected and welcome message sent.', 'green')
+        log('Connected', 'red')
         deleteErrorCountFile()
         global.errorRetryCount = 0
     } catch (e) {
@@ -497,6 +631,11 @@ function checkEnvStatus() {
         log('[ WATCHER ] Monitoring .env for changes...', 'green')
         fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (filename && eventType === 'change') {
+                // Suppress restart when we ourselves wrote the session update
+                if (global._suppressEnvWatcher) {
+                    global._suppressEnvWatcher = false
+                    return
+                }
                 log(chalk.black.bgBlueBright('[ENV CHANGED] Restarting to apply new configuration...'), 'white')
                 process.exit(1)
             }
@@ -561,36 +700,6 @@ const isSystemJid = (jid) => !jid ||
     jid.includes('status.broadcast') ||
     jid.includes('@newsletter')
 
-// ─── DevReact ─────────────────────────────────────────────────────────────────
-
-async function devReact(sock, msg) {
-    try {
-        if (!msg?.key || !msg.message) return
-        if (!msg.key.remoteJid?.endsWith('@g.us')) return
-
-        const rawSenderJid = msg.key.participant || msg.key.remoteJid
-        if (!rawSenderJid) return
-
-        const normalizedSender = normalizeJidWithLid(rawSenderJid)
-        const msgSenderNum = normalizedSender
-            ? normalizedSender.split('@')[0].split(':')[0]
-            : rawSenderJid.split('@')[0].split(':')[0]
-
-        const ownerNumbers = Array.isArray(config.ownerNumber)
-            ? config.ownerNumber
-            : [config.ownerNumber || "254792021944"]
-
-        if (!ownerNumbers.includes(msgSenderNum)) return
-
-        const botNum = sock.user?.id?.split(':')[0]
-        if (botNum && botNum === msgSenderNum) return
-
-        sock.sendMessage(msg.key.remoteJid, {
-            react: { text: '🧬', key: msg.key }
-        }).catch(() => {})
-
-    } catch (_) {}
-}
 
 // ─── Start Bot (Main Socket) ──────────────────────────────────────────────────
 
@@ -631,6 +740,7 @@ async function startKnightBot() {
 
     store.bind(sock.ev)
     sock.botStore = store
+    global.currentSock = sock
 
     // ── Connection Updates ──────────────────────────────────────────────────────
     sock.ev.on('connection.update', async (update) => {
@@ -638,11 +748,14 @@ async function startKnightBot() {
 
         if (connection === 'close') {
             global.isBotConnected = false
+            global.botState = 'connecting'
             const statusCode = lastDisconnect?.error?.output?.statusCode
             const loggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401
 
             if (loggedOut) {
                 log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session...`), 'white')
+                global.botState = 'disconnected'
+                global.connectedAt = null
                 clearSessionFiles()
                 log('Session cleared. Returning to login menu in 10 seconds...', 'yellow')
                 for (let i = 10; i > 0; i--) {
@@ -653,7 +766,6 @@ async function startKnightBot() {
                 return main()
             } else {
                 if (global.isReconnecting) {
-                    log(`[RECONNECT] Already reconnecting — skipping duplicate close event.`, 'yellow')
                     return
                 }
                 global.isReconnecting = true
@@ -662,8 +774,21 @@ async function startKnightBot() {
 
                 let waitMs
                 if (is408) {
+                    // 408 timeout — exponential backoff capped at 60s
                     waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
+                } else if (statusCode === 503) {
+                    // 503 Service Unavailable — WhatsApp servers overloaded.
+                    // Use a long fixed delay to avoid hammering and getting rate-limited.
+                    global.errorRetryCount++
+                    waitMs = Math.min(30000 * global.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
+                    log(chalk.black.bgYellowBright(`[503] WhatsApp servers unavailable. Retry ${global.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
+                } else if (statusCode === 500) {
+                    // 500 bad session — clear and restart fresh
+                    log(chalk.white.bgRedBright(`[500] Bad session detected. Clearing session files...`), 'white')
+                    clearSessionFiles()
+                    waitMs = 5000
                 } else if (statusCode === 440) {
+                    // 440 connection replaced (another device logged in)
                     waitMs = 20000
                 } else {
                     waitMs = 5000
@@ -677,9 +802,13 @@ async function startKnightBot() {
         } else if (connection === 'open') {
             global.isReconnecting = false
             global.errorRetryCount = 0
+            global.botState = 'connected'
+            global.connectedAt = Date.now()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
-            log(`💅 Connected as: +${botNum}`, 'yellow')
-            log('JUNE ULTRA CONNECTED ✅', 'green')
+            log(`🌿 Connected as: +${botNum}`, 'yellow')
+            log('Connecting...', 'green')
+            // Auto-export the session to .env so restarts never need re-login
+            autoExportSessionToEnv(true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
             if (!global.welcomeSent) {
@@ -688,44 +817,43 @@ async function startKnightBot() {
             }
             handler.initializeAntiCall(sock)
 
-            // ── Auto-follow newsletters & auto-join groups ──────────────────
-            const newsletters = ["120363405182019728@newsletter", ""];
+            // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
+            const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             global.newsletters = newsletters;
-            for (let i = 0; i < newsletters.length; i++) {
-                if (!newsletters[i]) continue;
-                try {
-                    await sock.newsletterFollow(newsletters[i]);
-                    log(`✅ Auto-followed newsletter successfully`, 'blue');
-                } catch (e) {
-                    if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
-                        log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
-                    }
-                }
-            }
-
-            const groupInvites = ["F5QhIclNZ70IUpm9bnscm1", "HBFnfdfE501GRBbQPjXOGM"];
+            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
             global.groupInvites = groupInvites;
-            for (let i = 0; i < groupInvites.length; i++) {
-                if (!groupInvites[i]) continue;
-                try {
-                    await sock.groupAcceptInvite(groupInvites[i]);
-                    log(`✅ Auto-joined group successfully`, 'green');
-                } catch (e) {
-                    if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
-                        log(`🚫 Group join failed: ${e.message}`, 'red');
-                    }
-                }
-            }
+
+            // Run in background so they don't delay the bot becoming ready
+            setImmediate(async () => {
+                await Promise.allSettled(
+                    newsletters.filter(Boolean).map(n =>
+                        sock.newsletterFollow(n)
+                            .then(() => log(`✅ Auto-followed newsletter`, 'blue'))
+                            .catch(e => {
+                                if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
+                                    log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
+                                }
+                            })
+                    )
+                );
+                await Promise.allSettled(
+                    groupInvites.filter(Boolean).map(inv =>
+                        sock.groupAcceptInvite(inv)
+                            .then(() => log(`✅ Auto-joined group`, 'green'))
+                            .catch(e => {
+                                if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
+                                    log(`🚫 Group join failed: ${e.message}`, 'red');
+                                }
+                            })
+                    )
+                );
+            });
 
             // Apply saved read receipts privacy setting
             try {
-                const rrCfgPath = path.join(__dirname, 'data', 'autoreadreceipts.json')
-                if (fs.existsSync(rrCfgPath)) {
-                    const rrCfg = JSON.parse(fs.readFileSync(rrCfgPath, 'utf8'))
-                    const setting = rrCfg.readReceipts || 'all'
-                    await sock.updateReadReceiptsPrivacy(setting)
-                    log(`👁️ Read receipts privacy applied: ${setting}`, 'cyan')
-                }
+                const db = require('./database')
+                const setting = db.getBotSetting('readReceipts') || 'all'
+                await sock.updateReadReceiptsPrivacy(setting)
             } catch (_) {}
 
             // Apply always-online heartbeat if enabled
@@ -734,7 +862,6 @@ async function startKnightBot() {
                 const aolSettings = aolMod.loadSettings()
                 if (aolSettings.enabled) {
                     aolMod.startHeartbeat(sock)
-                    log('🟢 Always Online heartbeat started', 'cyan')
                 }
             } catch (_) {}
         }
@@ -791,6 +918,12 @@ async function startKnightBot() {
                 global.statusStore.set(normPart, existing)
             }
 
+            // Store status for antideletestatus (recover deleted statuses)
+            try {
+                const antideletestatus = require('./commands/owner/antideletestatus')
+                if (antideletestatus?.storeStatusMessage) antideletestatus.storeStatusMessage(msg)
+            } catch (_) {}
+
             try {
                 const s = asvMod.loadSettings()
 
@@ -802,7 +935,6 @@ async function startKnightBot() {
                     try {
                         await sock.readMessages([msg.key])
                     } catch (_) {}
-                    log(`[ STATUS VIEW ] ✅ ${normPart}`, 'cyan')
                 }
 
                 // Auto React
@@ -895,9 +1027,6 @@ async function startKnightBot() {
             }
             // ───────────────────────────────────────────────────────────────────
 
-            // DevReact: auto-react with shield to dev owner messages
-            devReact(sock, msg).catch(() => {})
-
             // Auto-save status: triggered when someone replies to a status
             setImmediate(() => {
                 try {
@@ -913,23 +1042,18 @@ async function startKnightBot() {
                 }
             })
 
-            // Background: auto-read and anti-link
-            setImmediate(async () => {
-                if (config.autoRead && from.endsWith('@g.us')) {
-                    try { await sock.readMessages([msg.key]) } catch (e) {}
-                }
-                if (from.endsWith('@g.us')) {
-                    try {
-                        const meta = await handler.getGroupMetadata(sock, from)
-                        if (meta) await handler.handleAntilink(sock, msg, meta)
-                    } catch (e) {}
-                }
-            })
+            // Note: antilink is handled inside handler.handleMessage via Promise.allSettled
         }
     })
 
     // ── Credentials + Group Events ─────────────────────────────────────────────
-    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('creds.update', async () => {
+        await saveCreds()
+        // Persist to database so session survives restarts without re-login
+        saveSession(credsPath)
+        // Periodically refresh SESSION_ID in .env as a secondary backup
+        autoExportSessionToEnv(false).catch(() => {})
+    })
 
     // ── Presence Tracker ───────────────────────────────────────────────────────
     if (!global.presenceStore) global.presenceStore = {}
@@ -1004,6 +1128,12 @@ async function startKnightBot() {
 
 async function main() {
 
+    // 0. Re-read SESSION_ID directly from .env every time main() runs so that
+    //    recursive calls (after logout) always see the latest value, and dotenvx
+    //    quirks (which mangle long base64 values) are bypassed entirely.
+    const _freshSessionID = readSessionIDFromEnv()
+    if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
+
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
 
@@ -1013,6 +1143,7 @@ async function main() {
 
     // 3. PRIORITY MODE: SESSION_ID from .env always wins
     const envSessionID = process.env.SESSION_ID?.trim()
+    log(`[ SESSION_ID ] Detected: ${envSessionID ? envSessionID.slice(0, 20) + '...' : '(none)'}`, 'cyan')
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
         log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
@@ -1024,6 +1155,11 @@ async function main() {
             await fs.promises.mkdir(sessionDir, { recursive: true })
             try {
                 await downloadSessionData()
+                // Verify the file was actually written — downloadSessionData can
+                // return without writing if something went silently wrong.
+                if (!sessionExists()) {
+                    throw new Error('creds.json was not written after download — SESSION_ID may be corrupt or expired')
+                }
                 log('[ SESSION_ID ] ✅ Session downloaded successfully.', 'green')
             } catch (e) {
                 log(`[ SESSION_ID ] ❌ Failed to download session: ${e.message}`, 'red', true)
@@ -1031,8 +1167,6 @@ async function main() {
                 await delay(5000)
                 return main()
             }
-        } else {
-            log('[ SESSION_ID ] ✅ Existing session found — skipping re-download.', 'green')
         }
 
         await saveLoginMethod('session')
@@ -1042,59 +1176,234 @@ async function main() {
         return
     }
 
-    log('[ALERT] No SESSION_ID in .env. Checking stored session...', 'blue')
+    log('[ALERT] No SESSION_ID in .env..', 'blue')
 
     // 4. Integrity check on stored session
     await checkSessionIntegrityAndClean()
 
     // 5. Use existing stored session if valid
     if (sessionExists()) {
-        log('[ALERT] Valid stored session found. Starting bot...', 'green')
+        log('[ALERT] Valid stored session found.', 'green')
         await startKnightBot()
         checkEnvStatus()
         return
     }
 
-    // 6. Interactive login (TTY) or exit
-    const loginMethod = await getLoginMethod()
-    let sock
-
-    if (loginMethod === 'session') {
-        await downloadSessionData()
-        sock = await startKnightBot()
-    } else if (loginMethod === 'number') {
-        sock = await startKnightBot()
-        await requestPairingCode(sock)
-    } else {
-        log('[ALERT] Could not determine login method.', 'red')
+    // 5b. Restore from database if session folder was lost
+    const restoredFromDB = await restoreSessionFromDB()
+    if (restoredFromDB) {
+        await saveLoginMethod('session')
+        await startKnightBot()
+        checkEnvStatus()
         return
     }
 
-    // 7. Clean up if pairing code flow failed before creds were saved
-    if (loginMethod === 'number' && !sessionExists() && fs.existsSync(sessionDir)) {
-        log('[ALERT] Pairing code login failed. Cleaning up and restarting...', 'red')
-        clearSessionFiles()
-        process.exit(1)
-    }
-
-    checkEnvStatus()
+    // 6. No SESSION_ID and no stored session — tell the user what to do and exit.
+    log(chalk.black.bgRedBright('[ ERROR ] No SESSION_ID found and no stored session available.'), 'white')
+    log(chalk.yellowBright('👉 Add your SESSION_ID to the .env file:'), 'white')
+    log(chalk.greenBright('   SESSION_ID=Ultra-X:~<your_base64_here>'), 'white')
+    log(chalk.yellowBright('   Then restart the bot.'), 'white')
+    process.exit(1)
 }
 
 // ─── Keep-Alive HTTP Server ────────────────────────────────────────────────────
 
 function startKeepAliveServer() {
-    const express = require('express');
-    const http    = require('http');
-    const app     = express();
+    const express   = require('express');
+    const http      = require('http');
+    const app       = express();
+    const START_TIME = Date.now();
 
+    // Read-only status dashboard — server-rendered, no client JS/fetch, no
+    // pairing/session-ID UI or endpoints. Auto-refreshes via <meta refresh>
+    // so it renders identically on every platform/browser.
     app.get('/', (req, res) => {
-        res.status(200).json({
-            status:  'online',
-            bot:     config.botName || 'June-Ultra',
-            uptime:  Math.floor(process.uptime()) + 's',
-            version: config.version || '2.8.1'
-        });
+        const uptimeMs = Date.now() - START_TIME;
+        const totalSeconds = Math.floor(uptimeMs / 1000);
+        const days = Math.floor(totalSeconds / 86400);
+        const hours = Math.floor((totalSeconds % 86400) / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        const uptimeStr = days > 0
+            ? `${days}d ${hours}h ${minutes}m ${seconds}s`
+            : `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        const platform = detectPlatform();
+        const connected = global.botState === 'connected';
+        const botNum = global.currentSock?.user?.id?.split(':')[0];
+        const statusLabel = connected ? 'OPERATIONAL • ACTIVE' : (global.botState === 'connecting' ? 'CONNECTING' : 'OFFLINE');
+        const statusColor = connected ? '#00ffe0' : (global.botState === 'connecting' ? '#ffb703' : '#e94560');
+
+        res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="refresh" content="10">
+  <title>June-X Ultra — Dashboard</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: radial-gradient(circle at 20% 30%, #0a0f1e, #03060c);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      color: #e2f0ff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      position: relative;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background-image: radial-gradient(2px 2px at 20px 30px, #00ffe0, rgba(0,0,0,0)), radial-gradient(1px 1px at 80px 140px, #ff6b35, rgba(0,0,0,0)), radial-gradient(3px 3px at 260px 80px, #00aaff, rgba(0,0,0,0));
+      background-size: 200px 200px, 180px 180px, 220px 220px;
+      background-repeat: no-repeat;
+      opacity: 0.3;
+      pointer-events: none;
+      animation: drift 60s linear infinite;
+    }
+    @keyframes drift {
+      0% { background-position: 0 0, 0 0, 0 0; }
+      100% { background-position: 400px 400px, 300px 300px, 500px 500px; }
+    }
+    .wrapper { max-width: 500px; width: 100%; z-index: 2; position: relative; }
+    .header { text-align: center; margin-bottom: 2.5rem; }
+    .bot-name {
+      font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #00ffe0, #ff6b35);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      text-shadow: 0 0 20px rgba(0,255,224,0.3);
+      letter-spacing: -0.02em;
+      display: inline-block;
+      animation: glitch 3s infinite;
+    }
+    @keyframes glitch {
+      0%, 100% { transform: skew(0deg, 0deg); opacity: 1; }
+      95% { transform: skew(0deg, 0deg); opacity: 1; }
+      96% { transform: skew(2deg, 1deg); opacity: 0.8; text-shadow: -2px 0 #ff6b35, 2px 0 #00ffe0; }
+      97% { transform: skew(-1deg, -0.5deg); opacity: 0.9; }
+    }
+    .tagline { font-size: 0.8rem; letter-spacing: 4px; text-transform: uppercase; color: #7f9eb5; margin-top: 0.5rem; }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: rgba(0,255,224,0.1);
+      border-radius: 60px;
+      padding: 0.4rem 1.5rem;
+      margin-top: 1.2rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 1px;
+      backdrop-filter: blur(4px);
+    }
+    .dot {
+      width: 10px; height: 10px;
+      background: ${statusColor};
+      border-radius: 50%;
+      box-shadow: 0 0 8px ${statusColor};
+      animation: pulse 1.4s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    .dashboard-grid { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; margin-bottom: 2rem; }
+    .card {
+      width: 100%; max-width: 400px;
+      background: rgba(10, 20, 28, 0.65);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(0, 255, 224, 0.2);
+      border-radius: 0;
+      padding: 1.5rem;
+      transition: transform 0.2s ease, border-color 0.2s;
+      box-shadow: 0 0 15px rgba(0, 255, 224, 0.2), 0 8px 20px rgba(0,0,0,0.2);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .card::before, .card::after {
+      content: '';
+      position: absolute;
+      width: 50px; height: 50px;
+      pointer-events: none;
+      transition: 0.3s;
+    }
+    .card::before { top: 0; left: 0; border-top: 2px solid #00ffe0; border-left: 2px solid #00ffe0; border-radius: 0 0 20px 0; box-shadow: -2px -2px 12px rgba(0,255,224,0.5); }
+    .card::after  { bottom: 0; right: 0; border-bottom: 2px solid #ff6b35; border-right: 2px solid #ff6b35; border-radius: 20px 0 0 0; box-shadow: 2px 2px 12px rgba(255,107,53,0.5); }
+    .card:hover::before { border-top-color: #ff6b35; border-left-color: #ff6b35; box-shadow: -2px -2px 18px #ff6b35; }
+    .card:hover::after  { border-bottom-color: #00ffe0; border-right-color: #00ffe0; box-shadow: 2px 2px 18px #00ffe0; }
+    .card:hover { transform: translateY(-4px); border-color: rgba(0, 255, 224, 0.6); box-shadow: 0 0 25px rgba(0,255,224,0.3), 0 15px 30px rgba(0,0,0,0.3); }
+    .card-title { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; color: #6c8ea0; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+    .card-value { font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', 'Courier New', monospace; font-size: 1.6rem; font-weight: 600; color: #00ffe0; text-shadow: 0 0 6px rgba(0,255,224,0.3); line-height: 1.2; word-break: break-word; }
+    .card-value.small { font-size: 1.2rem; }
+    .card-sub { font-size: 0.65rem; color: #8aaec0; margin-top: 0.6rem; border-top: 1px dashed rgba(0,255,224,0.2); padding-top: 0.6rem; }
+    .footer { text-align: center; margin-top: 2rem; font-size: 0.7rem; color: #5a7c8c; letter-spacing: 1px; text-transform: uppercase; }
+    .footer strong { color: #00ffe0; }
+    .refresh-note { text-align: center; font-size: 0.65rem; margin-top: 1rem; opacity: 0.6; }
+    @media (max-width: 480px) {
+      body { padding: 1rem; }
+      .bot-name { font-size: 1.8rem; }
+      .card-value { font-size: 1.3rem; }
+      .card-value.small { font-size: 1rem; }
+      .card { max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+  <div class="header">
+    <div class="bot-name">June-X Ultra</div>
+    <div class="tagline">Autonomous Bot Matrix</div>
+    <div class="status-badge">
+      <span class="dot"></span> ${statusLabel}
+    </div>
+  </div>
+  <div class="dashboard-grid">
+    <div class="card">
+      <div class="card-title">🖥️ PLATFORM</div>
+      <div class="card-value small">${platform}</div>
+      <div class="card-sub">deployment environment</div>
+    </div>
+    <div class="card">
+      <div class="card-title">⏱ UPTIME</div>
+      <div class="card-value">${uptimeStr}</div>
+      <div class="card-sub">continuous runtime</div>
+    </div>
+    <div class="card">
+      <div class="card-title">📅 DATE</div>
+      <div class="card-value small">${dateStr}</div>
+      <div class="card-sub">local server date</div>
+    </div>
+    <div class="card">
+      <div class="card-title">📶 CONNECTION</div>
+      <div class="card-value small">${connected ? `+${botNum}` : statusLabel}</div>
+      <div class="card-sub">whatsapp session</div>
+    </div>
+  </div>
+  <div class="footer">
+    ⚡ Powered by <strong>supreme</strong> &nbsp;|&nbsp; June-X Ultra
+  </div>
+  <div class="refresh-note">⟳ dashboard auto-refreshes every 10 seconds</div>
+</div>
+</body>
+</html>`);
     });
+
     app.get('/health', (req, res) => res.status(200).send('OK'));
 
     const server = http.createServer(app);
