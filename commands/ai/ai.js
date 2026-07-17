@@ -89,16 +89,16 @@ async function ravennBinary(url, params = {}) {
 /**
  * Upload an image buffer to catbox.moe and return its public URL.
  */
-async function uploadToCatbox(buffer) {
+async function uploadToCatbox(buffer, filename = 'image.jpg', contentType = 'image/jpeg') {
     const form = new FormData();
     form.append('reqtype', 'fileupload');
     form.append('userhash', '');
-    form.append('fileToUpload', buffer, { filename: 'image.jpg', contentType: 'image/jpeg' });
+    form.append('fileToUpload', buffer, { filename, contentType });
     const { data } = await axios.post('https://catbox.moe/user.php', form, {
         headers: form.getHeaders(),
         timeout: 30000,
     });
-    if (!data || !data.startsWith('https://')) throw new Error('Failed to upload image to catbox');
+    if (!data || !data.startsWith('https://')) throw new Error('Failed to upload file to catbox');
     return data.trim();
 }
 
@@ -126,6 +126,35 @@ async function resolveImageUrl(sock, msg, args) {
     });
     if (!buffer || !buffer.length) throw new Error('Could not download image from the replied message');
     const url = await uploadToCatbox(buffer);
+    return { url, remainingArgs: args };
+}
+
+/**
+ * Resolve an audio URL from:
+ *   1. args[0] if it starts with http
+ *   2. Quoted audio/voice-note message (downloads + uploads to catbox)
+ * Returns { url, remainingArgs } where remainingArgs strips the URL arg if used.
+ */
+async function resolveAudioUrl(sock, msg, args) {
+    if (args[0] && /^https?:\/\//i.test(args[0])) {
+        return { url: args[0], remainingArgs: args.slice(1) };
+    }
+    const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    const quotedMsg = ctx?.quotedMessage;
+    const audioMsg = quotedMsg?.audioMessage;
+    if (!audioMsg) return { url: null, remainingArgs: args };
+    const target = {
+        key: { remoteJid: msg.key.remoteJid, id: ctx.stanzaId, participant: ctx.participant },
+        message: quotedMsg,
+    };
+    const buffer = await downloadMediaMessage(target, 'buffer', {}, {
+        logger: undefined,
+        reuploadRequest: sock.updateMediaMessage,
+    });
+    if (!buffer || !buffer.length) throw new Error('Could not download audio from the replied message');
+    const mimetype = audioMsg.mimetype || 'audio/ogg';
+    const ext = mimetype.includes('mpeg') ? 'mp3' : mimetype.includes('mp4') ? 'm4a' : 'ogg';
+    const url = await uploadToCatbox(buffer, `audio.${ext}`, mimetype);
     return { url, remainingArgs: args };
 }
 
@@ -885,18 +914,24 @@ module.exports = [
 
     {
         name: 'whisper',
-        aliases: ['speech2text', 'aistranscribe'],
+        aliases: ['speech2text', 'aistranscribe', 'transcribe'],
         category: 'ai',
-        description: 'Transcribe audio from a URL using AI',
-        usage: '.whisper <audio url>',
+        description: 'Transcribe audio using AI. Reply to a voice note/audio or provide a URL.',
+        usage: '.whisper (reply to audio) | .whisper <audio url>',
         apiUrl: 'https://apiskeith2-production-ec66.up.railway.app/ai/transcribe',
         async execute(sock, msg, args, extra) {
-            const url = args[0]?.trim();
-            if (!url || !url.startsWith('http')) {
-                return extra.reply('❌ Please provide an audio URL\n\nExample: .whisper https://example.com/audio.mp3');
-            }
             await react(sock, msg, '🎙️');
             try {
+                const { url } = await resolveAudioUrl(sock, msg, args);
+                if (!url) {
+                    return extra.reply(
+                        `🎙️ *AI Transcribe*\n\n` +
+                        `Reply to a voice note or audio file:\n` +
+                        `_Reply to audio + .whisper_\n\n` +
+                        `Or provide a URL:\n` +
+                        `_.whisper https://example.com/audio.mp3_`
+                    );
+                }
                 const result = await ravenn(this.apiUrl, { q: url });
                 const text = typeof result === 'string' ? result
                     : (result?.text || result?.transcript || cleanResult(result));
