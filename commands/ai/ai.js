@@ -87,25 +87,30 @@ async function ravennBinary(url, params = {}) {
 }
 
 /**
- * Upload an image buffer to catbox.moe and return its public URL.
+ * Upload a file buffer to uguu.se and return its public URL.
+ * Uguu accepts multipart uploads under the `files[]` field and returns a
+ * JSON response — normally { success, files: [{ url, ... }] }, but some
+ * deployments respond with a bare array, so both shapes are handled.
  */
-async function uploadToCatbox(buffer, filename = 'image.jpg', contentType = 'image/jpeg') {
+async function uploadToUguu(buffer, filename = 'image.jpg', contentType = 'image/jpeg') {
     const form = new FormData();
-    form.append('reqtype', 'fileupload');
-    form.append('userhash', '');
-    form.append('fileToUpload', buffer, { filename, contentType });
-    const { data } = await axios.post('https://catbox.moe/user.php', form, {
+    form.append('files[]', buffer, { filename, contentType });
+    const { data } = await axios.post('https://uguu.se/upload', form, {
         headers: form.getHeaders(),
         timeout: 30000,
     });
-    if (!data || !data.startsWith('https://')) throw new Error('Failed to upload file to catbox');
-    return data.trim();
+    const fileEntry = Array.isArray(data) ? data[0]
+        : Array.isArray(data?.files) ? data.files[0]
+        : null;
+    const url = fileEntry?.url;
+    if (!url) throw new Error('Failed to upload file to Uguu');
+    return url;
 }
 
 /**
  * Resolve an image URL from:
  *   1. args[0] if it starts with http
- *   2. Quoted image message (downloads + uploads to catbox)
+ *   2. Quoted image message (downloads + uploads to Uguu)
  * Returns { url, remainingArgs } where remainingArgs strips the URL arg if used.
  */
 async function resolveImageUrl(sock, msg, args) {
@@ -125,14 +130,14 @@ async function resolveImageUrl(sock, msg, args) {
         reuploadRequest: sock.updateMediaMessage,
     });
     if (!buffer || !buffer.length) throw new Error('Could not download image from the replied message');
-    const url = await uploadToCatbox(buffer);
+    const url = await uploadToUguu(buffer);
     return { url, remainingArgs: args };
 }
 
 /**
  * Resolve an audio URL from:
  *   1. args[0] if it starts with http
- *   2. Quoted audio/voice-note message (downloads + uploads to catbox)
+ *   2. Quoted audio/voice-note message (downloads + uploads to Uguu)
  * Returns { url, remainingArgs } where remainingArgs strips the URL arg if used.
  */
 async function resolveAudioUrl(sock, msg, args) {
@@ -154,7 +159,7 @@ async function resolveAudioUrl(sock, msg, args) {
     if (!buffer || !buffer.length) throw new Error('Could not download audio from the replied message');
     const mimetype = audioMsg.mimetype || 'audio/ogg';
     const ext = mimetype.includes('mpeg') ? 'mp3' : mimetype.includes('mp4') ? 'm4a' : 'ogg';
-    const url = await uploadToCatbox(buffer, `audio.${ext}`, mimetype);
+    const url = await uploadToUguu(buffer, `audio.${ext}`, mimetype);
     return { url, remainingArgs: args };
 }
 
