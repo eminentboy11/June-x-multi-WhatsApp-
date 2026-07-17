@@ -178,7 +178,9 @@ const envPath = path.join(process.cwd(), '.env')
 if (!fs.existsSync(envPath)) {
     const defaultEnv = [
         '# June Ultra — Environment Variables',
-        '# Paste your session ID here after first login using .getsession',
+        '# SESSION_ID is used ONLY for priority (first-time) login.',
+        '# After login, session data is saved to the database automatically.',
+        '# You do not need to update this value on restarts.',
         'SESSION_ID=',
         '',
         '# Optional: override bot port (default 5000)',
@@ -431,50 +433,6 @@ async function restoreSessionFromDB() {
     }
 }
 
-// ─── Auto-Export Session to .env ──────────────────────────────────────────────
-// After a fresh QR/pairing login (or periodically), encode the live creds.json
-// and write it back to SESSION_ID in .env so the bot can restore itself on
-// restart even if the session/ folder is lost.
-
-let _lastSessionExport = 0
-const SESSION_EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
-
-async function autoExportSessionToEnv(force = false) {
-    try {
-        const now = Date.now()
-        if (!force && (now - _lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
-        if (!fs.existsSync(credsPath)) return
-
-        const credsJson = fs.readFileSync(credsPath, 'utf8')
-        JSON.parse(credsJson) // validate — throws if corrupt
-        const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
-        const sessionID = `Ultra-X:~${base64}`
-
-        // Skip if nothing has changed
-        if (process.env.SESSION_ID?.trim() === sessionID) {
-            _lastSessionExport = now
-            return
-        }
-
-        if (fs.existsSync(envPath)) {
-            // Suppress the .env watcher so this write doesn't trigger a restart
-            global._suppressEnvWatcher = true
-            let envContent = fs.readFileSync(envPath, 'utf8')
-            if (/^SESSION_ID=/m.test(envContent)) {
-                envContent = envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
-            } else {
-                envContent = envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
-            }
-            fs.writeFileSync(envPath, envContent)
-            process.env.SESSION_ID = sessionID
-            _lastSessionExport = now
-
-        }
-    } catch (e) {
-        log(`⚠️ Auto session export failed: ${e.message}`, 'yellow')
-    }
-}
-
 // ─── Login Method Selector ────────────────────────────────────────────────────
 
 async function getLoginMethod() {
@@ -640,11 +598,6 @@ function checkEnvStatus() {
         log('[ WATCHER ] Monitoring .env for changes...', 'green')
         fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (filename && eventType === 'change') {
-                // Suppress restart when we ourselves wrote the session update
-                if (global._suppressEnvWatcher) {
-                    global._suppressEnvWatcher = false
-                    return
-                }
                 log(chalk.black.bgBlueBright('[ENV CHANGED] Restarting to apply new configuration...'), 'white')
                 process.exit(1)
             }
@@ -816,8 +769,6 @@ async function startKnightBot() {
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`🌿 Connected as: +${botNum}`, 'yellow')
             log('Connecting...', 'green')
-            // Auto-export the session to .env so restarts never need re-login
-            autoExportSessionToEnv(true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
             if (!global.welcomeSent) {
@@ -1060,8 +1011,6 @@ async function startKnightBot() {
         await saveCreds()
         // Persist to database so session survives restarts without re-login
         saveSession(credsPath)
-        // Periodically refresh SESSION_ID in .env as a secondary backup
-        autoExportSessionToEnv(false).catch(() => {})
     })
 
     // ── Presence Tracker ───────────────────────────────────────────────────────
