@@ -14,7 +14,7 @@ const path       = require('path');
 const crypto     = require('crypto');
 const { spawn }  = require('child_process');
 const webp       = require('node-webpmux');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpegPath = require('../../utils/ffmpegPath');
 const config     = require('../../config');
 const { getTempDir, deleteTempFile } = require('../../utils/tempManager');
 
