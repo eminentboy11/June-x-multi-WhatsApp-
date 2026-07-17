@@ -188,6 +188,31 @@ if (!fs.existsSync(envPath)) {
     log('[ .env ] No .env file found — created with default template.', 'green')
 }
 
+// ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
+// dotenv v17 (dotenvx) mangles long base64 values. We bypass it entirely and
+// read SESSION_ID straight from the file so no truncation or re-encoding occurs.
+function readSessionIDFromEnv() {
+    try {
+        if (!fs.existsSync(envPath)) return ''
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
+            // Everything after the first '=' is the value (preserves '=' inside base64)
+            const value = trimmed.slice('SESSION_ID='.length).trim()
+            return value
+        }
+    } catch (e) {
+        log(`[ .env ] Failed to read SESSION_ID: ${e.message}`, 'red', true)
+    }
+    return ''
+}
+
+// Inject the directly-read value into process.env so the rest of the code
+// (config.js, etc.) that reads process.env.SESSION_ID also gets the right value.
+const _rawSessionID = readSessionIDFromEnv()
+if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
+
 // ─── Message Backup Store ─────────────────────────────────────────────────────
 
 const MESSAGE_STORE_FILE = path.join(__dirname, 'message_backup.json')
@@ -1112,9 +1137,11 @@ async function startKnightBot() {
 
 async function main() {
 
-    // 0. Re-read .env every time main() runs (including recursive calls after
-    //    logout) so the latest SESSION_ID is always picked up.
-    require('dotenv').config({ override: true, path: envPath })
+    // 0. Re-read SESSION_ID directly from .env every time main() runs so that
+    //    recursive calls (after logout) always see the latest value, and dotenvx
+    //    quirks (which mangle long base64 values) are bypassed entirely.
+    const _freshSessionID = readSessionIDFromEnv()
+    if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
 
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
