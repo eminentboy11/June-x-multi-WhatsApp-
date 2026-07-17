@@ -5,10 +5,8 @@
  */
 
 // --- Environment Setup ---
-// No override: Replit Secrets (injected into process.env before the process
-// starts) take priority over .env. If SESSION_ID is set as a Replit Secret,
-// dotenv will not overwrite it. The .env file is still used as a fallback
-// for local / non-secret values.
+// No override: Replit Secrets / Pterodactyl panel env vars take priority over
+// the .env file. dotenv only fills in keys that are not already set.
 require('dotenv').config();
 
 /*************************************
@@ -17,7 +15,8 @@ require('dotenv').config();
 const originalWrite = process.stdout.write;
 process.stdout.write = function (chunk, encoding, callback) {
     const message = chunk.toString();
-    if (message.includes('Closing session: SessionEntry') || message.includes('SessionEntry {')) {
+    if (message.includes('Closing session: SessionEntry') || message.includes('SessionEntry {') ||
+        message.includes('Failed to decrypt') || message.includes('Bad MAC')) {
         return;
     }
     return originalWrite.apply(this, arguments);
@@ -26,7 +25,8 @@ process.stdout.write = function (chunk, encoding, callback) {
 const originalWriteError = process.stderr.write;
 process.stderr.write = function (chunk, encoding, callback) {
     const message = chunk.toString();
-    if (message.includes('Closing session: SessionEntry')) {
+    if (message.includes('Closing session: SessionEntry') ||
+        message.includes('Failed to decrypt') || message.includes('Bad MAC')) {
         return;
     }
     return originalWriteError.apply(this, arguments);
@@ -34,7 +34,11 @@ process.stderr.write = function (chunk, encoding, callback) {
 
 const originalLog = console.log;
 console.log = function (message, ...optionalParams) {
-    if (typeof message === 'string' && message.startsWith('Closing session: SessionEntry')) {
+    if (typeof message === 'string' && (
+        message.startsWith('Closing session: SessionEntry') ||
+        message.includes('Failed to decrypt') ||
+        message.includes('Bad MAC')
+    )) {
         return;
     }
     originalLog.apply(console, [message, ...optionalParams]);
@@ -161,20 +165,46 @@ try {
             // Neither file nor DB data available — clear the stale flag
             db.setBotSetting('menuImageCustom', false);
             db.setBotSetting('menuImageData', null);
-            log('[ SETTINGS ] Custom menu image missing from both disk and database.', 'yellow');
+            log('[ SETTINGS ] Custom menu image missing from both disk and database; reset flag.', 'yellow');
         }
     }
+    log('[ SETTINGS ] Runtime settings loaded and applied from database.', 'cyan');
 } catch (e) {
     log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
 }
 
 const handler = require('./handler')
-const { saveSession, getSession, clearSession } = require('./database')
 
 const sessionDir = path.join(__dirname, config.sessionName || 'session')
 const credsPath = path.join(sessionDir, 'creds.json')
 const loginFile = path.join(__dirname, 'login.json')
 const envPath = path.join(process.cwd(), '.env')
+
+// ─── SESSION_ID source detection ─────────────────────────────────────────────
+// Track whether SESSION_ID came from the .env file itself or from a platform
+// environment variable (Pterodactyl panel, Replit Secret, Heroku config var…).
+// This is used later to decide whether writing back to .env makes sense.
+function readSessionIDFromFile() {
+    try {
+        if (!fs.existsSync(envPath)) return ''
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
+            return trimmed.slice('SESSION_ID='.length).trim()
+        }
+    } catch (_) {}
+    return ''
+}
+
+const _rawSessionIDFromFile = readSessionIDFromFile()
+if (_rawSessionIDFromFile) process.env.SESSION_ID = _rawSessionIDFromFile
+
+global._sessionIDSource = _rawSessionIDFromFile
+    ? 'env-file'
+    : (process.env.SESSION_ID?.trim() ? 'platform' : 'none')
+
+log(`[ SESSION_ID ] Source: ${global._sessionIDSource}`, 'cyan')
 
 // ─── Auto-generate .env if missing ────────────────────────────────────────────
 if (!fs.existsSync(envPath)) {
@@ -182,52 +212,8 @@ if (!fs.existsSync(envPath)) {
         '# June Ultra — Environment Variables',
         '# Paste your session ID here after first login using .getsession',
         'SESSION_ID=',
-        '',
-        '# Optional: override bot port (default 5000)',
-        '# PORT=5000',
     ].join('\n')
     fs.writeFileSync(envPath, defaultEnv, 'utf8')
-    log('[ .env ] No .env file found — created with default template.', 'green')
-}
-
-// ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
-// dotenv v17 (dotenvx) mangles long base64 values. We bypass it entirely and
-// read SESSION_ID straight from the file so no truncation or re-encoding occurs.
-function readSessionIDFromEnv() {
-    try {
-        if (!fs.existsSync(envPath)) return ''
-        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
-        for (const line of lines) {
-            const trimmed = line.trim()
-            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
-            // Everything after the first '=' is the value (preserves '=' inside base64)
-            const value = trimmed.slice('SESSION_ID='.length).trim()
-            return value
-        }
-    } catch (e) {
-        log(`[ .env ] Failed to read SESSION_ID: ${e.message}`, 'red', true)
-    }
-    return ''
-}
-
-// Inject the directly-read value into process.env so the rest of the code
-// (config.js, etc.) that reads process.env.SESSION_ID also gets the right value.
-// Also track WHERE the session ID came from so autoExportSessionToEnv knows
-// whether writing back to .env will actually persist (it won't on platforms
-// like Pterodactyl or Replit Secrets where the value comes from the panel/env
-// and .env is reset on every container restart).
-const _rawSessionID = readSessionIDFromEnv()
-if (_rawSessionID) {
-    process.env.SESSION_ID = _rawSessionID
-    // SESSION_ID came from the .env file — writing back will persist
-    global._sessionIDSource = 'env-file'
-} else if (process.env.SESSION_ID?.trim()) {
-    // SESSION_ID was injected by the platform (Pterodactyl panel, Replit Secret,
-    // Heroku config var, Railway env, etc.) — .env is ephemeral on these hosts,
-    // so writing back to it is pointless and can cause stale-ID mismatches.
-    global._sessionIDSource = 'platform'
-} else {
-    global._sessionIDSource = 'none'
 }
 
 // ─── Message Backup Store ─────────────────────────────────────────────────────
@@ -304,7 +290,16 @@ function clearSessionFiles() {
         if (fs.existsSync(loginFile)) fs.unlinkSync(loginFile)
         deleteErrorCountFile()
         global.errorRetryCount = 0
-        clearSession()
+        // Also wipe the database copies so the next boot starts completely fresh
+        try {
+            const db = require('./database')
+            db.clearSession()
+            db.setBotSetting('loginMethod', null)
+            db.setBotSetting('loginPhone', null)
+            log('[ SESSION-DB ] Database session + login method cleared.', 'cyan')
+        } catch (dbErr) {
+            log(`[ SESSION-DB ] Could not clear DB session: ${dbErr.message}`, 'yellow')
+        }
         log('[ SESSION ] files cleared successfully.', 'green')
     } catch (e) {
         log(`Failed to clear session files: ${e.message}`, 'red', true)
@@ -360,14 +355,35 @@ const question = (text) => rl
     : Promise.resolve('')
 
 // ─── Session Helpers ──────────────────────────────────────────────────────────
+// Login method and phone number are stored in the database (persistent across
+// container/dyno restarts on all platforms). The login.json file is kept as a
+// local fallback for environments where the database folder may not persist.
 
 async function saveLoginMethod(method) {
-    await fs.promises.writeFile(loginFile, JSON.stringify({ method }, null, 2))
+    try {
+        const db = require('./database')
+        db.setBotSetting('loginMethod', method)
+    } catch (e) {
+        log(`[ SESSION-DB ] Could not save login method to DB: ${e.message}`, 'yellow')
+    }
+    // File fallback — kept for local/non-DB environments
+    try {
+        await fs.promises.writeFile(loginFile, JSON.stringify({ method }, null, 2))
+    } catch (_) {}
 }
 
 async function getLastLoginMethod() {
+    // 1. Try database first (survives container restarts)
+    try {
+        const db = require('./database')
+        const dbMethod = db.getBotSetting('loginMethod')
+        if (dbMethod) return dbMethod
+    } catch (_) {}
+    // 2. Fallback to file
     if (fs.existsSync(loginFile)) {
-        return JSON.parse(fs.readFileSync(loginFile, 'utf-8')).method
+        try {
+            return JSON.parse(fs.readFileSync(loginFile, 'utf-8')).method
+        } catch (_) {}
     }
     return null
 }
@@ -376,8 +392,32 @@ function sessionExists() {
     return fs.existsSync(credsPath)
 }
 
+// ─── Restore Session from Database ────────────────────────────────────────────
+// If session/creds.json is missing (e.g. container restart wiped the folder)
+// but the database has a saved copy, write it back so Baileys can connect
+// without re-authentication.
+
+async function restoreSessionFromDB() {
+    if (sessionExists()) return false // already on disk — nothing to do
+    try {
+        const db = require('./database')
+        const b64 = db.getSession()
+        if (!b64) return false
+        await fs.promises.mkdir(sessionDir, { recursive: true })
+        const data = Buffer.from(b64, 'base64')
+        JSON.parse(data.toString('utf8')) // validate — throws if corrupt
+        await fs.promises.writeFile(credsPath, data)
+        log('[ SESSION-DB ] ✅ Session restored from database.', 'green')
+        return true
+    } catch (e) {
+        log(`[ SESSION-DB ] ⚠️ DB restore failed: ${e.message}`, 'yellow')
+        try { require('./database').clearSession() } catch (_) {}
+        return false
+    }
+}
+
 // ─── Session Format Validator ─────────────────────────────────────────────────
-// Session ID formats: JUNE-MD:~<base64> | Ultra-X:~<base64> | June-Ultra:~<base64>
+// Session ID formats: JUNE-MD:~<base64> | Ultra-X:~<base64> | June-Ultra:~<base64> | June::~<base64>
 
 const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'June::~']
 
@@ -388,9 +428,8 @@ async function checkAndHandleSessionFormat() {
             log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
             log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", "June-Ultra:~", or "June::~".'), 'white')
             log(chalk.black.bgYellowBright('Please fix your SESSION_ID and restart. Exiting in 20 seconds...'), 'white')
-            // Do NOT clear SESSION_ID from .env — on Replit it may come from a
-            // platform secret injected into process.env (not the .env file), and
-            // wiping .env would break priority mode on the next restart.
+            // Do NOT clear SESSION_ID from .env — on Pterodactyl/Replit the value
+            // comes from a platform secret, and wiping .env won't clear it anyway.
             await delay(20000)
             process.exit(1)
         }
@@ -400,112 +439,26 @@ async function checkAndHandleSessionFormat() {
 // ─── Download Session from SESSION_ID ─────────────────────────────────────────
 
 async function downloadSessionData() {
-    // NOTE: this function intentionally does NOT catch errors — callers in
-    // priority mode have their own try/catch with retry logic, and swallowing
-    // errors here would silently leave creds.json unwritten.
-    await fs.promises.mkdir(sessionDir, { recursive: true })
-    if (!fs.existsSync(credsPath) && global.SESSION_ID) {
-        const sid = global.SESSION_ID
-        let sessionData
-
-        const prefixMap = [
-            'Ultra-X:~',
-            'June-Ultra:~',
-            'JUNE-MD:~',
-            'June::~',
-        ]
-        const matched = prefixMap.find(p => sid.startsWith(p))
-        if (!matched) throw new Error(`Unknown session format — ID must start with one of: ${prefixMap.join(', ')}`)
-
-        const b64 = sid.slice(matched.length)
-        sessionData = Buffer.from(b64, 'base64')
-        // Validate that the decoded content is valid JSON before writing
-        JSON.parse(sessionData.toString('utf8'))
-
-        await fs.promises.writeFile(credsPath, sessionData)
-        log('✅ Session saved from SESSION_ID successfully.', 'green')
-    }
-}
-
-// ─── Restore Session from Database ────────────────────────────────────────────
-// If session/creds.json is missing but the DB has a saved copy, write it back
-// to disk so Baileys can pick it up without re-authentication.
-
-async function restoreSessionFromDB() {
-    if (sessionExists()) return false // already on disk, nothing to do
-    const b64 = getSession()
-    if (!b64) return false
     try {
         await fs.promises.mkdir(sessionDir, { recursive: true })
-        const data = Buffer.from(b64, 'base64')
-        JSON.parse(data.toString('utf8')) // validate
-        await fs.promises.writeFile(credsPath, data)
-        return true
-    } catch (e) {
-        log(`⚠️ DB session restore failed`, 'yellow')
-        clearSession()
-        return false
-    }
-}
+        if (!fs.existsSync(credsPath) && global.SESSION_ID) {
+            const sid = global.SESSION_ID
+            let sessionData
 
-// ─── Auto-Export Session to .env ──────────────────────────────────────────────
-// After a fresh QR/pairing login (or periodically), encode the live creds.json
-// and write it back to SESSION_ID in .env so the bot can restore itself on
-// restart even if the session/ folder is lost.
+            const prefixMap = ['Ultra-X:~', 'June-Ultra:~', 'JUNE-MD:~', 'June::~']
+            const matched = prefixMap.find(p => sid.startsWith(p))
+            if (!matched) throw new Error('Unknown session format')
 
-let _lastSessionExport = 0
-const SESSION_EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
+            const b64 = sid.slice(matched.length)
+            sessionData = Buffer.from(b64, 'base64')
+            JSON.parse(sessionData.toString('utf8')) // validate
 
-async function autoExportSessionToEnv(force = false) {
-    try {
-        const now = Date.now()
-        if (!force && (now - _lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
-        if (!fs.existsSync(credsPath)) return
-
-        const credsJson = fs.readFileSync(credsPath, 'utf8')
-        JSON.parse(credsJson) // validate — throws if corrupt
-        const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
-        const sessionID = `Ultra-X:~${base64}`
-
-        // Skip if nothing has changed
-        if (process.env.SESSION_ID?.trim() === sessionID) {
-            _lastSessionExport = now
-            return
-        }
-
-        // ── Platform guard ────────────────────────────────────────────────────
-        // On Pterodactyl, Replit (Secrets), Heroku, Railway, and similar hosts
-        // the .env file is ephemeral — it gets reset to its committed state on
-        // every container/dyno restart. Writing the new session ID there would
-        // make it look like it saved, but it disappears on the next boot leaving
-        // the panel's original (now-stale) SESSION_ID in charge, which causes a
-        // credential mismatch → WhatsApp logout → session wipe → login prompt.
-        //
-        // When SESSION_ID came from the platform environment (not the .env file),
-        // skip the .env write entirely. The database backup (saveSession) already
-        // handles cross-restart persistence for these platforms.
-        if (global._sessionIDSource === 'platform') {
-            log('[ SESSION ] Skipping .env export — SESSION_ID is a platform env var (Pterodactyl/Replit/Heroku). DB backup already saved.', 'cyan')
-            process.env.SESSION_ID = sessionID   // keep in-memory value current
-            _lastSessionExport = now
-            return
-        }
-
-        if (fs.existsSync(envPath)) {
-            // Suppress the .env watcher so this write doesn't trigger a restart
-            global._suppressEnvWatcher = true
-            let envContent = fs.readFileSync(envPath, 'utf8')
-            if (/^SESSION_ID=/m.test(envContent)) {
-                envContent = envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
-            } else {
-                envContent = envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
-            }
-            fs.writeFileSync(envPath, envContent)
-            process.env.SESSION_ID = sessionID
-            _lastSessionExport = now
+            await fs.promises.writeFile(credsPath, sessionData)
+            log('✅ Session saved from SESSION_ID successfully.', 'green')
         }
     } catch (e) {
-        log(`⚠️ Auto session export failed: ${e.message}`, 'yellow')
+        log(`Error loading session data: ${e.message}`, 'red', true)
+        throw e
     }
 }
 
@@ -514,15 +467,25 @@ async function autoExportSessionToEnv(force = false) {
 async function getLoginMethod() {
     const lastMethod = await getLastLoginMethod()
     if (lastMethod && sessionExists()) {
+        log(`Last login method: ${lastMethod}. Using it automatically.`, 'blue')
         return lastMethod
     }
 
     if (!sessionExists() && fs.existsSync(loginFile)) {
+        log('Session missing. Removing stale login preference for clean re-login.', 'blue')
         fs.unlinkSync(loginFile)
     }
 
+    // Also clear stale DB login method when session is gone
+    try {
+        const db = require('./database')
+        db.setBotSetting('loginMethod', null)
+        db.setBotSetting('loginPhone', null)
+    } catch (_) {}
+
     if (!process.stdin.isTTY) {
         log('❌ No SESSION_ID found and no TTY available for interactive login.', 'red')
+        log(chalk.yellowBright('👉 Set your SESSION_ID as an environment variable or in the .env file and restart.'), 'white')
         process.exit(1)
     }
 
@@ -540,7 +503,7 @@ async function getLoginMethod() {
         let sessionId = await question(chalk.greenBright('\nYour session ID: '))
         sessionId = sessionId.trim()
         if (!VALID_PREFIXES.some(p => sessionId.startsWith(p))) {
-            log("Invalid Session ID! Must start with 'JUNE-MD:~', 'Ultra-X:~', or 'June-Ultra:~'", 'red')
+            log("Invalid Session ID! Must start with 'JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', or 'June::~'", 'red')
             process.exit(1)
         }
 
@@ -554,6 +517,11 @@ async function getLoginMethod() {
         phone = phone.trim().replace(/[^0-9]/g, '')
         if (phone.length < 7) { log('Invalid phone number.', 'red'); return getLoginMethod() }
         global.phoneNumber = phone
+        // Persist phone so a reconnect loop can re-use it without prompting
+        try {
+            const db = require('./database')
+            db.setBotSetting('loginPhone', phone)
+        } catch (_) {}
         await saveLoginMethod('number')
         return 'number'
     } else {
@@ -587,7 +555,7 @@ function detectPlatform() {
   if (process.env.REPLIT_SLUG || process.env.REPL_ID) return '🔵 Replit';
   if (process.env.PREFIX && process.env.PREFIX.includes('termux')) return '📱 Termux';
   if (process.env.PORTS && process.env.CYPHERX_HOST_ID) return '🌀 CypherX Platform';
-  if (process.env.P_SERVER_UUID) return '🖥️ Panel';
+  if (process.env.P_SERVER_UUID) return '🖥️ Pterodactyl Panel';
   if (process.env.LXC) return '🐦‍⬛ Linux Container (LXC)';
   switch (os.platform()) {
     case 'win32': return '🪟 Windows';
@@ -623,7 +591,7 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        log('Connected', 'red')
+        log('[ BOT ] Connected and welcome message sent.', 'green')
         deleteErrorCountFile()
         global.errorRetryCount = 0
     } catch (e) {
@@ -674,11 +642,6 @@ function checkEnvStatus() {
         log('[ WATCHER ] Monitoring .env for changes...', 'green')
         fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (filename && eventType === 'change') {
-                // Suppress restart when we ourselves wrote the session update
-                if (global._suppressEnvWatcher) {
-                    global._suppressEnvWatcher = false
-                    return
-                }
                 log(chalk.black.bgBlueBright('[ENV CHANGED] Restarting to apply new configuration...'), 'white')
                 process.exit(1)
             }
@@ -722,7 +685,8 @@ setInterval(() => processedMessages.clear(), 5 * 60 * 1000)
 const NOISE_PATTERNS = [
     'closing session', 'sessionentry', 'prekey bundle', 'pendingprekey',
     '_chains', 'registrationid', 'currentratchet', 'chainkey', 'ratchet',
-    'signal protocol', 'ephemeralkeypair', 'indexinfo', 'basekey', 'ratchetkey'
+    'signal protocol', 'ephemeralkeypair', 'indexinfo', 'basekey', 'ratchetkey',
+    'bad mac', 'failed to decrypt'
 ]
 
 function suppressedLogger() {
@@ -809,6 +773,7 @@ async function startKnightBot() {
                 return main()
             } else {
                 if (global.isReconnecting) {
+                    log(`[RECONNECT] Already reconnecting — skipping duplicate close event.`, 'yellow')
                     return
                 }
                 global.isReconnecting = true
@@ -821,9 +786,8 @@ async function startKnightBot() {
                     waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
                 } else if (statusCode === 503) {
                     // 503 Service Unavailable — WhatsApp servers overloaded.
-                    // Use a long fixed delay to avoid hammering and getting rate-limited.
                     global.errorRetryCount++
-                    waitMs = Math.min(30000 * global.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
+                    waitMs = Math.min(30000 * global.errorRetryCount, 300000)
                     log(chalk.black.bgYellowBright(`[503] WhatsApp servers unavailable. Retry ${global.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
                 } else if (statusCode === 500) {
                     // 500 bad session — clear and restart fresh
@@ -849,9 +813,7 @@ async function startKnightBot() {
             global.connectedAt = Date.now()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`🌿 Connected as: +${botNum}`, 'yellow')
-            log('Connecting...', 'green')
-            // Auto-export the session to .env so restarts never need re-login
-            autoExportSessionToEnv(true).catch(() => {})
+            log('Connected', 'green')
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
             if (!global.welcomeSent) {
@@ -860,13 +822,26 @@ async function startKnightBot() {
             }
             handler.initializeAntiCall(sock)
 
+            // ── Backup session to database immediately after every connection ──
+            // This is the core of cross-restart persistence: the DB copy survives
+            // even if the session/ folder is wiped by a container restart.
+            setImmediate(async () => {
+                try {
+                    const db = require('./database')
+                    if (db.saveSession(credsPath)) {
+                        log('[ SESSION-DB ] ✅ Session backed up to database.', 'cyan')
+                    }
+                } catch (e) {
+                    log(`[ SESSION-DB ] ⚠️ Session backup failed: ${e.message}`, 'yellow')
+                }
+            })
+
             // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
             const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             global.newsletters = newsletters;
             const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
             global.groupInvites = groupInvites;
 
-            // Run in background so they don't delay the bot becoming ready
             setImmediate(async () => {
                 await Promise.allSettled(
                     newsletters.filter(Boolean).map(n =>
@@ -932,27 +907,21 @@ async function startKnightBot() {
         }
 
         // ── Status Handler ─────────────────────────────────────────────────────
-        // asvMod required once outside the loop for efficiency
         const asvMod = require('./commands/owner/autostatusview')
         for (const msg of messages) {
             if (!msg.message || !msg.key?.id) continue
             const from = msg.key.remoteJid
 
-            // Only process status@broadcast, skip own messages
             if (from !== 'status@broadcast' || msg.key.fromMe) continue
-
-            // Skip protocol/system messages — not real statuses
             if (msg.message?.protocolMessage) continue
             if (msg.messageStubType) continue
 
             const rawPart  = msg.key.participant
             const normPart = rawPart ? normalizeJidWithLid(rawPart) : null
 
-            // Skip if the status came from the bot itself
             const myJid = normalizeJidWithLid(sock.user.id)
             if (normPart === myJid) continue
 
-            // Store status for .getsw command
             if (normPart && msg.message) {
                 if (!global.statusStore) global.statusStore = new Map()
                 const existing = global.statusStore.get(normPart) || []
@@ -961,7 +930,6 @@ async function startKnightBot() {
                 global.statusStore.set(normPart, existing)
             }
 
-            // Store status for antideletestatus (recover deleted statuses)
             try {
                 const antideletestatus = require('./commands/owner/antideletestatus')
                 if (antideletestatus?.storeStatusMessage) antideletestatus.storeStatusMessage(msg)
@@ -970,7 +938,6 @@ async function startKnightBot() {
             try {
                 const s = asvMod.loadSettings()
 
-                // Auto View
                 if (s.enabled && normPart) {
                     try {
                         await sock.sendReceipt('status@broadcast', normPart, [msg.key.id], 'read')
@@ -980,12 +947,10 @@ async function startKnightBot() {
                     } catch (_) {}
                 }
 
-                // Auto React
                 if (s.react && normPart) {
                     if (!global._sReactedIds) global._sReactedIds = new Set()
                     if (!global._sReactedIds.has(msg.key.id)) {
                         global._sReactedIds.add(msg.key.id)
-                        // Keep set bounded
                         if (global._sReactedIds.size > 500) {
                             global._sReactedIds.delete(global._sReactedIds.values().next().value)
                         }
@@ -1023,11 +988,9 @@ async function startKnightBot() {
 
             processedMessages.add(msg.key.id)
 
-            // Store message
             if (!store.messages.has(from)) store.messages.set(from, new Map())
             store.messages.get(from).set(msg.key.id, msg)
 
-            // Unwrap ephemeral/view-once wrappers
             if (msg.message?.ephemeralMessage) {
                 msg.message = msg.message.ephemeralMessage.message
             }
@@ -1070,7 +1033,6 @@ async function startKnightBot() {
             }
             // ───────────────────────────────────────────────────────────────────
 
-            // Auto-save status: triggered when someone replies to a status
             setImmediate(() => {
                 try {
                     const saveStatusMod = require('./commands/owner/savestatus')
@@ -1078,24 +1040,29 @@ async function startKnightBot() {
                 } catch (_) {}
             })
 
-            // Handle command
             handler.handleMessage(sock, msg).catch(err => {
                 if (!err.message?.includes('rate-overlimit') && !err.message?.includes('not-authorized')) {
                     log(`Message handler error: ${err.message}`, 'red', true)
                 }
             })
-
-            // Note: antilink is handled inside handler.handleMessage via Promise.allSettled
         }
     })
 
     // ── Credentials + Group Events ─────────────────────────────────────────────
-    sock.ev.on('creds.update', async () => {
-        await saveCreds()
-        // Persist to database so session survives restarts without re-login
-        saveSession(credsPath)
-        // Periodically refresh SESSION_ID in .env as a secondary backup
-        autoExportSessionToEnv(false).catch(() => {})
+    // saveCreds() writes Baileys session files to disk. We also maintain a
+    // database backup (debounced to 10 s) so the session survives a full wipe
+    // of the session/ folder on container restarts (Pterodactyl, Heroku, etc.).
+    sock.ev.on('creds.update', () => {
+        saveCreds()
+        // Debounced DB backup — avoids hammering disk on rapid key updates
+        if (global._credsUpdateTimer) clearTimeout(global._credsUpdateTimer)
+        global._credsUpdateTimer = setTimeout(() => {
+            global._credsUpdateTimer = null
+            try {
+                const db = require('./database')
+                db.saveSession(credsPath)
+            } catch (_) {}
+        }, 10000) // 10-second debounce
     })
 
     // ── Presence Tracker ───────────────────────────────────────────────────────
@@ -1171,12 +1138,6 @@ async function startKnightBot() {
 
 async function main() {
 
-    // 0. Re-read SESSION_ID directly from .env every time main() runs so that
-    //    recursive calls (after logout) always see the latest value, and dotenvx
-    //    quirks (which mangle long base64 values) are bypassed entirely.
-    const _freshSessionID = readSessionIDFromEnv()
-    if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
-
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
 
@@ -1184,31 +1145,33 @@ async function main() {
     global.errorRetryCount = loadErrorCount().count
     log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
 
-    // 3. PRIORITY MODE: SESSION_ID from .env always wins
+    // 3. PRIORITY MODE: SESSION_ID from env (platform secret or .env file) wins
     const envSessionID = process.env.SESSION_ID?.trim()
     log(`[ SESSION_ID ] Detected: ${envSessionID ? envSessionID.slice(0, 20) + '...' : '(none)'}`, 'cyan')
 
     if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
-        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
+        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected — using as priority login.'), 'white')
 
         global.SESSION_ID = envSessionID
 
         if (!sessionExists()) {
-            log('[ SESSION_ID ] No stored session found — downloading from SESSION_ID...', 'magenta')
-            await fs.promises.mkdir(sessionDir, { recursive: true })
-            try {
-                await downloadSessionData()
-                // Verify the file was actually written — downloadSessionData can
-                // return without writing if something went silently wrong.
-                if (!sessionExists()) {
-                    throw new Error('creds.json was not written after download — SESSION_ID may be corrupt or expired')
+            // First try the database backup before decoding from SESSION_ID
+            const restoredFromDB = await restoreSessionFromDB()
+            if (!restoredFromDB) {
+                log('[ SESSION_ID ] No stored session found — downloading from SESSION_ID...', 'magenta')
+                await fs.promises.mkdir(sessionDir, { recursive: true })
+                try {
+                    await downloadSessionData()
+                    if (!sessionExists()) {
+                        throw new Error('creds.json was not written — SESSION_ID may be corrupt or expired')
+                    }
+                    log('[ SESSION_ID ] ✅ Session downloaded successfully.', 'green')
+                } catch (e) {
+                    log(`[ SESSION_ID ] ❌ Failed to download session: ${e.message}`, 'red', true)
+                    log('Retrying in 5 seconds...', 'yellow')
+                    await delay(5000)
+                    return main()
                 }
-                log('[ SESSION_ID ] ✅ Session downloaded successfully.', 'green')
-            } catch (e) {
-                log(`[ SESSION_ID ] ❌ Failed to download session: ${e.message}`, 'red', true)
-                log('Retrying in 5 seconds...', 'yellow')
-                await delay(5000)
-                return main()
             }
         }
 
@@ -1219,34 +1182,60 @@ async function main() {
         return
     }
 
-    log('[ALERT] No SESSION_ID in .env..', 'blue')
+    log('[ALERT] No SESSION_ID in environment...', 'blue')
 
-    // 4. Integrity check on stored session
+    // 4. Integrity check on stored session folder
     await checkSessionIntegrityAndClean()
 
-    // 5. Use existing stored session if valid
+    // 5. Use existing session folder if creds.json is present
     if (sessionExists()) {
-        log('[ALERT] Valid stored session found.', 'green')
+        log('[ALERT] Valid stored session found on disk.', 'green')
         await startKnightBot()
         checkEnvStatus()
         return
     }
 
-    // 5b. Restore from database if session folder was lost
+    // 5b. Try database backup — covers container restarts that wiped the folder
     const restoredFromDB = await restoreSessionFromDB()
     if (restoredFromDB) {
-        await saveLoginMethod('session')
+        const lastMethod = await getLastLoginMethod()
+        // Restore phone number for pairing-code sessions
+        if (lastMethod === 'number') {
+            try {
+                const db = require('./database')
+                const savedPhone = db.getBotSetting('loginPhone')
+                if (savedPhone) global.phoneNumber = savedPhone
+            } catch (_) {}
+        }
+        log('[ALERT] Session restored from database — connecting.', 'green')
         await startKnightBot()
         checkEnvStatus()
         return
     }
 
-    // 6. No SESSION_ID and no stored session — tell the user what to do and exit.
-    log(chalk.black.bgRedBright('[ ERROR ] No SESSION_ID found and no stored session available.'), 'white')
-    log(chalk.yellowBright('👉 Add your SESSION_ID to the .env file:'), 'white')
-    log(chalk.greenBright('   SESSION_ID=Ultra-X:~<your_base64_here>'), 'white')
-    log(chalk.yellowBright('   Then restart the bot.'), 'white')
-    process.exit(1)
+    // 6. Interactive login (TTY) or exit
+    const loginMethod = await getLoginMethod()
+    let sock
+
+    if (loginMethod === 'session') {
+        await downloadSessionData()
+        sock = await startKnightBot()
+    } else if (loginMethod === 'number') {
+        sock = await startKnightBot()
+        await requestPairingCode(sock)
+    } else {
+        log('[ALERT] Could not determine login method.', 'red')
+        return
+    }
+
+    // 7. Clean up if pairing code flow failed before creds were saved
+    if (loginMethod === 'number' && !sessionExists() && fs.existsSync(sessionDir)) {
+        log('[ALERT] Pairing code login failed. Cleaning up and restarting...', 'red')
+        clearSessionFiles()
+        process.exit(1)
+    }
+
+    checkEnvStatus()
 }
 
 // ─── Keep-Alive HTTP Server ────────────────────────────────────────────────────
@@ -1257,9 +1246,6 @@ function startKeepAliveServer() {
     const app       = express();
     const START_TIME = Date.now();
 
-    // Read-only status dashboard — server-rendered, no client JS/fetch, no
-    // pairing/session-ID UI or endpoints. Auto-refreshes via <meta refresh>
-    // so it renders identically on every platform/browser.
     app.get('/', (req, res) => {
         const uptimeMs = Date.now() - START_TIME;
         const totalSeconds = Math.floor(uptimeMs / 1000);
@@ -1270,7 +1256,7 @@ function startKeepAliveServer() {
 
         const uptimeStr = days > 0
             ? `${days}d ${hours}h ${minutes}m ${seconds}s`
-            : `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+            : `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '00')}s`;
 
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
