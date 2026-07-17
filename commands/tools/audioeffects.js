@@ -5,7 +5,7 @@ const { execFile } = require('child_process');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { toPTT } = require('../../utils/converter');
 const { resolveQuoted } = require('../../utils/quotedMedia');
-const ffmpegPath = require('ffmpeg-static');
+const ffmpegPath = require('../../utils/ffmpegPath');
 
 const TEMP_DIR = path.join(os.tmpdir(), 'june-x-audio');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
