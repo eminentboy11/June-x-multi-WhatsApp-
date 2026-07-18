@@ -35,10 +35,6 @@ module.exports = {
             const participants = extra.groupMetadata?.participants || [];
             const groupName    = extra.groupMetadata?.subject || 'Group';
 
-            await sock.sendMessage(chatId, {
-                text: '⏳ Resolving member numbers, this may take a few seconds…'
-            }, { quoted: msg });
-
             // Nudge LID resolution before scanning
             await preloadLidResolution(sock, participants);
 
