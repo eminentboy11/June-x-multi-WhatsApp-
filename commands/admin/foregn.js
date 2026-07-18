@@ -63,7 +63,7 @@ async function getForeignParticipants(sock, participants, allowedCode, botJid) {
 }
 
 module.exports = {
-    name: 'antiforeign',
+    name: 'antiforeign2',
     aliases: ['antiforegn', 'foreignprotect', 'antiforeigners'],
     category: 'admin',
     description: 'Scan/remove members whose number doesn\'t match the allowed country code',
