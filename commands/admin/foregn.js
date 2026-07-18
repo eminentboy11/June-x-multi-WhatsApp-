@@ -200,7 +200,6 @@ module.exports = {
         try {
             const meta = await sock.groupMetadata(groupJid);
 
-            await reply('⏳ Resolving member numbers, this can take a few seconds…');
             await preloadLidResolution(sock, meta.participants || []);
 
             const { foreign, unresolved } = await getForeignParticipants(
