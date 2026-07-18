@@ -6,7 +6,7 @@ const axios = require('axios');
 
 const MAX_LIMIT = 10;
 const DEFAULT_LIMIT = 5;
-const SEND_DELAY = 700;
+const SEND_DELAY = 1500;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -82,7 +82,6 @@ module.exports = [
                     const img = images[i];
                     await sock.sendMessage(from, {
                         image: { url: img.url },
-                        caption: `🖼️ ${img.title || query} (${i + 1}/${images.length})`,
                     }, { quoted: msg });
 
                     if (i < images.length - 1) await sleep(SEND_DELAY);
