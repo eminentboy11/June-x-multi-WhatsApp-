@@ -61,7 +61,7 @@ module.exports = {
 
                 try {
                     const response = await axios.get(
-                        `https://dot-6-6dd18acee01f.herokuapp.com/code?number=${number}`,
+                        `https://pair-junex.onrender.com/code?number=${number}`,
                         { timeout: 20000 }
                     );
 
