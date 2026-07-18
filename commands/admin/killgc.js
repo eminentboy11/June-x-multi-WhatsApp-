@@ -9,9 +9,9 @@
  *   .killgc                              — kick all members in current group, then leave
  *   .killgc https://chat.whatsapp.com/X  — join that group, kick everyone, then leave
  *
- * All members are fetched and kicked in one single API call.
- * If WhatsApp rejects the batch (too large), falls back to chunks of 25 with
- * a minimal 500ms gap — still much faster than the old 5-at-a-time approach.
+ * For the link mode, the bot must already be admin in the target group —
+ * this is verified remotely via groupMetadata before any kick attempt.
+ * If the bot is not admin, the command aborts with a single error reply.
  */
 
 const path = require('path');
@@ -30,13 +30,22 @@ async function kickAll(sock, groupJid, jids) {
     try {
         await sock.groupParticipantsUpdate(groupJid, jids, 'remove');
     } catch (firstErr) {
-        // Batch rejected — split into chunks of 25
         const CHUNK = 25;
         for (let i = 0; i < jids.length; i += CHUNK) {
             await sock.groupParticipantsUpdate(groupJid, jids.slice(i, i + CHUNK), 'remove');
             if (i + CHUNK < jids.length) await new Promise(r => setTimeout(r, 500));
         }
     }
+}
+
+// Check whether the bot is admin in the given group's metadata
+function botIsAdmin(meta, botJid) {
+    const botUser = botJid.split('@')[0].split(':')[0];
+    const me = (meta.participants || []).find(p => {
+        const pu = p.id.split('@')[0].split(':')[0];
+        return pu === botUser;
+    });
+    return !!me && (me.admin === 'admin' || me.admin === 'superadmin');
 }
 
 module.exports = {
@@ -57,25 +66,32 @@ module.exports = {
 
             // ── Mode A: group link provided ───────────────────────────────────
             if (inviteCode) {
-                await extra.reply('🔗 Joining group from link…');
                 try {
                     targetGroupJid = await sock.groupAcceptInvite(inviteCode);
                 } catch (joinErr) {
                     const msg406 = joinErr.message?.includes('406') || joinErr.output?.statusCode === 406;
                     if (msg406) {
-                        // Already a member — fetch the group ID via preview instead
                         try {
                             const preview = await sock.groupGetInviteInfo(inviteCode);
                             targetGroupJid = preview.id;
-                            await extra.reply(`⚠️ Already a member of that group. Proceeding with kill…`);
                         } catch (_) {
-                            return extra.reply('❌ Already in that group but could not fetch its ID. Try running .killgc from inside the group.');
+                            return extra.reply('❌ Already in that group but could not resolve its ID.');
                         }
                     } else {
                         return extra.reply(`❌ Could not join group: ${joinErr.message}`);
                     }
                 }
-                await extra.reply(`✅ Joined group. Fetching members…`);
+
+                // ── Remote admin check — required before doing anything else ───
+                const meta = await sock.groupMetadata(targetGroupJid);
+                const botJid = sock.user?.id || '';
+                if (!botIsAdmin(meta, botJid)) {
+                    await sock.groupLeave(targetGroupJid).catch(() => {});
+                    return extra.reply('❌ Bot is not admin in that group. Aborting.');
+                }
+
+                // Fall through to kick logic below using this meta (skip re-fetch)
+                return await runKill(sock, targetGroupJid, meta, replyTo, extra, true);
 
             // ── Mode B: current group ─────────────────────────────────────────
             } else {
@@ -86,59 +102,53 @@ module.exports = {
                     );
                 }
                 targetGroupJid = extra.from;
-            }
-
-            // ── Fetch members ─────────────────────────────────────────────────
-            const meta         = await sock.groupMetadata(targetGroupJid);
-            const participants = meta.participants || [];
-
-            await sock.sendMessage(replyTo, {
-                text: `⏳ Resolving *${participants.length}* member(s) in *${meta.subject || targetGroupJid}*…`
-            });
-
-            await preloadLidResolution(sock, participants);
-
-            const botJid   = sock.user?.id || '';
-            const botPhone = (await resolvePhone(sock, botJid)) || botJid.split('@')[0].split(':')[0];
-
-            // Build kick list — exclude the bot itself
-            const toKick = [];
-            for (const p of participants) {
-                let phone = await resolvePhone(sock, p.id);
-                if (!phone) phone = p.id.split('@')[0].split(':')[0];
-                if (phone === botPhone) continue;
-                toKick.push(p.id);
-            }
-
-            if (!toKick.length) {
-                await sock.sendMessage(replyTo, { text: '❌ No members to remove.' });
-                await sock.groupLeave(targetGroupJid);
-                return;
-            }
-
-            // ── Announce & kick ───────────────────────────────────────────────
-            await sock.sendMessage(targetGroupJid, {
-                text: `☠️ *Kill GC* — removing *${toKick.length}* member(s). Goodbye! 👋`,
-                mentions: toKick,
-            });
-
-            await kickAll(sock, targetGroupJid, toKick);
-
-            // ── Leave ─────────────────────────────────────────────────────────
-            await sock.groupLeave(targetGroupJid);
-
-            // Confirm back to the original chat (relevant when a link was used)
-            if (inviteCode) {
-                await sock.sendMessage(replyTo, {
-                    text: `✅ *Kill GC done* — kicked *${toKick.length}* member(s) from *${meta.subject || targetGroupJid}* and left.`
-                });
+                const meta = await sock.groupMetadata(targetGroupJid);
+                const botJid = sock.user?.id || '';
+                if (!botIsAdmin(meta, botJid)) {
+                    return extra.reply('❌ Bot is not admin in this group. Aborting.');
+                }
+                return await runKill(sock, targetGroupJid, meta, replyTo, extra, false);
             }
 
         } catch (error) {
             console.error('[killgc]', error.message);
-            await sock.sendMessage(replyTo, {
-                text: `❌ Kill GC failed: ${error.message}`
-            }).catch(() => {});
+            await sock.sendMessage(replyTo, { text: `❌ Kill GC failed: ${error.message}` }).catch(() => {});
         }
     }
 };
+
+// Shared kick + leave logic, called once admin status is confirmed
+async function runKill(sock, targetGroupJid, meta, replyTo, extra, viaLink) {
+    const participants = meta.participants || [];
+    await preloadLidResolution(sock, participants);
+
+    const botJid   = sock.user?.id || '';
+    const botPhone = (await resolvePhone(sock, botJid)) || botJid.split('@')[0].split(':')[0];
+
+    const toKick = [];
+    for (const p of participants) {
+        let phone = await resolvePhone(sock, p.id);
+        if (!phone) phone = p.id.split('@')[0].split(':')[0];
+        if (phone === botPhone) continue;
+        toKick.push(p.id);
+    }
+
+    if (!toKick.length) {
+        await sock.groupLeave(targetGroupJid).catch(() => {});
+        return extra.reply('❌ No members to remove.');
+    }
+
+    await sock.sendMessage(targetGroupJid, {
+        text: `☠️ *Kill GC* — removing *${toKick.length}* member(s). Goodbye! 👋`,
+        mentions: toKick,
+    });
+
+    await kickAll(sock, targetGroupJid, toKick);
+    await sock.groupLeave(targetGroupJid);
+
+    if (viaLink) {
+        await sock.sendMessage(replyTo, {
+            text: `✅ Kicked *${toKick.length}* from *${meta.subject || targetGroupJid}* and left.`
+        });
+    }
+}
