@@ -84,6 +84,7 @@ global.isBotConnected = false
 global.connectDebounceTimeout = null
 global.errorRetryCount = 0
 global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
+global._consecutive500Count = 0  // Guard: only clear session after 3 real 500s in a row
 
 // Track active intervals so we can clear them on reconnect
 global._activeIntervals = []
@@ -428,7 +429,7 @@ async function restoreSessionFromDB() {
 
 
 let _lastSessionExport = 0
-const SESSION_EXPORT_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
+const SESSION_EXPORT_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes — keeps .env backup fresh across restarts
 
 async function autoExportSessionToEnv(force = false) {
     try {
@@ -783,10 +784,19 @@ async function startKnightBot() {
                     waitMs = Math.min(30000 * global.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
                     log(chalk.black.bgYellowBright(`[503] WhatsApp servers unavailable. Retry ${global.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
                 } else if (statusCode === 500) {
-                    // 500 bad session — clear and restart fresh
-                    log(chalk.white.bgRedBright(`[500] Bad session detected. Clearing session files...`), 'white')
-                    clearSessionFiles()
-                    waitMs = 5000
+                    // 500 can be a transient WhatsApp server error — don't clear
+                    // the session immediately. Only wipe after 3 consecutive 500s
+                    // so a temporary server hiccup can't destroy a valid session.
+                    global._consecutive500Count = (global._consecutive500Count || 0) + 1
+                    if (global._consecutive500Count >= 3) {
+                        log(chalk.white.bgRedBright(`[500×${global._consecutive500Count}] Persistent bad-session signal. Clearing session files...`), 'white')
+                        global._consecutive500Count = 0
+                        clearSessionFiles()
+                        waitMs = 8000
+                    } else {
+                        log(chalk.black.bgYellowBright(`[500] WhatsApp error (attempt ${global._consecutive500Count}/3). Retrying without clearing session...`), 'white')
+                        waitMs = 10000
+                    }
                 } else if (statusCode === 440) {
                     // 440 connection replaced (another device logged in)
                     waitMs = 20000
@@ -802,6 +812,7 @@ async function startKnightBot() {
         } else if (connection === 'open') {
             global.isReconnecting = false
             global.errorRetryCount = 0
+            global._consecutive500Count = 0  // Clear the 500 guard on successful connect
             global.botState = 'connected'
             global.connectedAt = Date.now()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
