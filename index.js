@@ -77,6 +77,7 @@ function log(message, color = 'white', isError = false) {
         logFunc(`${prefix} ${coloredMessage}`)
     }
 }
+global.log = log;
 
 // ─── Global Flags ─────────────────────────────────────────────────────────────
 
