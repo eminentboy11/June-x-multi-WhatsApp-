@@ -33,7 +33,7 @@ module.exports = [
     {
         name: 'img',
         aliases: ['image', 'images', 'imgsearch'],
-        category: 'downloader',
+        category: 'general',
         description: 'Search and send images from the web',
         usage: '.img <query> [limit]',
 
