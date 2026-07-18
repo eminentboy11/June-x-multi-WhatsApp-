@@ -225,6 +225,112 @@ const displayUserTag = (jid, groupMetadata) => {
   return jid.split('@')[0];
 };
 
+// ── LID → Phone resolution (shared by antiforeign, vcf, kickall, etc.) ────────
+
+/**
+ * Returns the real phone number string (digits only) for any JID, or null.
+ *
+ * Resolution order:
+ *   1. Plain phone-number JID → user field is already the number
+ *   2. Baileys in-memory signalRepository.lidMapping (fastest, no I/O)
+ *   3. lid-mapping-<user>_reverse.json on disk (fallback after decryption)
+ */
+const resolvePhone = async (sock, jid) => {
+  if (!jid) return null;
+  try {
+    const decoded = jidDecode(jid);
+    if (!decoded?.user) return null;
+
+    const { user, server } = decoded;
+    const isLid = server === 'lid' || server === 'hosted.lid';
+
+    if (!isLid) return user.split(':')[0];
+
+    // 1. Baileys in-memory LID store — pass the full JID, not just the user part
+    try {
+      const lidStore = sock?.signalRepository?.lidMapping;
+      if (lidStore?.getPNForLID) {
+        const pn = await lidStore.getPNForLID(jid);
+        if (pn) {
+          const pnUser = jidDecode(pn)?.user || String(pn).split('@')[0];
+          return pnUser.split(':')[0];
+        }
+      }
+    } catch (_) { /* fall through */ }
+
+    // 2. Reverse-mapping file written by Baileys after decryption
+    const sessionPath = path.join(__dirname, '..', config.sessionName || 'session');
+    const mapFile = path.join(sessionPath, `lid-mapping-${user}_reverse.json`);
+    if (fs.existsSync(mapFile)) {
+      try {
+        const raw = fs.readFileSync(mapFile, 'utf8').trim();
+        if (raw) {
+          const pn = JSON.parse(raw);
+          if (pn) return String(pn).split(':')[0];
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  } catch (_) {
+    return null;
+  }
+};
+
+/**
+ * Subscribes to presence for all LID participants to nudge WhatsApp into
+ * pushing LID↔PN mapping data, then polls until all resolve or timeout.
+ */
+const preloadLidResolution = async (sock, participants, { maxWaitMs = 12000, intervalMs = 1500 } = {}) => {
+  const lidParticipants = participants.filter(p => {
+    const decoded = jidDecode(p.id);
+    return decoded && (decoded.server === 'lid' || decoded.server === 'hosted.lid');
+  });
+  if (!lidParticipants.length) return { attempted: 0, resolved: 0 };
+
+  await Promise.all(lidParticipants.map(async p => {
+    try { await sock.presenceSubscribe(p.id); } catch (_) {}
+  }));
+
+  const start = Date.now();
+  let resolvedCount = 0;
+
+  while (Date.now() - start < maxWaitMs) {
+    const results = await Promise.all(lidParticipants.map(p => resolvePhone(sock, p.id)));
+    resolvedCount = results.filter(Boolean).length;
+    if (resolvedCount === lidParticipants.length) break;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+
+  return { attempted: lidParticipants.length, resolved: resolvedCount };
+};
+
+/**
+ * Resolves phone numbers for all participants, skipping the bot and (optionally) admins.
+ * Uses the phoneNumber field from groupMetadata() first (Baileys v7+), then full LID resolution.
+ */
+const enrichParticipants = async (sock, participants, { skipAdmins = true } = {}) => {
+  const botJid   = sock.user?.id || '';
+  const botPhone = (await resolvePhone(sock, botJid)) || botJid.split('@')[0].split(':')[0];
+
+  const resolved = await Promise.all(participants.map(async p => {
+    let phone = null;
+    if (p.phoneNumber) {
+      const dec = jidDecode(p.phoneNumber);
+      phone = dec?.user?.split(':')[0] || String(p.phoneNumber).split('@')[0].split(':')[0];
+    }
+    if (!phone) phone = await resolvePhone(sock, p.id);
+    return { ...p, phone, isUnresolvableLid: !phone };
+  }));
+
+  return resolved.filter(p => {
+    const pNum = p.phone || p.id.split('@')[0].split(':')[0];
+    if (pNum === botPhone) return false;
+    if (skipAdmins && p.admin) return false;
+    return true;
+  });
+};
+
 module.exports = {
   findParticipant,
   buildComparableIds,
@@ -233,5 +339,8 @@ module.exports = {
   resolveTargetJidVariants,
   tryFetchProfilePictureUrl,
   displayUserTag,
+  resolvePhone,
+  preloadLidResolution,
+  enrichParticipants,
 };
 
