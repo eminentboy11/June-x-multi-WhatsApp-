@@ -84,8 +84,9 @@ module.exports = {
             if (response.status >= 400) {
                 const preview = buffer.toString('utf8').slice(0, 1500);
                 return await sock.sendMessage(extra.from, {
-                    text: `⚠️ *${method}* ${url}\nStatus: ${response.status}\n\n` +
-                          (preview ? "```\n" + preview + "\n```" : "_No response body_")
+                    text: preview
+                        ? "```\n" + preview + "\n```"
+                        : `❌ ${response.status} — empty response body`
                 }, { quoted: msg });
             }
 
@@ -95,25 +96,23 @@ module.exports = {
                 }, { quoted: msg });
             }
 
-            const statusLine = `*${method}* ${url} → ${response.status}`;
-
             if (contentType.includes('application/json')) {
                 try {
                     const json = JSON.parse(buffer.toString());
                     const jsonString = JSON.stringify(json, null, 2);
                     return await sock.sendMessage(extra.from, {
-                        text: `${statusLine}\n\n` + "```json\n" + jsonString + "\n```"
+                        text: "```json\n" + jsonString + "\n```"
                     }, { quoted: msg });
                 } catch (parseError) {
                     return await sock.sendMessage(extra.from, {
-                        text: `${statusLine}\n\n❌ Failed to parse JSON. Sending as text.\n` + buffer.toString()
+                        text: buffer.toString()
                     }, { quoted: msg });
                 }
             }
 
             if (contentType.includes('text/html') || contentType.includes('text/')) {
                 return await sock.sendMessage(extra.from, {
-                    text: `${statusLine}\n\n` + buffer.toString()
+                    text: buffer.toString()
                 }, { quoted: msg });
             }
 
@@ -126,8 +125,7 @@ module.exports = {
                     }, { quoted: msg });
                 }
                 return await sock.sendMessage(extra.from, {
-                    image: buffer,
-                    caption: `📷 ${statusLine}`
+                    image: buffer
                 }, { quoted: msg });
             }
 
@@ -141,8 +139,7 @@ module.exports = {
                     }, { quoted: msg });
                 }
                 return await sock.sendMessage(extra.from, {
-                    video: buffer,
-                    caption: `📹 ${statusLine}`
+                    video: buffer
                 }, { quoted: msg });
             }
 
@@ -158,8 +155,7 @@ module.exports = {
                 return await sock.sendMessage(extra.from, {
                     document: buffer,
                     mimetype: "application/pdf",
-                    fileName: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
-                    caption: statusLine
+                    fileName: filename.endsWith('.pdf') ? filename : `${filename}.pdf`
                 }, { quoted: msg });
             }
 
@@ -167,23 +163,21 @@ module.exports = {
                 return await sock.sendMessage(extra.from, {
                     document: buffer,
                     mimetype: contentType,
-                    fileName: filename,
-                    caption: statusLine
+                    fileName: filename
                 }, { quoted: msg });
             }
 
             // No body / unknown type fallback
             if (buffer.length === 0) {
                 return await sock.sendMessage(extra.from, {
-                    text: `${statusLine}\n\n_Empty response body_`
+                    text: `❌ ${response.status} — empty response body`
                 }, { quoted: msg });
             }
 
             return await sock.sendMessage(extra.from, {
                 document: buffer,
                 fileName: filename,
-                mimetype: contentType || 'application/octet-stream',
-                caption: statusLine
+                mimetype: contentType || 'application/octet-stream'
             }, { quoted: msg });
 
         } catch (error) {
