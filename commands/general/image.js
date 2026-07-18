@@ -1,97 +1,101 @@
+/**
+ * IMG Command — powered by api.cod3uchiha.com/downloaders/img
+ */
+
 const axios = require('axios');
-const config = require('../../config');
-const { applyFont } = require('../../utils/fontConverter');
 
-const POLLINATIONS_BASE = 'https://image.pollinations.ai/prompt';
-const MAX_IMAGES = 5;
-const DEFAULT_SIZE = 1024;
+const MAX_LIMIT = 10;
+const DEFAULT_LIMIT = 5;
+const SEND_DELAY = 700;
 
-function buildImageUrl(prompt, seed, width, height) {
-    const encodedPrompt = encodeURIComponent(prompt);
-    return `${POLLINATIONS_BASE}/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&nologo=true&model=flux`;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function react(sock, from, key, emoji) {
+    await sock.sendMessage(from, { react: { text: emoji, key } });
 }
 
-async function fetchImage(prompt, seed, width, height) {
-    const url = buildImageUrl(prompt, seed, width, height);
-    const response = await axios.get(url, {
-        responseType: 'arraybuffer',
-        timeout: 60000
-    });
-    return Buffer.from(response.data);
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-module.exports = {
-    name: 'image',
-    aliases: ['imag', 'img', 'imgs', 'images'],
-    description: `Generate AI images from a text prompt using Pollinations AI (sends ${MAX_IMAGES} by default)`,
-    category: 'general',
-    async execute(sock, msg, args, extra) {
-        const { from, reply, react, quoted } = extra;
+async function searchImages(query, limit) {
+    const url = `https://api.cod3uchiha.com/downloaders/img?text=${encodeURIComponent(query)}&_limit=${limit}`;
+    const { data } = await axios.get(url, { timeout: 30000 });
+    if (!data?.status || !data?.result?.images?.length) {
+        throw new Error('No images found');
+    }
+    return data.result;
+}
 
-        if (!args.length) {
-            return reply(
-                `🎨 *${config.botName} Image Generator*\n\n` +
-                `Usage: ${config.prefix}image <prompt> [count]\n\n` +
-                `Example:\n${config.prefix}image cat\n${config.prefix}image cat 2\n\n` +
-                `_Defaults to ${MAX_IMAGES} images. Add a number at the end to send fewer (max ${MAX_IMAGES})._`
-            );
-        }
+// ── Module ────────────────────────────────────────────────────────────────────
 
-        // If the last arg is a plain number, treat it as the image count.
-        // Otherwise default to sending the max.
-        let count = MAX_IMAGES;
-        let promptArgs = args;
-        const lastArg = args[args.length - 1];
-        if (/^\d+$/.test(lastArg)) {
-            count = parseInt(lastArg, 10);
-            promptArgs = args.slice(0, -1);
-        }
-        count = Math.min(Math.max(count, 1), MAX_IMAGES);
+module.exports = [
+    {
+        name: 'img',
+        aliases: ['image', 'images', 'imgsearch'],
+        category: 'downloader',
+        description: 'Search and send images from the web',
+        usage: '.img <query> [limit]',
 
-        const prompt = promptArgs.join(' ').trim();
-        if (!prompt) {
-            return reply(`❌ Please provide a prompt to generate an image.\n\nUsage: ${config.prefix}image <prompt> [count]`);
-        }
+        async execute(sock, msg, args, extra) {
+            const from = extra.from;
 
-        await react('⏳');
-
-        try {
-            // Different random seeds so each request returns a distinct image
-            const seeds = Array.from({ length: count }, () => Math.floor(Math.random() * 1_000_000));
-
-            const results = await Promise.allSettled(
-                seeds.map(seed => fetchImage(prompt, seed, DEFAULT_SIZE, DEFAULT_SIZE))
-            );
-
-            const buffers = results
-                .filter(r => r.status === 'fulfilled')
-                .map(r => r.value);
-
-            if (!buffers.length) {
-                await react('❌');
-                return reply('❌ Failed to generate image(s). The Pollinations API may be temporarily unavailable — try again shortly.');
-            }
-
-            for (let i = 0; i < buffers.length; i++) {
-                await sock.sendMessage(
-                    from,
-                    {
-                        image: buffers[i],
-                        caption: applyFont(`🎨 ${prompt}\n\n${config.botName} • ${i + 1}/${buffers.length}`)
-                    },
-                    { quoted: quoted || msg }
+            if (!args.length) {
+                return extra.reply(
+                    `🖼️ *Image Search*\n\n` +
+                    `*Usage:*\n` +
+                    `• \`.img zoo\` — search + send ${DEFAULT_LIMIT} images\n` +
+                    `• \`.img zoo 8\` — search + send up to 8 images (max ${MAX_LIMIT})`
                 );
             }
 
-            if (buffers.length < count) {
-                await reply(`⚠️ Only ${buffers.length}/${count} image(s) generated successfully.`);
+            let limit = DEFAULT_LIMIT;
+            const lastArg = args[args.length - 1];
+            if (/^\d+$/.test(lastArg)) {
+                limit = Math.min(Math.max(parseInt(lastArg, 10), 1), MAX_LIMIT);
+                args = args.slice(0, -1);
             }
 
-            await react('✅');
-        } catch (err) {
-            console.error('[imagine] Error:', err);
-            await react('❌');
-            await reply('❌ An error occurred while generating the image(s). Please try again.');
-        }
-    }
-};
+            const query = args.join(' ').trim();
+            if (!query) {
+                return extra.reply('🖼️ Provide a search term.\nExample: `.img zoo`');
+            }
+            if (query.length > 100) {
+                return extra.reply('📝 Search term too long! Max 100 chars.');
+            }
+
+            await react(sock, from, msg.key, '🖼️');
+
+            let result;
+            try {
+                result = await searchImages(query, limit);
+            } catch (e) {
+                console.error('[img]', e.message);
+                await react(sock, from, msg.key, '❌');
+                return extra.reply(`❌ Search failed: ${e.message}`);
+            }
+
+            const images = result.images.slice(0, limit);
+
+            try {
+                for (let i = 0; i < images.length; i++) {
+                    const img = images[i];
+                    await sock.sendMessage(from, {
+                        image: { url: img.url },
+                        caption: `🖼️ ${img.title || query} (${i + 1}/${images.length})`,
+                    }, { quoted: msg });
+
+                    if (i < images.length - 1) await sleep(SEND_DELAY);
+                }
+
+                await react(sock, from, msg.key, '✅');
+            } catch (e) {
+                console.error('[img]', e.message);
+                await react(sock, from, msg.key, '❌');
+                await sock.sendMessage(from, {
+                    text: `🚫 Error sending images: ${e.message}`,
+                }, { quoted: msg });
+            }
+        },
+    },
+];
