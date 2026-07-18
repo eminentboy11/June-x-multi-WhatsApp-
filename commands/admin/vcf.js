@@ -1,13 +1,21 @@
 /**
- * VCF Command - Export group members as a VCF contacts file
- * Uses the participant `jid` field (phone number) directly when available,
- * with LID mapping as fallback.
+ * ╔════════════════════════════════════════════════════════╗
+ * ║  FILE    : vcf.js                                      ║
+ * ║  FEATURE : Export group members as a VCF contacts file ║
+ * ║  SCOPE   : Admin — Group only                          ║
+ * ╚════════════════════════════════════════════════════════╝
+ *
+ * Uses the same LID resolution strategy as antiforeign.js:
+ *   1. p.phoneNumber from groupMetadata() (Baileys v7+)
+ *   2. Baileys in-memory signalRepository.lidMapping
+ *   3. lid-mapping-<user>_reverse.json on disk
  */
 
-const os = require('os');
-const fs = require('fs');
+const os   = require('os');
+const fs   = require('fs');
 const path = require('path');
-const { getLidMappingValue } = require(require('path').join(global.__CORE__, 'utils', 'jidHelper'));
+const { jidDecode } = require('@whiskeysockets/baileys');
+const { resolvePhone, preloadLidResolution } = require(path.join(global.__ROOT__, 'utils', 'jidHelper'));
 
 module.exports = {
     name: 'vcf',
@@ -24,42 +32,43 @@ module.exports = {
         try {
             await sock.sendMessage(chatId, { react: { text: '📇', key: msg.key } });
 
-            const participants = extra.groupMetadata.participants;
-            const groupName = extra.groupMetadata.subject || 'Group';
+            const participants = extra.groupMetadata?.participants || [];
+            const groupName    = extra.groupMetadata?.subject || 'Group';
+
+            await sock.sendMessage(chatId, {
+                text: '⏳ Resolving member numbers, this may take a few seconds…'
+            }, { quoted: msg });
+
+            // Nudge LID resolution before scanning
+            await preloadLidResolution(sock, participants);
+
+            const botJid   = sock.user?.id || '';
+            const botPhone = (await resolvePhone(sock, botJid)) || botJid.split('@')[0].split(':')[0];
 
             const validNumbers = [];
 
             for (const p of participants) {
-                const jid = p.jid || '';
-                const id  = p.id  || '';
-
-                // Prefer `jid` field (real phone number)
-                if (jid.endsWith('@s.whatsapp.net')) {
-                    const num = jid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-                    if (/^\d{7,15}$/.test(num)) {
-                        validNumbers.push(num);
-                        continue;
-                    }
+                // 1. phoneNumber field attached by Baileys v7 groupMetadata()
+                let phone = null;
+                if (p.phoneNumber) {
+                    const dec = jidDecode(p.phoneNumber);
+                    phone = dec?.user?.split(':')[0] || String(p.phoneNumber).split('@')[0].split(':')[0];
                 }
 
-                // Fallback: regular phone-number `id`
-                if (id.endsWith('@s.whatsapp.net')) {
-                    const num = id.replace('@s.whatsapp.net', '').replace(/\D/g, '');
-                    if (/^\d{7,15}$/.test(num)) {
-                        validNumbers.push(num);
-                        continue;
-                    }
+                // 2. Full LID resolution (in-memory store → file fallback)
+                if (!phone) phone = await resolvePhone(sock, p.id);
+
+                // 3. Last resort — strip plain @s.whatsapp.net JID
+                if (!phone && (p.id || '').endsWith('@s.whatsapp.net')) {
+                    phone = p.id.replace('@s.whatsapp.net', '').split(':')[0];
                 }
 
-                // Last resort: LID → PN mapping file
-                const rawId = id || jid;
-                if (rawId.endsWith('@lid') || rawId.endsWith('@hosted.lid')) {
-                    const lidUser = rawId.split('@')[0];
-                    const pnUser  = getLidMappingValue(lidUser, 'lidToPn');
-                    if (pnUser && /^\d{7,15}$/.test(pnUser)) {
-                        validNumbers.push(pnUser);
-                    }
-                }
+                if (!phone) continue;
+                const digits = phone.replace(/\D/g, '');
+                if (!/^\d{7,15}$/.test(digits)) continue;
+                if (digits === botPhone) continue;  // skip bot itself
+
+                validNumbers.push(digits);
             }
 
             if (validNumbers.length === 0) {
@@ -87,20 +96,18 @@ module.exports = {
             const filePath = path.join(tempDir, `${safeName}_contacts.vcf`);
             fs.writeFileSync(filePath, vcfContent);
 
-            // Send the VCF file as a document
             const fileBuffer = fs.readFileSync(filePath);
             await sock.sendMessage(chatId, {
                 document: fileBuffer,
                 mimetype: 'text/vcard',
                 fileName: `${safeName}_contacts.vcf`,
-                caption: `📇 ${groupName} — ${validNumbers.length} contact(s)`
+                caption: `📇 *${groupName}* — ${validNumbers.length} contact(s) exported`
             }, { quoted: msg });
 
-            // Clean up
             fs.unlinkSync(filePath);
 
         } catch (error) {
-            console.error('VCF command error:', error);
+            console.error('[vcf]', error.message);
             await sock.sendMessage(chatId, {
                 text: `🚫 Error: ${error.message}`
             }, { quoted: msg });
