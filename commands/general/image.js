@@ -7,6 +7,7 @@ const axios = require('axios');
 const MAX_LIMIT = 10;
 const DEFAULT_LIMIT = 5;
 const SEND_DELAY = 1500;
+const DOWNLOAD_TIMEOUT = 30000;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,24 @@ async function searchImages(query, limit) {
         throw new Error('No images found');
     }
     return data.result;
+}
+
+async function downloadImage(imgUrl) {
+    try {
+        const response = await axios.get(imgUrl, {
+            responseType: 'arraybuffer',
+            timeout: DOWNLOAD_TIMEOUT,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://commons.wikimedia.org/',
+                'Accept': 'image/*'
+            }
+        });
+        return Buffer.from(response.data);
+    } catch (e) {
+        console.error('[img] download error:', e.message);
+        throw new Error(`Failed to download image: ${e.message}`);
+    }
 }
 
 // ── Module ────────────────────────────────────────────────────────────────────
@@ -76,25 +95,38 @@ module.exports = [
             }
 
             const images = result.images.slice(0, limit);
+            let sent = 0;
 
-            try {
-                for (let i = 0; i < images.length; i++) {
-                    const img = images[i];
+            for (let i = 0; i < images.length; i++) {
+                const img = images[i];
+
+                try {
+                    const buffer = await downloadImage(img.url);
+                    
                     await sock.sendMessage(from, {
-                        image: { url: img.url },
+                        image: buffer,
                     }, { quoted: msg });
 
-                    if (i < images.length - 1) await sleep(SEND_DELAY);
-                }
+                    sent++;
 
-                await react(sock, from, msg.key, '✅');
-            } catch (e) {
-                console.error('[img]', e.message);
+                    if (i < images.length - 1) await sleep(SEND_DELAY);
+
+                } catch (e) {
+                    console.error('[img] send error:', e.message);
+                    // Skip this image and continue
+                    continue;
+                }
+            }
+
+            if (sent === 0) {
                 await react(sock, from, msg.key, '❌');
-                await sock.sendMessage(from, {
-                    text: `🚫 Error sending images: ${e.message}`,
+                return await sock.sendMessage(from, {
+                    text: `🚫 Failed to download any images.`,
                 }, { quoted: msg });
             }
+
+            await react(sock, from, msg.key, '✅');
+
         },
     },
 ];
