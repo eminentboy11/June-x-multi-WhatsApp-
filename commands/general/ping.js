@@ -13,12 +13,11 @@ module.exports = {
         try {
             const chatId = extra.from;
             const botName = config.botName || 'June-Ultra';
-            const isDM = !chatId.endsWith('@g.us');
 
             const start = performance.now();
             const sentMsg = await sock.sendMessage(chatId, {
                 text: applyFont('🔸 pong!...')
-            }, isDM ? { quoted: msg } : {});
+            }, { quoted: msg });
 
             const ping = (performance.now() - start).toFixed(3);
             const response = applyFont(`🔹 ${botName} Speed: ${ping} ms`);
@@ -26,10 +25,10 @@ module.exports = {
             await sock.sendMessage(chatId, {
                 text: response,
                 edit: sentMsg.key
-            });
+            }, { quoted: msg });
 
         } catch (error) {
-            console.error('Ping error:', error);
+            console.error('[ping]', error.message);
             await extra.reply('❌ Failed to measure speed.');
         }
     }
