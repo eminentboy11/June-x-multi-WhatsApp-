@@ -4,7 +4,7 @@ module.exports = {
     
     botName: 'JuneX-Ultra',
     prefix: '.',
-    version: '2.8.7',
+    version: '2.8.9',
     sessionName: '',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
@@ -12,7 +12,7 @@ module.exports = {
     JUNE_BOT_ID:  'june-ultra-main',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
-    packname: '✮⃝𝐒ᵘᵖʳᵉᵐᵉ',
+    packname: '',
     telegramToken: '8316875590:AAGXXYbt2OIn_hORS0s9RlW5n3e5W5-0YPQ',
     
     selfMode: false,
