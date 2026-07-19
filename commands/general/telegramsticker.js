@@ -1,13 +1,3 @@
-/**
- * Telegram Sticker Pack → WhatsApp Stickers
- * Downloads every sticker from a Telegram pack and sends them as WA sticker
- * packs of up to 59 stickers each. Stickers sharing the same sticker-pack-id
- * in their EXIF metadata appear together as one pack inside WhatsApp.
- *
- * Commands: .tgs | .telegramsticker | .tgms | .tgsticker
- * Usage:    .tgs https://t.me/addstickers/<PackName>
- */
-
 const fetch      = require('node-fetch');
 const fs         = require('fs');
 const path       = require('path');
@@ -147,8 +137,7 @@ module.exports = {
         // Pre-generate one stable pack ID per chunk so every sticker in a
         // chunk shares the same ID and they group into one WhatsApp pack.
         const packIds   = chunks.map(() => crypto.randomBytes(32).toString('hex'));
-        const pushName  = msg.pushName || 'User';
-        const waPack    = `${pushName} ©${config.botName || 'JuneX'}`;
+        const waPack    = msg.pushName || 'User';
 
         const sent = await sock.sendMessage(
             from,
