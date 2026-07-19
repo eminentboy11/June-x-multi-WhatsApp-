@@ -1,7 +1,5 @@
 /**
  * Circle Sticker Command
- * Convert any image/video/gif into a circular WhatsApp sticker
- * (animated for videos), cropping to a circle with transparent background.
  */
 
 const fs = require('fs');
@@ -180,7 +178,7 @@ module.exports = {
       // Create metadata
       const json = {
         'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-        'sticker-pack-name': packArg || config.packname || 'Made by',
+        'sticker-pack-name': packArg || config.packname || '✮⃝ˢᵘᵖʳᵉᵐᵉ ᴸᵒʳᵈ',
         'sticker-pack-publisher': authorArg || config.author || '',
         'emojis': ['⭕']
       };
