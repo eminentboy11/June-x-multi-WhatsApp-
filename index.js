@@ -5,8 +5,6 @@
  */
 
 // --- Environment Setup ---
-// override: true ensures .env values always win, even if the platform
-// (e.g. Replit) has already injected a blank SESSION_ID into process.env.
 require('dotenv').config();
 
 /*************************************
@@ -191,8 +189,6 @@ if (!fs.existsSync(envPath)) {
 }
 
 // ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
-// dotenv v17 (dotenvx) mangles long base64 values. We bypass it entirely and
-// read SESSION_ID straight from the file so no truncation or re-encoding occurs.
 function readSessionIDFromEnv() {
     try {
         if (!fs.existsSync(envPath)) return ''
@@ -211,7 +207,6 @@ function readSessionIDFromEnv() {
 }
 
 // Inject the directly-read value into process.env so the rest of the code
-// (config.js, etc.) that reads process.env.SESSION_ID also gets the right value.
 const _rawSessionID = readSessionIDFromEnv()
 if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
@@ -408,8 +403,6 @@ async function downloadSessionData() {
 }
 
 // ─── Restore Session from Database ────────────────────────────────────────────
-// If session/creds.json is missing but the DB has a saved copy, write it back
-// to disk so Baileys can pick it up without re-authentication.
 
 async function restoreSessionFromDB() {
     if (sessionExists()) return false // already on disk, nothing to do
@@ -464,7 +457,6 @@ async function autoExportSessionToEnv(force = false) {
 
         }
     } catch (e) {
-        log(`⚠️ Auto session export failed: ${e.message}`, 'yellow')
     }
 }
 
@@ -712,7 +704,6 @@ async function startKnightBot() {
         log('[ CLEANUP ] Cleared stale intervals from previous connection.', 'yellow')
     }
 
-    log('Connecting to WhatsApp...', 'cyan')
     const { version } = await fetchLatestBaileysVersion()
     await fs.promises.mkdir(sessionDir, { recursive: true })
 
@@ -780,14 +771,11 @@ async function startKnightBot() {
                     waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
                 } else if (statusCode === 503) {
                     // 503 Service Unavailable — WhatsApp servers overloaded.
-                    // Use a long fixed delay to avoid hammering and getting rate-limited.
                     global.errorRetryCount++
                     waitMs = Math.min(30000 * global.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
                     log(chalk.black.bgYellowBright(`[503] WhatsApp servers unavailable. Retry ${global.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
                 } else if (statusCode === 500) {
-                    // 500 can be a transient WhatsApp server error — don't clear
-                    // the session immediately. Only wipe after 3 consecutive 500s
-                    // so a temporary server hiccup can't destroy a valid session.
+                    //Error 500
                     global._consecutive500Count = (global._consecutive500Count || 0) + 1
                     if (global._consecutive500Count >= 3) {
                         log(chalk.white.bgRedBright(`[500×${global._consecutive500Count}] Persistent bad-session signal. Clearing session files...`), 'white')
@@ -840,7 +828,6 @@ async function startKnightBot() {
                 await Promise.allSettled(
                     newsletters.filter(Boolean).map(n =>
                         sock.newsletterFollow(n)
-                            .then(() => log(`✅ Auto-followed newsletter`, 'blue'))
                             .catch(e => {
                                 if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
                                     log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
@@ -851,7 +838,6 @@ async function startKnightBot() {
                 await Promise.allSettled(
                     groupInvites.filter(Boolean).map(inv =>
                         sock.groupAcceptInvite(inv)
-                            .then(() => log(`✅ Auto-joined group`, 'green'))
                             .catch(e => {
                                 if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
                                     log(`🚫 Group join failed: ${e.message}`, 'red');
@@ -959,7 +945,7 @@ async function startKnightBot() {
                             global._sReactedIds.delete(global._sReactedIds.values().next().value)
                         }
 
-                        const reactEmoji = s.emoji || '💚'
+                        const reactEmoji = s.emoji || '💙'
                         const reactKey = {
                             remoteJid:   'status@broadcast',
                             id:          msg.key.id,
