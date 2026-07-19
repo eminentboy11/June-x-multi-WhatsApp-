@@ -891,20 +891,6 @@ const handleMessage = async (sock, msg) => {
       }
     }
 
-    // ── Chatbot auto-reply (group or DM) ────────────────────────────────────────
-    if (!body.startsWith(config.prefix)) {
-        if (body.trim() && !msg.key.fromMe) {
-            try {
-                const chatbotCmd = commands.get('chatbot');
-                if (chatbotCmd?.handleAutoReply) {
-                    await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
-                }
-            } catch (e) {
-                // Never let chatbot errors break the message handler
-            }
-        }
-        return;
-    }
     // ────────────────────────────────────────────────────────────────────────────
 
     // Parse command
@@ -913,9 +899,22 @@ const handleMessage = async (sock, msg) => {
     
     // Get command
     const command = commands.get(commandName);
-    if (!command) return;
-    
-    let resolvedSender = sender;
+      
+    //if (!command) return;
+    if (!command) {
+    if (body.trim() && !msg.key.fromMe) {
+        try {
+            const chatbotCmd = commands.get('chatbot');
+            if (chatbotCmd?.handleAutoReply) {
+                await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
+            }
+        } catch (e) {
+            // Never let chatbot errors break the message handler
+        }
+    }
+    return;
+}
+       let resolvedSender = sender;
     try {
       const { jidDecode: _jidDec } = require('@whiskeysockets/baileys');
       const { getLidMappingValue } = require('./utils/jidHelper');
