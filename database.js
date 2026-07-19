@@ -298,7 +298,7 @@ const BOT_SETTINGS_DEFAULTS = {
   alwaysOnline: false,
   autoStatusView: false,
   autoStatusReact: false,
-  autoStatusEmoji: '💚',
+  autoStatusEmoji: '💙',
   readReceipts: 'all',
   menuImageCustom: false,
 };
@@ -339,8 +339,6 @@ const setBotMode = (mode) => {
 };
 
 // ── AntiForward Settings ───────────────────────────────────────────────────
-// Stores per-group antiforward settings
-// Defaults to: enabled: false, action: 'delete'
 const getAntiforwardSettings = (groupId) => {
   const groups = readDB(GROUPS_DB);
   const settings = groups[groupId] || {};
@@ -397,8 +395,6 @@ const clearAllAntiforwardWarnings = (groupId, userId) => {
 };
 
 // ── Session Persistence ────────────────────────────────────────────────────
-// Stores the WhatsApp auth creds (base64) so a session can be restored
-// without re-scanning/pairing after a restart.
 const saveSession = (credsPath) => {
   try {
     if (!fs.existsSync(credsPath)) return false;
@@ -450,20 +446,17 @@ module.exports = {
   getBotMode,
   setBotMode,
   VALID_BOT_MODES,
-  // Bot-wide settings
   getBotSetting,
   setBotSetting,
   getAllBotSettings,
   updateBotSettings,
   BOT_SETTINGS_DEFAULTS,
-  // AntiForward settings
   getAntiforwardSettings,
   updateAntiforwardSettings,
   addAntiforwardWarning,
   getAntiforwardWarningCount,
   clearAntiforwardWarning,
   clearAllAntiforwardWarnings,
-  // Session persistence
   saveSession,
   getSession,
   clearSession,
