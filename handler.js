@@ -163,7 +163,6 @@ const isOwner = (sender) => {
   if (!sender) return false;
 
   // Extract the raw phone/user number from sender (strips :device and @server)
-  // Works for both standard JIDs (1234@s.whatsapp.net) and device-scoped ones (1234:5@s.whatsapp.net)
   const rawNum = sender.split('@')[0].split(':')[0];
 
   // Fast path: direct number match (catches normal and device-scoped JIDs)
@@ -463,12 +462,12 @@ const handleMessage = async (sock, msg) => {
 
         const jid  = msg.key.remoteJid;
         const mode = arSettings.mode || 'bot';
-        const emojis = ['❤️','🔥','👌','💀','😁','✨','👍','🤨','😎','😂','🤝','💫'];
+        const emojis = ['❤️','🔥','👌','💀','😁','✨','👍','🤨','😎','😂','🤝','💫','🌍'];
 
         if (mode === 'bot') {
           const prefixList = ['.', '/', '#'];
           if (prefixList.includes(text?.trim()[0])) {
-            await sock.sendMessage(jid, { react: { text: '⏳', key: msg.key } });
+            await sock.sendMessage(jid, { react: { text: '🌪️', key: msg.key } });
           }
         }
 
@@ -916,15 +915,6 @@ const handleMessage = async (sock, msg) => {
     const command = commands.get(commandName);
     if (!command) return;
     
-    // fromMe = message sent by the bot's own number → always treat as owner
-    // ── Resolve LID sender → phone number JID (Baileys 7.x LID support) ──────
-    // In newer WhatsApp (7.x RC), senders in both groups AND DMs are identified
-    // by LID (@lid / @hosted.lid) instead of phone number JIDs.  We resolve them
-    // so that owner/sudo checks work correctly everywhere.
-    //
-    // Detection: use jidDecode server field — the only reliable signal for LIDs.
-    // Resolution: only accept the result when getLidMappingValue returns a real
-    // phone-number mapping; never accept a synthetic fallback as "resolved".
     let resolvedSender = sender;
     try {
       const { jidDecode: _jidDec } = require('@whiskeysockets/baileys');
@@ -1070,7 +1060,6 @@ const handleMessage = async (sock, msg) => {
     
     // Don't send error messages for rate limit errors
     if (error.message && error.message.includes('rate-overlimit')) {
-      console.warn('⚠️ Rate limit reached. Skipping error message.');
       return;
     }
     
@@ -1311,9 +1300,6 @@ const handleAntilink = async (sock, msg, groupMetadata) => {
                   msg.message?.imageMessage?.caption || 
                   msg.message?.videoMessage?.caption || '';
     
-    // Link detection: matches URLs with a protocol, or well-known link patterns.
-    // Requires http(s):// for generic domains so version strings like "v1.2.3"
-    // or decimals like "5.00" are NOT falsely flagged.
     const linkPattern = /https?:\/\/[^\s]+|t\.me\/[^\s]+|wa\.me\/[^\s]+|chat\.whatsapp\.com\/[^\s]+/i;
     
     // Check for any links (with or without protocol)
@@ -1475,8 +1461,6 @@ const handleAntigroupmention = async (sock, msg, groupMetadata) => {
     if (!groupSettings.antigroupmention) return;
 
     // ── Sender detection ──────────────────────────────────────────────────────
-    // groupStatusMentionMessage stores the real sender inside the nested object.
-    // Fall back to msg.key.participant, then remoteJid as last resort.
     let sender =
       msg.message?.groupStatusMentionMessage?.participant ||
       msg.key.participant ||
@@ -1715,9 +1699,6 @@ const handleAntigroupstatus = async (sock, msg, groupMetadata) => {
 
 // Anti-call feature initializer
 const initializeAntiCall = (sock) => {
-  // AntiDelete — Baileys v7 signals deletions via messages.update with stubType REVOKE (1)
-  // AntiEdit  — edits arrive as messages.update with update.message.editedMessage
-  // messages.delete does NOT fire in this version
   sock.ev.on('messages.update', async (updates) => {
     try {
       const { WAMessageStubType } = require('@whiskeysockets/baileys');
@@ -1786,7 +1767,6 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
     const groupSettings = database.getGroupSettings(from);
 
     // ── Resolve real media type through all Baileys wrappers ────────────────
-    // Stickers/images can arrive inside ephemeralMessage, viewOnceMessageV2, etc.
     function resolveType(message) {
       if (!message) return null;
       const top = Object.keys(message)[0];
@@ -1835,7 +1815,6 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
       if (!botIsAdminChk) return;
 
       // ── Delete the message ─────────────────────────────────────────────────
-      // Build a clean key — some wrappers need the participant set explicitly
       const deleteKey = {
         remoteJid:   from,
         fromMe:      msg.key.fromMe || false,
@@ -1920,12 +1899,12 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
 
 // ── AntiBug crash-pattern detection ─────────────────────────────────────────
 const CRASH_PATTERNS = [
-  /\u0000/,                       // Null byte injection
-  /\u202E{2,}/,                   // RTL override repeated
-  /[\u200B-\u200D\uFEFF]{10,}/,   // Invisible / zero-width char flood
-  /[\u0300-\u036f]{8,}/,          // Zalgo combining-mark attack
-  /(.)\1{500,}/,                  // Single character repeated 500+ times
-  /[\u{E0000}-\u{E007F}]/u,       // Unicode tag block (known WA crash vector)
+  /\u0000/,                       
+  /\u202E{2,}/,                   
+  /[\u200B-\u200D\uFEFF]{10,}/,   
+  /[\u0300-\u036f]{8,}/,          
+  /(.)\1{500,}/,                 
+  /[\u{E0000}-\u{E007F}]/u,      
 ];
 
 const isCrashMessage = (text) => {
@@ -1954,7 +1933,6 @@ const handleAntibug = async (sock, msg, groupMetadata, isGroup, sender, from) =>
     const senderNum = (sender || from).split('@')[0].split(':')[0];
     const action    = database.getBotSetting('antibugAction') || 'delete';
 
-    console.log(`[ANTIBUG] Crash message detected from ${senderNum} in ${isGroup ? 'group' : 'DM'} ${from}`);
 
     if (isGroup) {
       const senderIsAdminVal = await isAdmin(sock, sender, from, groupMetadata);
