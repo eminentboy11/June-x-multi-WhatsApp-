@@ -15,12 +15,11 @@ function saveSettings(settings) {
     db.updateBotSettings({
         autoStatusView:  !!settings.enabled,
         autoStatusReact: !!settings.react,
-        autoStatusEmoji: settings.emoji || '💚',
+        autoStatusEmoji: settings.emoji || '',
     });
 }
 
 // Strip invisible variation selectors / zero-width chars that WhatsApp
-// sometimes appends to emoji — prevents the "double emoji" display bug
 function cleanEmoji(str) {
     return str.replace(/[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u200D\u200B\uFEFF]/gu, '').trim();
 }
@@ -51,7 +50,7 @@ module.exports = {
                     `━━━━━━━━━━━━\n` +
                     ` ✧ autostatusview <on/off>\n` +
                     ` ✧ autostatusview react <on/off>\n` +
-                    ` ✧ autostatusview emoji <💚>`
+                    ` ✧ autostatusview emoji 💙`
                 );
             }
 
@@ -75,7 +74,7 @@ module.exports = {
                 if (val === 'on') {
                     settings.react = true;
                     saveSettings(settings);
-                    return extra.reply(`💚 *Status React turned ON*\nEmoji: ${settings.emoji}`);
+                    return extra.reply(` *Status React turned ON*\nEmoji: ${settings.emoji}`);
                 } else if (val === 'off') {
                     settings.react = false;
                     saveSettings(settings);
@@ -97,8 +96,8 @@ module.exports = {
                 return extra.reply(
                     `👁️ *Auto Status View Config*\n━━━━━━━━━━━━━━━\n\n` +
                     `📌 View: *${settings.enabled ? 'ON' : 'OFF'}*\n` +
-                    `${settings.react ? '💚' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
-                    `React Emoji: *${settings.emoji || '💚'}*`
+                    `${settings.react ? '💙' : '❌'} React: *${settings.react ? 'ON' : 'OFF'}*\n` +
+                    `React Emoji: *${settings.emoji || '💙'}*`
                 );
             }
 
