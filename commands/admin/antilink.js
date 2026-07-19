@@ -1,24 +1,9 @@
-/**
- * ╔══════════════════════════════════════════════════════════════╗
- * ║  FILE    : antilink.js                                       ║
- * ║  FEATURE : Antilink Protection                               ║
- * ║  SCOPE   : Admin — Group only                                ║
- * ║  CMDS    : .antilink on | off | delete | kick | warn         ║
- * ╚══════════════════════════════════════════════════════════════╝
- *
- * .antilink on     → enable (keeps last action, default: delete)
- * .antilink off    → disable
- * .antilink delete → enable + set action to delete
- * .antilink kick   → enable + set action to kick
- * .antilink warn   → enable + set action to warn (auto-kick at max warns)
- */
-
 const database = require(require('path').join(global.__CORE__, 'database'));
 const config   = require(require('path').join(global.__ROOT__, 'config'));
 
 module.exports = {
     name: 'antilink',
-    aliases: ['al'],
+    aliases: ['al', 'nolink'],
     category: 'admin',
     description: 'Block links in the group — delete, kick, or warn the sender',
     usage: '.antilink on | off | delete | kick | warn',
