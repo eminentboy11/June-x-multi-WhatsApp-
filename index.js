@@ -810,7 +810,6 @@ async function startKnightBot() {
             // Auto-export the session to .env so restarts never need re-login
             autoExportSessionToEnv(true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
-            log(`📦 Commands loaded: ${cmdCount}`, 'cyan')
             if (!global.welcomeSent) {
                 global.welcomeSent = true
                 await sendWelcomeMessage(sock)
