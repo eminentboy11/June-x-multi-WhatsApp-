@@ -105,10 +105,14 @@ const config = require('./config')
 try {
     const db = require('./database');
     const all = db.getAllBotSettings();
-    // Apply scalar config keys
-    const CONFIG_KEYS = ['prefix', 'botName', 'timezone', 'autoReact', 'autoReactMode'];
-    for (const key of CONFIG_KEYS) {
-        if (key in all && all[key] !== undefined) config[key] = all[key];
+    // Apply ALL stored settings that directly match a config key.
+    // This covers prefix, botName, timezone, autoReact, autoReactMode,
+    // selfMode, autoSticker, autoDownload, autoBio — and any future
+    // additions automatically, without needing to update this list.
+    for (const [key, value] of Object.entries(all)) {
+        if (key in config && value !== null && value !== undefined) {
+            config[key] = value;
+        }
     }
     // Restore autoRead from stored mode (autoread command stores 'on'|'group'|'pm'|'off')
     if (all.autoReadMode && all.autoReadMode !== 'off') {
@@ -697,14 +701,31 @@ const isSystemJid = (jid) => !jid ||
 
 // ─── Start Bot (Main Socket) ──────────────────────────────────────────────────
 
-async function startKnightBot() {
+// ─── Baileys Version Cache ────────────────────────────────────────────────────
+// Fetch the WA version once per process. Reconnect loops reuse the cached
+// value so startup/reconnect never blocks on a remote network request.
+let _baileysVersionCache = null
+async function getBaileysVersion() {
+    if (_baileysVersionCache) return _baileysVersionCache
+    try {
+        const result = await fetchLatestBaileysVersion()
+        _baileysVersionCache = result.version
+    } catch (e) {
+        // Fallback to a known-good version so the bot still starts if GitHub is unreachable
+        _baileysVersionCache = [2, 3000, 1023507977]
+        log(`[ VERSION ] fetchLatestBaileysVersion failed (${e.message}). Using fallback version.`, 'yellow')
+    }
+    return _baileysVersionCache
+}
+
+async function startJunexBot() {
     if (global._activeIntervals && global._activeIntervals.length > 0) {
         global._activeIntervals.forEach(id => clearInterval(id))
         global._activeIntervals = []
         log('[ CLEANUP ] Cleared stale intervals from previous connection.', 'yellow')
     }
 
-    const { version } = await fetchLatestBaileysVersion()
+    const version = await getBaileysVersion()
     await fs.promises.mkdir(sessionDir, { recursive: true })
 
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir)
@@ -736,8 +757,15 @@ async function startKnightBot() {
     global.currentSock = sock
 
     // ── Connection Updates ──────────────────────────────────────────────────────
+    let _pairingCodeRequested = false
     sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update
+        const { connection, lastDisconnect, qr } = update
+
+        // ── Pairing code flow: intercept QR and request a code instead ──────────
+        if (qr && global.phoneNumber && !_pairingCodeRequested) {
+            _pairingCodeRequested = true
+            await requestPairingCode(sock)
+        }
 
         if (connection === 'close') {
             global.isBotConnected = false
@@ -796,7 +824,7 @@ async function startKnightBot() {
                 log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
                 await delay(waitMs)
                 global.isReconnecting = false
-                startKnightBot()
+                startJunexBot()
             }
         } else if (connection === 'open') {
             global.isReconnecting = false
@@ -804,6 +832,7 @@ async function startKnightBot() {
             global._consecutive500Count = 0  // Clear the 500 guard on successful connect
             global.botState = 'connected'
             global.connectedAt = Date.now()
+            global.phoneNumber = null  // Clear so reconnects don't re-request pairing code
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             log(`🌿 Connected as: +${botNum}`, 'yellow')
             log('Connecting...', 'green')
@@ -1168,7 +1197,7 @@ async function main() {
 
         await saveLoginMethod('session')
         log('[ SESSION_ID ] Connecting...', 'cyan')
-        await startKnightBot()
+        await startJunexBot()
         checkEnvStatus()
         return
     }
@@ -1181,7 +1210,7 @@ async function main() {
     // 5. Use existing stored session if valid
     if (sessionExists()) {
         log('[ALERT] Valid stored session found.', 'green')
-        await startKnightBot()
+        await startJunexBot()
         checkEnvStatus()
         return
     }
@@ -1190,7 +1219,7 @@ async function main() {
     const restoredFromDB = await restoreSessionFromDB()
     if (restoredFromDB) {
         await saveLoginMethod('session')
-        await startKnightBot()
+        await startJunexBot()
         checkEnvStatus()
         return
     }
@@ -1199,9 +1228,20 @@ async function main() {
     log(chalk.black.bgYellowBright('[ LOGIN ] No SESSION_ID found and no stored session. Launching login menu...'), 'white')
     const loginMethod = await getLoginMethod()
     if (loginMethod === 'session') {
-        await downloadSessionData()
+        try {
+            await downloadSessionData()
+            if (!sessionExists()) {
+                throw new Error('Session file was not written — SESSION_ID may be corrupt or expired.')
+            }
+            log('[ LOGIN ] ✅ Session ID accepted. Connecting...', 'green')
+        } catch (e) {
+            log(`[ LOGIN ] ❌ Failed to load session: ${e.message}`, 'red', true)
+            log('Please check your SESSION_ID and try again. Retrying in 5 seconds...', 'yellow')
+            await delay(5000)
+            return main()
+        }
     }
-    await startKnightBot()
+    await startJunexBot()
     checkEnvStatus()
 }
 
