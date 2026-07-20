@@ -31,12 +31,12 @@ module.exports = {
 
             // ── Step 2: Call API ──────────────────────────────────────────
             const { data: apiRes } = await axios.get(
-                `https://apiskeith2-production-ec66.up.railway.app/download/audio?url=${encodeURIComponent(video.url)}&format=mp3`,
+                `https://api.cod3uchiha.com/downloaders/ytmp3?url=${encodeURIComponent(video.url)}&format=mp3`,
                 { timeout: 30000 }
             );
 
             // result field holds the mp3 link
-            const downloadUrl = apiRes?.result;
+            const downloadUrl = apiRes?.data?.downloadUrl;
             if (!downloadUrl) throw new Error('No download URL returned');
 
             // ── Step 3: Download to temp file ─────────────────────────────
