@@ -955,6 +955,9 @@ const handleMessage = async (sock, msg) => {
     const senderIsOwner = msg.key.fromMe || isOwner(resolvedSender);
     const senderIsSudo  = senderIsOwner || isSudo(resolvedSender);
 
+    // Self mode — bot only responds to its own messages (self-bot mode)
+    if (config.selfMode && !msg.key.fromMe) return;
+
     // Bot mode check
     {
       const { getMode } = require('./utils/botMode');

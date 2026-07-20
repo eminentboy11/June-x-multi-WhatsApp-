@@ -301,6 +301,10 @@ const BOT_SETTINGS_DEFAULTS = {
   autoStatusEmoji: '💙',
   readReceipts: 'all',
   menuImageCustom: false,
+  selfMode: false,
+  autoSticker: false,
+  autoDownload: false,
+  autoBio: false,
 };
 
 const getBotSetting = (key) => {
