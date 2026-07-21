@@ -1,5 +1,10 @@
 // commands/getpp.js
-const { tryFetchProfilePictureUrl, displayUserTag } = require('../../utils/jidHelper');
+const {
+  tryFetchProfilePictureUrl,
+  displayUserTag,
+  normalizeJidWithLid,
+  resolvePhone,
+} = require('../../utils/jidHelper');
 
 module.exports = {
   name: 'getpp',
@@ -9,13 +14,14 @@ module.exports = {
   execute: async (sock, msg, args, extra) => {
     const { reply, react, from } = extra;
 
-    const contextInfo = msg.message?.extendedTextMessage?.contextInfo
-      || msg.message?.imageMessage?.contextInfo
-      || msg.message?.videoMessage?.contextInfo
-      || msg.message?.stickerMessage?.contextInfo
-      || null;
+    const contextInfo =
+      msg.message?.extendedTextMessage?.contextInfo ||
+      msg.message?.imageMessage?.contextInfo ||
+      msg.message?.videoMessage?.contextInfo ||
+      msg.message?.stickerMessage?.contextInfo ||
+      null;
 
-    const quoted = contextInfo?.participant || contextInfo?.remoteJid || null;
+    const quoted   = contextInfo?.participant || contextInfo?.remoteJid || null;
     const mentioned = contextInfo?.mentionedJid?.[0] || null;
 
     const targetJid = quoted || mentioned || msg.key.participant || msg.key.remoteJid;
@@ -36,18 +42,34 @@ module.exports = {
         } catch (_) {}
       }
 
+      // ── Resolve JID to phone number
+      let resolvedTarget = targetJid;
+      const phone = await resolvePhone(sock, targetJid);
+      if (phone) {
+        resolvedTarget = `${phone}@s.whatsapp.net`;
+      } else {
+        // Normalise LID → PN via mapping files as a secondary fallback
+        resolvedTarget = normalizeJidWithLid(targetJid);
+      }
+
+      // ── Fetch profile picture across all JID variants ──────────────────────
       const { url: ppUrl, jid: resolvedJid } = await tryFetchProfilePictureUrl(
         sock,
-        targetJid,
+        resolvedTarget,
         groupMetadata
       );
 
       if (!ppUrl) {
         await react('❌');
-        return reply('❌ Could not fetch profile picture. The user may have privacy settings enabled or has no picture set.');
+        return reply(
+          '❌ Could not fetch profile picture. The user may have privacy settings enabled or has no picture set.'
+        );
       }
 
-      const displayTag = displayUserTag(resolvedJid, groupMetadata);
+      // Prefer phone number for the display tag (antiforeign pattern)
+      const displayTag = phone
+        ? phone
+        : displayUserTag(resolvedJid, groupMetadata);
 
       await sock.sendMessage(
         from,
@@ -62,7 +84,9 @@ module.exports = {
       await react('✅');
     } catch (err) {
       await react('❌');
-      await reply('❌ Could not fetch profile picture. The user may have privacy settings enabled or has no picture set.');
+      await reply(
+        '❌ Could not fetch profile picture. The user may have privacy settings enabled or has no picture set.'
+      );
     }
   },
 };
