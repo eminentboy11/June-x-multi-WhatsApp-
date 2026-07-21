@@ -893,11 +893,13 @@ const handleMessage = async (sock, msg) => {
 
     // ────────────────────────────────────────────────────────────────────────────
 
-    // Only respond to the exact configured prefix — reject all others
-    if (!body.startsWith(config.prefix)) return;
+    // Prefix gate — only process messages that start with the configured prefix.
+    // When prefix is empty ('') every message is a potential command (intentional).
+    const _prefix = config.prefix ?? '.';
+    if (_prefix !== '' && !body.startsWith(_prefix)) return;
 
     // Parse command
-    const args = body.slice(config.prefix.length).trim().split(/\s+/);
+    const args = body.slice(_prefix.length).trim().split(/\s+/);
     const commandName = args.shift().toLowerCase();
     
     // Get command
