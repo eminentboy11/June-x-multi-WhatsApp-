@@ -68,7 +68,10 @@ module.exports = [
             } catch (err) {
                 console.error('[pin]', err.message);
                 await react(sock, msg, '❌');
-                extra.reply('❌ Failed to pin chat. Please try again.');
+                const hint = err.message?.includes('App state key not present')
+                    ? '❌ *Cannot pin chat* — your session does not have app state keys.\n\nChat pinning requires a full WhatsApp session (not just a SESSION_ID string). This is a Baileys limitation.'
+                    : `❌ Failed to pin chat: ${err.message}`;
+                extra.reply(hint);
             }
         },
     },
@@ -98,7 +101,10 @@ module.exports = [
             } catch (err) {
                 console.error('[unpin]', err.message);
                 await react(sock, msg, '❌');
-                extra.reply('❌ Failed to unpin chat. Please try again.');
+                const hint = err.message?.includes('App state key not present')
+                    ? '❌ *Cannot unpin chat* — your session does not have app state keys.\n\nChat unpinning requires a full WhatsApp session (not just a SESSION_ID string). This is a Baileys limitation.'
+                    : `❌ Failed to unpin chat: ${err.message}`;
+                extra.reply(hint);
             }
         },
     },
