@@ -1,5 +1,5 @@
 /**
- * Pin / Unpin Commands
+ * Pin / Unpin / Star Message Commands
  */
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
@@ -12,21 +12,29 @@ const send = (sock, msg, text) =>
 
 // ── Extract quoted message key ────────────────────────────────────────────────
 
-function getQuotedKey(msg, jid) {
+function getQuotedKey(sock, msg, jid) {
     const ctx =
         msg.message?.extendedTextMessage?.contextInfo ||
         msg.message?.imageMessage?.contextInfo ||
         msg.message?.videoMessage?.contextInfo ||
         msg.message?.audioMessage?.contextInfo ||
         msg.message?.documentMessage?.contextInfo ||
+        msg.message?.stickerMessage?.contextInfo ||
         null;
 
     if (!ctx?.stanzaId) return null;
 
+    // Determine fromMe: compare quoted sender with bot's own JID
+    const botNumber = sock.user?.id?.split(':')[0] || sock.user?.id?.split('@')[0];
+    const quotedParticipant = ctx.participant || '';
+    const fromMe = quotedParticipant
+        ? quotedParticipant.split('@')[0] === botNumber
+        : msg.key.fromMe; // fallback for private chats
+
     return {
         id: ctx.stanzaId,
         remoteJid: jid,
-        fromMe: ctx.participant === undefined,
+        fromMe,
         participant: ctx.participant || undefined,
     };
 }
@@ -100,7 +108,7 @@ module.exports = [
         aliases: ['pinmessage'],
         category: 'utility',
         description: 'Pin a quoted message in a chat or group',
-        usage: '.pinmsg (reply to a message)',
+        usage: '.pinmsg [24h|7d|30d] (reply to a message)',
 
         async execute(sock, msg, args, extra) {
             const jid = extra.from;
@@ -116,7 +124,7 @@ module.exports = [
             const pinTime = durations[duration] || 604800; // default 7 days
 
             // ── Check quoted message ──────────────────────────────────────────
-            const quotedKey = getQuotedKey(msg, jid);
+            const quotedKey = getQuotedKey(sock, msg, jid);
 
             if (!quotedKey) {
                 return extra.reply(
@@ -132,12 +140,11 @@ module.exports = [
             await react(sock, msg, '📌');
 
             try {
+                // Correct Baileys API: pin = key, type and time are top-level
                 await sock.sendMessage(jid, {
-                    pin: {
-                        type: 1,
-                        time: pinTime,
-                        key: quotedKey,
-                    },
+                    pin: quotedKey,
+                    type: 1,
+                    time: pinTime,
                 });
 
                 const label =
@@ -148,7 +155,7 @@ module.exports = [
                 await send(sock, msg,
                     `📌 *Message Pinned*\n\n` +
                     `Duration: *${label}*\n\n` +
-                    '_Use_ *.unpinmsg* _(reply same message) to unpin._'
+                    '_Use_ *.unpinmsg* _(reply to the same message) to unpin._'
                 );
 
                 await react(sock, msg, '✅');
@@ -165,13 +172,13 @@ module.exports = [
         aliases: ['unpinmessage'],
         category: 'utility',
         description: 'Unpin a quoted message in a chat or group',
-        usage: '.unpinmsg (reply to a pinned message)',
+        usage: '.unpinmsg (reply to the pinned message)',
 
         async execute(sock, msg, args, extra) {
             const jid = extra.from;
 
             // ── Check quoted message ──────────────────────────────────────────
-            const quotedKey = getQuotedKey(msg, jid);
+            const quotedKey = getQuotedKey(sock, msg, jid);
 
             if (!quotedKey) {
                 return extra.reply(
@@ -183,12 +190,11 @@ module.exports = [
             await react(sock, msg, '📌');
 
             try {
+                // Correct Baileys API: pin = key, type 2 = unpin
                 await sock.sendMessage(jid, {
-                    pin: {
-                        type: 2,
-                        time: 0,
-                        key: quotedKey,
-                    },
+                    pin: quotedKey,
+                    type: 2,
+                    time: 0,
                 });
 
                 await send(sock, msg,
@@ -202,6 +208,57 @@ module.exports = [
                 console.error('[unpinmsg]', err.message);
                 await react(sock, msg, '❌');
                 extra.reply('❌ Failed to unpin message. Make sure the bot is an admin in groups.');
+            }
+        },
+    },
+
+    {
+        name: 'starmsg',
+        aliases: ['star', 'starmesg', 'starmessage'],
+        category: 'utility',
+        description: 'Star or unstar a quoted message',
+        usage: '.starmsg (reply to a message) | .starmsg unstar (reply to unstar)',
+
+        async execute(sock, msg, args, extra) {
+            const jid = extra.from;
+            const shouldUnstar = args[0]?.toLowerCase() === 'unstar';
+
+            // ── Check quoted message ──────────────────────────────────────────
+            const quotedKey = getQuotedKey(sock, msg, jid);
+
+            if (!quotedKey) {
+                return extra.reply(
+                    '❌ *Please reply to a message to star it.*\n\n' +
+                    '*Usage:*\n' +
+                    '  .starmsg            → ⭐ Star the quoted message\n' +
+                    '  .starmsg unstar     → ✖ Unstar the quoted message'
+                );
+            }
+
+            await react(sock, msg, shouldUnstar ? '✖️' : '⭐');
+
+            try {
+                await sock.star(jid, [{ id: quotedKey.id, fromMe: quotedKey.fromMe }], !shouldUnstar);
+
+                if (shouldUnstar) {
+                    await send(sock, msg,
+                        '✖️ *Message Unstarred*\n\n' +
+                        'The message has been removed from your starred messages.\n\n' +
+                        '_Use_ *.starmsg* _(reply to a message) to star it again._'
+                    );
+                } else {
+                    await send(sock, msg,
+                        '⭐ *Message Starred*\n\n' +
+                        'The message has been added to your starred messages.\n\n' +
+                        '_Use_ *.starmsg unstar* _(reply to the message) to unstar._'
+                    );
+                }
+
+                await react(sock, msg, '✅');
+            } catch (err) {
+                console.error('[starmsg]', err.message);
+                await react(sock, msg, '❌');
+                extra.reply(`❌ Failed to ${shouldUnstar ? 'unstar' : 'star'} message. Please try again.`);
             }
         },
     },
