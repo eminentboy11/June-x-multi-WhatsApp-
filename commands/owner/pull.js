@@ -88,6 +88,41 @@ module.exports = {
         fs.copyFileSync(configSrc, path.join(extractedPath, 'config.js'));
       }
 
+      await updateStatus('⚙️', 'Saving session before restart...');
+
+      // Persist the current session so the restarted process reconnects
+      // immediately without re-authentication or re-downloading credentials.
+      try {
+        const sessionFilePath = path.join(__dirname, '..', '..', 'session', 'creds.json');
+        const envFilePath     = path.join(__dirname, '..', '..', '.env');
+        const { saveSession } = require('../../database');
+
+        if (fs.existsSync(sessionFilePath)) {
+          // 1. Save to database (used by restoreSessionFromDB on restart)
+          saveSession(sessionFilePath);
+
+          // 2. Update SESSION_ID in .env so main() priority-mode kicks in instantly
+          const credsJson = fs.readFileSync(sessionFilePath, 'utf8');
+          JSON.parse(credsJson); // validate before writing
+          const base64    = Buffer.from(credsJson, 'utf8').toString('base64');
+          const sessionID = `Ultra-X:~${base64}`;
+
+          if (fs.existsSync(envFilePath)) {
+            let envContent = fs.readFileSync(envFilePath, 'utf8');
+            if (/^SESSION_ID=/m.test(envContent)) {
+              envContent = envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`);
+            } else {
+              envContent = envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`;
+            }
+            fs.writeFileSync(envFilePath, envContent);
+            process.env.SESSION_ID = sessionID;
+          }
+        }
+      } catch (sessionErr) {
+        console.error('[update] session backup warning:', sessionErr.message);
+        // Non-fatal — proceed with restart even if backup failed
+      }
+
       await updateStatus('✅', 'Update done. Restarting...');
 
       setTimeout(() => process.exit(0), 500);
