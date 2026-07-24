@@ -893,32 +893,40 @@ const handleMessage = async (sock, msg) => {
 
     // ────────────────────────────────────────────────────────────────────────────
 
-    // Prefix gate — only process messages that start with the configured prefix.
-    // When prefix is empty ('') every message is a potential command (intentional).
+    // Prefix gate — determine whether this message even looks like a command attempt.
+    // When prefix is empty ('') every message is a potential command (intentional),
+    // but that means "command not found" below is what routes to chatbot instead
+    // of the prefix check itself.
     const _prefix = config.prefix ?? '.';
-    if (_prefix !== '' && !body.startsWith(_prefix)) return;
+    const hasPrefix = _prefix === '' || body.startsWith(_prefix);
 
-    // Parse command
-    const args = body.slice(_prefix.length).trim().split(/\s+/);
-    const commandName = args.shift().toLowerCase();
-    
-    // Get command
-    const command = commands.get(commandName);
-      
-    //if (!command) return;
-    if (!command) {
-    if (body.trim() && !msg.key.fromMe) {
-        try {
-            const chatbotCmd = commands.get('chatbot');
-            if (chatbotCmd?.handleAutoReply) {
-                await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
-            }
-        } catch (e) {
-            // Never let chatbot errors break the message handler
-        }
+    let args = [];
+    let command = null;
+    let commandName = '';
+
+    if (hasPrefix) {
+        const stripped = _prefix === '' ? body : body.slice(_prefix.length);
+        args = stripped.trim().split(/\s+/);
+        commandName = (args.shift() || '').toLowerCase();
+        command = commands.get(commandName);
     }
-    return;
-}
+
+    // No command matched — either no prefix was used, or (in empty-prefix mode)
+    // the first word just isn't a real command name. Either way, fall through
+    // to the chatbot auto-reply so plain conversation still gets a response.
+    if (!command) {
+        if (body.trim() && !msg.key.fromMe) {
+            try {
+                const chatbotCmd = commands.get('chatbot');
+                if (chatbotCmd?.handleAutoReply) {
+                    await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
+                }
+            } catch (e) {
+                // Never let chatbot errors break the message handler
+            }
+        }
+        return;
+    }
        let resolvedSender = sender;
     try {
       const { jidDecode: _jidDec } = require('@whiskeysockets/baileys');
