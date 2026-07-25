@@ -8,7 +8,8 @@ module.exports = {
     sessionName: '',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
-    JUNE_API_URL: 'https://juneultraai.onrender.com',
+    JUNE_API_URL: 'https://push-kk43.onrender.com',
+    //https://juneultraai.onrender.com
     JUNE_BOT_ID:  'june-ultra-main',
     updateZipUrl: 'https://github.com/Vinpink2/June-X-Ultra/archive/refs/heads/main.zip',
     
