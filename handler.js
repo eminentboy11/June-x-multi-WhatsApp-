@@ -55,6 +55,45 @@ global.invalidateSettingsCache = () => {
 // Load all commands
 const commands = loadCommands();
 
+// ── ViewOnce store ────────────────────────────────────────────────────────────
+// WhatsApp strips the viewOnce wrapper from contextInfo.quotedMessage, so we
+// can't detect viewonce from the quoted-message structure alone.  Instead we
+// record every viewonce message ID as it arrives and check the store when an
+// emoji/sticker reply comes in.
+const voStore = new Map(); // msgId → { msg, from }
+const VO_STORE_MAX = 2000; // safety cap — evict oldest when full, never by age
+
+function voStoreSet(id, entry) {
+    if (voStore.size >= VO_STORE_MAX) {
+        // evict oldest entry
+        voStore.delete(voStore.keys().next().value);
+    }
+    voStore.set(id, entry);
+}
+
+function voStorePrune() {
+    // no-op: entries are kept indefinitely (evicted only when cap is hit)
+}
+
+/** Returns true if msg.message is a viewonce (any wrapper or direct flag). */
+function isViewOnceMsg(rawMsg) {
+    if (!rawMsg) return false;
+    const m = rawMsg;
+    const wrappers = ['viewOnceMessageV2Extension', 'viewOnceMessageV2', 'viewOnceMessage'];
+    for (const w of wrappers) if (m[w]?.message) return true;
+    // Also handle ephemeral-wrapped viewonce
+    if (m.ephemeralMessage?.message) {
+        const inner = m.ephemeralMessage.message;
+        for (const w of wrappers) if (inner[w]?.message) return true;
+    }
+    // Direct viewOnce flag
+    for (const t of ['imageMessage', 'videoMessage', 'audioMessage']) {
+        if (m[t]?.viewOnce === true) return true;
+    }
+    return false;
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Unwrap WhatsApp containers (ephemeral, view once, etc.)
 const getMessageContent = (msg) => {
   if (!msg || !msg.message) return null;
@@ -63,6 +102,8 @@ const getMessageContent = (msg) => {
   
   // Common wrappers in modern WhatsApp
   if (m.ephemeralMessage) m = m.ephemeralMessage.message;
+  // rc13: viewOnceMessageV2Extension is the newest viewonce wrapper — unwrap before V2/V1
+  if (m.viewOnceMessageV2Extension) m = m.viewOnceMessageV2Extension.message;
   if (m.viewOnceMessageV2) m = m.viewOnceMessageV2.message;
   if (m.viewOnceMessage) m = m.viewOnceMessage.message;
   if (m.documentWithCaptionMessage) m = m.documentWithCaptionMessage.message;
@@ -433,6 +474,15 @@ const handleMessage = async (sock, msg) => {
     
     if (!msg.message) return;
 
+    // ── Store viewonce messages so the emoji/sticker trigger can find them ───
+    if (msg.key?.id && isViewOnceMsg(msg.message)) {
+        const _voFrom = (!msg.key.remoteJid?.endsWith('@g.us') && msg.key.remoteJid?.endsWith('@lid') && msg.key.remoteJidAlt)
+            ? msg.key.remoteJidAlt : msg.key.remoteJid;
+        voStoreSet(msg.key.id, { msg, from: _voFrom });
+        voStorePrune();
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     // Store message for antidelete and antiedit
     try {
       const antidelete = commands.get('antidelete');
@@ -443,10 +493,15 @@ const handleMessage = async (sock, msg) => {
       if (antiedit?.storeMessage) antiedit.storeMessage(msg);
     } catch (_) {}
 
-    const from = msg.key.remoteJid;
-    
+    // rc13 LID DMs: remoteJid is a @lid JID — resolve to phone JID so all
+    // sock.sendMessage(from, ...) calls reach the user instead of silently failing.
+    const _rawFrom = msg.key.remoteJid;
+    const from = (!_rawFrom.endsWith('@g.us') && _rawFrom.endsWith('@lid') && msg.key.remoteJidAlt)
+      ? msg.key.remoteJidAlt
+      : _rawFrom;
+
     // System message filter - ignore broadcast/status/newsletter messages
-    if (isSystemJid(from)) {
+    if (isSystemJid(_rawFrom)) {
       return; // Silently ignore system messages
     }
     
@@ -498,9 +553,18 @@ const handleMessage = async (sock, msg) => {
     // Use the first actual message type (conversation, extendedTextMessage, etc.)
     const messageType = actualMessageTypes[0];
     
-    // from already defined above in DM block check
-    const sender = msg.key.fromMe ? sock.user.id.split(':')[0] + '@s.whatsapp.net' : msg.key.participant || msg.key.remoteJid;
-    const isGroup = from.endsWith('@g.us'); // Should always be true now due to DM block above
+    // Derive sender JID.
+    // rc13 LID change: for @lid-based DMs remoteJid is a LID JID and remoteJidAlt
+    // carries the phone-number JID.  Use the alt immediately so isOwner / command
+    // checks get a real phone number without waiting for an async lookup.
+    const _rawSender = msg.key.fromMe
+      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
+      : msg.key.participant || msg.key.remoteJid;
+    const _isGroupJid = from.endsWith('@g.us');
+    const sender = (!_isGroupJid && _rawSender?.endsWith('@lid') && msg.key.remoteJidAlt)
+      ? msg.key.remoteJidAlt   // phone JID available directly — skip async LID lookup
+      : _rawSender;
+    const isGroup = _isGroupJid;
 
     // ── Presence on ANY incoming message (DM or group, never bot's own) ──────
     if (!msg.key.fromMe) {
@@ -893,40 +957,73 @@ const handleMessage = async (sock, msg) => {
 
     // ────────────────────────────────────────────────────────────────────────────
 
-    // Prefix gate — determine whether this message even looks like a command attempt.
-    // When prefix is empty ('') every message is a potential command (intentional),
-    // but that means "command not found" below is what routes to chatbot instead
-    // of the prefix check itself.
-    const _prefix = config.prefix ?? '.';
-    const hasPrefix = _prefix === '' || body.startsWith(_prefix);
+    // ── Sticker / single-emoji → auto-reveal view-once ───────────────────────────
+    // NOTE: index.js already unwraps ephemeralMessage before calling handleMessage,
+    // so msg.message is the inner message — use it directly, same as viewonce.js.
+    {
+        const _isSticker    = !!msg.message?.stickerMessage;
+        const _rawBody      = msg.message?.extendedTextMessage?.text || msg.message?.conversation || '';
+        const _t            = _rawBody.trim();
+        const _isSingleEmoji = _t.length > 0 && _t.length <= 16 &&
+            /^\p{Emoji}/u.test(_t) && !/^[a-zA-Z0-9./#]/.test(_t);
 
-    let args = [];
-    let command = null;
-    let commandName = '';
+        // Log immediately so we can always see if the block was reached
+        if (!msg.key.fromMe && (_isSticker || _isSingleEmoji)) {
+            // isOwner() already handles LID JIDs via normalizeJidWithLid()
+            const _ownerCheck = isOwner(sender);
 
-    if (hasPrefix) {
-        const stripped = _prefix === '' ? body : body.slice(_prefix.length);
-        args = stripped.trim().split(/\s+/);
-        commandName = (args.shift() || '').toLowerCase();
-        command = commands.get(commandName);
-    }
+            // Same contextInfo extraction as viewonce.js execute()
+            const _ctx =
+                msg.message?.stickerMessage?.contextInfo ||
+                msg.message?.extendedTextMessage?.contextInfo ||
+                msg.message?.imageMessage?.contextInfo ||
+                msg.message?.videoMessage?.contextInfo;
 
-    // No command matched — either no prefix was used, or (in empty-prefix mode)
-    // the first word just isn't a real command name. Either way, fall through
-    // to the chatbot auto-reply so plain conversation still gets a response.
-    if (!command) {
-        if (body.trim() && !msg.key.fromMe) {
-            try {
-                const chatbotCmd = commands.get('chatbot');
-                if (chatbotCmd?.handleAutoReply) {
-                    await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
-                }
-            } catch (e) {
-                // Never let chatbot errors break the message handler
+            const _quoted = _ctx?.quotedMessage;
+
+            console.log('[VO-TRIGGER] sticker:', _isSticker, '| emoji:', _isSingleEmoji,
+                '| isOwner:', _ownerCheck, '| hasQuoted:', !!_quoted,
+                '| quotedKeys:', _quoted ? Object.keys(_quoted) : []);
+
+            if (_ownerCheck && _quoted) {
+                try {
+                    const voCmd = commands.get('vv');
+                    if (voCmd?.autoReveal) {
+                        await voCmd.autoReveal(sock, msg);
+                    }
+                } catch (_e) { console.error('[VO-TRIGGER] autoReveal error:', _e?.message); }
+                return;
             }
         }
-        return;
     }
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    // Prefix gate — only process messages that start with the configured prefix.
+    // When prefix is empty ('') every message is a potential command (intentional).
+    const _prefix = config.prefix ?? '.';
+    if (_prefix !== '' && !body.startsWith(_prefix)) return;
+
+    // Parse command
+    const args = body.slice(_prefix.length).trim().split(/\s+/);
+    const commandName = args.shift().toLowerCase();
+    
+    // Get command
+    const command = commands.get(commandName);
+      
+    //if (!command) return;
+    if (!command) {
+    if (body.trim() && !msg.key.fromMe) {
+        try {
+            const chatbotCmd = commands.get('chatbot');
+            if (chatbotCmd?.handleAutoReply) {
+                await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
+            }
+        } catch (e) {
+            // Never let chatbot errors break the message handler
+        }
+    }
+    return;
+}
        let resolvedSender = sender;
     try {
       const { jidDecode: _jidDec } = require('@whiskeysockets/baileys');
@@ -954,10 +1051,19 @@ const handleMessage = async (sock, msg) => {
             if (pnUser) resolvedSender = `${pnUser}@s.whatsapp.net`;
           }
         } else if (!isGroup) {
-          // DM path: only resolve when a real lidToPn mapping exists on disk
-          const pnUser = getLidMappingValue(decoded.user, 'lidToPn');
-          if (pnUser) resolvedSender = `${pnUser}@s.whatsapp.net`;
-          // No mapping → keep original sender; do not synthesize a phone JID
+          // DM path: use Baileys in-memory LID store first (rc13+), then disk file.
+          // By the time messages.upsert fires, Baileys has already stored the
+          // LID↔PN mapping from the message's remoteJidAlt field, so the
+          // async getPNForLID call is almost always a fast cache hit.
+          try {
+            const { resolvePhone } = require('./utils/jidHelper');
+            const pn = await resolvePhone(sock, sender);
+            if (pn) resolvedSender = `${pn}@s.whatsapp.net`;
+          } catch (_) {
+            // Fallback: file-based mapping written by earlier sessions
+            const pnUser = getLidMappingValue(decoded.user, 'lidToPn');
+            if (pnUser) resolvedSender = `${pnUser}@s.whatsapp.net`;
+          }
         }
       }
     } catch (_lidErr) {
