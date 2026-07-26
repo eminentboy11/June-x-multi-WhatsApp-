@@ -934,7 +934,7 @@ async function startJunexBot() {
 
         // ── Status Handler ─────────────────────────────────────────────────────
         // shared settings module required once outside the loop for efficiency
-        const { loadSettings, pickEmoji } = require('./utils/statusSettings')
+        const { loadSettings, pickEmoji } = require('./database')
 
         // ── Reaction queue: one at a time, properly spaced ──
         if (!global._sReactQueue) {

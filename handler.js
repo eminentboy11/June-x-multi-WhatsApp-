@@ -55,44 +55,6 @@ global.invalidateSettingsCache = () => {
 // Load all commands
 const commands = loadCommands();
 
-// ── ViewOnce store ────────────────────────────────────────────────────────────
-// WhatsApp strips the viewOnce wrapper from contextInfo.quotedMessage, so we
-// can't detect viewonce from the quoted-message structure alone.  Instead we
-// record every viewonce message ID as it arrives and check the store when an
-// emoji/sticker reply comes in.
-const voStore = new Map(); // msgId → { msg, from }
-const VO_STORE_MAX = 2000; // safety cap — evict oldest when full, never by age
-
-function voStoreSet(id, entry) {
-    if (voStore.size >= VO_STORE_MAX) {
-        // evict oldest entry
-        voStore.delete(voStore.keys().next().value);
-    }
-    voStore.set(id, entry);
-}
-
-function voStorePrune() {
-    // no-op: entries are kept indefinitely (evicted only when cap is hit)
-}
-
-/** Returns true if msg.message is a viewonce (any wrapper or direct flag). */
-function isViewOnceMsg(rawMsg) {
-    if (!rawMsg) return false;
-    const m = rawMsg;
-    const wrappers = ['viewOnceMessageV2Extension', 'viewOnceMessageV2', 'viewOnceMessage'];
-    for (const w of wrappers) if (m[w]?.message) return true;
-    // Also handle ephemeral-wrapped viewonce
-    if (m.ephemeralMessage?.message) {
-        const inner = m.ephemeralMessage.message;
-        for (const w of wrappers) if (inner[w]?.message) return true;
-    }
-    // Direct viewOnce flag
-    for (const t of ['imageMessage', 'videoMessage', 'audioMessage']) {
-        if (m[t]?.viewOnce === true) return true;
-    }
-    return false;
-}
-// ─────────────────────────────────────────────────────────────────────────────
 
 // Unwrap WhatsApp containers (ephemeral, view once, etc.)
 const getMessageContent = (msg) => {
@@ -474,14 +436,6 @@ const handleMessage = async (sock, msg) => {
     
     if (!msg.message) return;
 
-    // ── Store viewonce messages so the emoji/sticker trigger can find them ───
-    if (msg.key?.id && isViewOnceMsg(msg.message)) {
-        const _voFrom = (!msg.key.remoteJid?.endsWith('@g.us') && msg.key.remoteJid?.endsWith('@lid') && msg.key.remoteJidAlt)
-            ? msg.key.remoteJidAlt : msg.key.remoteJid;
-        voStoreSet(msg.key.id, { msg, from: _voFrom });
-        voStorePrune();
-    }
-    // ─────────────────────────────────────────────────────────────────────────
 
     // Store message for antidelete and antiedit
     try {
@@ -958,21 +912,17 @@ const handleMessage = async (sock, msg) => {
     // ────────────────────────────────────────────────────────────────────────────
 
     // ── Sticker / single-emoji → auto-reveal view-once ───────────────────────────
-    // NOTE: index.js already unwraps ephemeralMessage before calling handleMessage,
-    // so msg.message is the inner message — use it directly, same as viewonce.js.
+    // When the owner replies to a view-once with any sticker or a bare emoji,
+    // intercept here (before the prefix gate) and run the .vv command directly.
     {
-        const _isSticker    = !!msg.message?.stickerMessage;
-        const _rawBody      = msg.message?.extendedTextMessage?.text || msg.message?.conversation || '';
-        const _t            = _rawBody.trim();
+        const _isSticker     = !!msg.message?.stickerMessage;
+        const _rawBody       = msg.message?.extendedTextMessage?.text || msg.message?.conversation || '';
+        const _t             = _rawBody.trim();
         const _isSingleEmoji = _t.length > 0 && _t.length <= 16 &&
             /^\p{Emoji}/u.test(_t) && !/^[a-zA-Z0-9./#]/.test(_t);
 
-        // Log immediately so we can always see if the block was reached
-        if (!msg.key.fromMe && (_isSticker || _isSingleEmoji)) {
-            // isOwner() already handles LID JIDs via normalizeJidWithLid()
-            const _ownerCheck = isOwner(sender);
-
-            // Same contextInfo extraction as viewonce.js execute()
+        if (!msg.key.fromMe && (_isSticker || _isSingleEmoji) && isOwner(sender)) {
+            // Extract contextInfo from whichever wrapper is present
             const _ctx =
                 msg.message?.stickerMessage?.contextInfo ||
                 msg.message?.extendedTextMessage?.contextInfo ||
@@ -981,18 +931,32 @@ const handleMessage = async (sock, msg) => {
 
             const _quoted = _ctx?.quotedMessage;
 
-            console.log('[VO-TRIGGER] sticker:', _isSticker, '| emoji:', _isSingleEmoji,
-                '| isOwner:', _ownerCheck, '| hasQuoted:', !!_quoted,
-                '| quotedKeys:', _quoted ? Object.keys(_quoted) : []);
+            if (_quoted) {
+                // Check that the quoted message is actually a view-once
+                const _isVO =
+                    !!_quoted.viewOnceMessageV2Extension ||
+                    !!_quoted.viewOnceMessageV2 ||
+                    !!_quoted.viewOnceMessage ||
+                    !!_quoted?.imageMessage?.viewOnce ||
+                    !!_quoted?.videoMessage?.viewOnce ||
+                    !!_quoted?.audioMessage?.viewOnce;
 
-            if (_ownerCheck && _quoted) {
-                try {
-                    const voCmd = commands.get('vv');
-                    if (voCmd?.autoReveal) {
-                        await voCmd.autoReveal(sock, msg);
-                    }
-                } catch (_e) { console.error('[VO-TRIGGER] autoReveal error:', _e?.message); }
-                return;
+                if (_isVO) {
+                    try {
+                        const voCmd = commands.get('vv');
+                        if (voCmd?.execute) {
+                            await voCmd.execute(sock, msg, [], {
+                                from,
+                                sender,
+                                isOwner: true,
+                                command: 'vv',
+                                reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
+                                react:  (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } }),
+                            });
+                        }
+                    } catch (_e) {}
+                    return;
+                }
             }
         }
     }

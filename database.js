@@ -299,6 +299,8 @@ const BOT_SETTINGS_DEFAULTS = {
   autoStatusView: false,
   autoStatusReact: false,
   autoStatusEmoji: '💙',
+  autoStatusEmojiPool: [],
+  autoStatusRandomEmoji: false,
   readReceipts: 'all',
   menuImageCustom: false,
   selfMode: false,
@@ -427,6 +429,39 @@ const clearSession = () => {
   return writeDB(SESSION_DB, {});
 };
 
+// ── Status Settings helpers (loadSettings / saveSettings / cleanEmoji / pickEmoji) ──
+
+function loadSettings() {
+  return {
+    enabled:     getBotSetting('autoStatusView')        || false,
+    react:       getBotSetting('autoStatusReact')       || false,
+    emoji:       getBotSetting('autoStatusEmoji')       || '💚',
+    emojiPool:   getBotSetting('autoStatusEmojiPool')   || [],
+    randomEmoji: getBotSetting('autoStatusRandomEmoji') || false,
+  };
+}
+
+function saveSettings(settings) {
+  updateBotSettings({
+    autoStatusView:        !!settings.enabled,
+    autoStatusReact:       !!settings.react,
+    autoStatusEmoji:       settings.emoji       || '',
+    autoStatusEmojiPool:   settings.emojiPool   || [],
+    autoStatusRandomEmoji: !!settings.randomEmoji,
+  });
+}
+
+function cleanEmoji(str) {
+  return str.replace(/[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u200D\u200B\uFEFF]/gu, '').trim();
+}
+
+function pickEmoji(settings) {
+  if (settings.randomEmoji && settings.emojiPool.length) {
+    return settings.emojiPool[Math.floor(Math.random() * settings.emojiPool.length)];
+  }
+  return settings.emoji;
+}
+
 module.exports = {
   getGroupSettings,
   updateGroupSettings,
@@ -464,4 +499,8 @@ module.exports = {
   saveSession,
   getSession,
   clearSession,
+  loadSettings,
+  saveSettings,
+  cleanEmoji,
+  pickEmoji,
 };
