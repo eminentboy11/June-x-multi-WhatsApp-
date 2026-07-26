@@ -1,4 +1,4 @@
-const { loadSettings, saveSettings } = require('../../utils/statusSettings');
+const { loadSettings, saveSettings } = require('../../database');
 
 module.exports = {
     name: 'autostatusview',

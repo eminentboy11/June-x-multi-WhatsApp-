@@ -1,4 +1,4 @@
-const { loadSettings, saveSettings } = require('../../utils/statusSettings');
+const { loadSettings, saveSettings } = require('../../database');
 
 module.exports = {
     name: 'autostatusreact',
@@ -16,7 +16,10 @@ module.exports = {
             if (opt === 'on') {
                 settings.react = true;
                 saveSettings(settings);
-                return extra.reply(`💙 *Status React turned ON*\nEmoji: ${settings.emoji}`);
+                const emojiInfo = settings.randomEmoji && settings.emojiPool.length
+                    ? `🎲 Random pool: ${settings.emojiPool.join('  ')}`
+                    : `Emoji: ${settings.emoji}`;
+                return extra.reply(`💙 *Status React turned ON*\n${emojiInfo}`);
             }
 
             if (opt === 'off') {
