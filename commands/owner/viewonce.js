@@ -2,9 +2,14 @@
  * ViewOnce Command
  *   .vv  — reveals view-once and forwards to owner's DM (private)
  *   .vv2 — reveals view-once and sends in the current chat
+ *
+ * No file-size limit: content is streamed to a temp file and sent via file
+ * path so Baileys can upload in chunks regardless of how large the media is.
  */
 
+const fs = require('fs');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { createTempFilePath, deleteTempFile } = require('../../utils/tempManager');
 
 module.exports = {
     name: 'viewonce',
@@ -15,17 +20,19 @@ module.exports = {
     usage: '.vv (reply to a view-once) | .vv2 (reply to display here)',
 
     async execute(sock, msg, args, extra) {
-        const chatId   = extra.from;
-        const selfJid  = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+        const chatId  = extra.from;
+        const selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
 
         // vv2 sends to current chat; vv sends to owner DM
         const sendToCurrentChat = extra.command === 'vv2';
         const targetJid = sendToCurrentChat ? chatId : selfJid;
 
+        let tmpPath = null;
         try {
             // ── Extract quoted context ─────────────────────────────────────
             const ctx =
                 msg.message?.extendedTextMessage?.contextInfo ||
+                msg.message?.stickerMessage?.contextInfo ||
                 msg.message?.imageMessage?.contextInfo ||
                 msg.message?.videoMessage?.contextInfo ||
                 msg.message?.buttonsResponseMessage?.contextInfo ||
@@ -46,8 +53,8 @@ module.exports = {
 
             // ── Check that it's actually a view-once ───────────────────────
             const hasViewOnce =
-                !!quoted.viewOnceMessageV2 ||
                 !!quoted.viewOnceMessageV2Extension ||
+                !!quoted.viewOnceMessageV2 ||
                 !!quoted.viewOnceMessage ||
                 !!quoted?.imageMessage?.viewOnce ||
                 !!quoted?.videoMessage?.viewOnce ||
@@ -93,32 +100,42 @@ module.exports = {
                 );
             }
 
-            // ── Download buffer ────────────────────────────────────────────
+            // ── Stream to temp file (no memory limit) ─────────────────────
             const downloadType =
                 mtype === 'imageMessage' ? 'image' :
                 mtype === 'videoMessage' ? 'video' : 'audio';
 
-            const stream = await downloadContentFromMessage(actualMsg[mtype], downloadType);
-            let buffer = Buffer.from([]);
-            for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+            const ext =
+                mtype === 'imageMessage' ? 'jpg' :
+                mtype === 'videoMessage' ? 'mp4' : 'mp4';
+
+            tmpPath = createTempFilePath('vv', ext);
+            const writeStream = fs.createWriteStream(tmpPath);
+            const dlStream    = await downloadContentFromMessage(actualMsg[mtype], downloadType);
+            await new Promise((resolve, reject) => {
+                dlStream.pipe(writeStream);
+                writeStream.on('finish', resolve);
+                writeStream.on('error', reject);
+                dlStream.on('error', reject);
+            });
 
             const caption = actualMsg[mtype]?.caption || '';
 
-            // ── Send to target chat ────────────────────────────────────────
+            // ── Send via file path — Baileys streams upload, no size cap ──
             if (mtype === 'imageMessage') {
                 await sock.sendMessage(targetJid, {
-                    image: buffer,
+                    image: { url: tmpPath },
                     caption: caption || '🖼️ *ViewOnce Image*'
                 });
             } else if (mtype === 'videoMessage') {
                 await sock.sendMessage(targetJid, {
-                    video: buffer,
+                    video: { url: tmpPath },
                     caption: caption || '🎬 *ViewOnce Video*',
                     mimetype: 'video/mp4'
                 });
             } else {
                 await sock.sendMessage(targetJid, {
-                    audio: buffer,
+                    audio: { url: tmpPath },
                     mimetype: actualMsg[mtype]?.mimetype || 'audio/mp4',
                     ptt: false
                 });
@@ -135,6 +152,9 @@ module.exports = {
                 { text: `❌ Failed to reveal view-once: ${error.message || 'Unknown error'}` },
                 { quoted: msg }
             );
+        } finally {
+            // Always clean up the temp file
+            if (tmpPath) deleteTempFile(tmpPath);
         }
     }
 };
