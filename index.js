@@ -1000,11 +1000,15 @@ async function startJunexBot() {
 
                 // Auto View
                 if (s.enabled && normPart) {
-                    try {
-                        await sock.sendReceipt('status@broadcast', normPart, [msg.key.id], 'read')
-                    } catch (_) {}
+                    // 1. Mark the message as read first
                     try {
                         await sock.readMessages([msg.key])
+                    } catch (_) {}
+                    // 2. Send the story read receipt after a short natural delay
+                    //    so WhatsApp registers the view and updates the poster's seen list
+                    await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 500)))
+                    try {
+                        await sock.sendReceipt('status@broadcast', normPart, [msg.key.id], 'read')
                     } catch (_) {}
                 }
 
