@@ -61,12 +61,11 @@ async function downloadVideo(videoUrl) {
             { timeout: 60000 }
         );
         
-        if (!response.data?.downlodUrl) {
+        if (!response.data?.status) {
             throw new Error('TKM API failed to fetch video');
         }
         
         return {
-            status: true,
             result: response.data.downloadUrl,
             title: response.data.title,
         };
