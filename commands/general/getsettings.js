@@ -67,7 +67,7 @@ module.exports = {
             const selfMode       = database.getBotSetting('selfMode')       || false;
             const autoBio        = database.getBotSetting('autoBio')        || false;
             const autoDownload   = database.getBotSetting('autoDownload')   || false;
-            const menuStyle      = database.getBotSetting('menuStyle')      || '1';
+            const menuStyle      = database.getBotSetting('menuStyle')      || '2';
             const fontStyle      = database.getBotSetting('fontStyle')      || 'normal';
 
             // Read receipts
