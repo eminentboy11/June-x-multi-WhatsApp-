@@ -2,7 +2,7 @@ const { loadSettings, saveSettings } = require('../../database');
 
 module.exports = {
     name: 'autostatusreact',
-    aliases: ['statusreact'],
+    aliases: ['statusreact', 'asr'],
     category: 'owner',
     description: 'Auto-react to WhatsApp statuses',
     usage: '.autostatusreact <on/off/get>',
