@@ -301,7 +301,7 @@ const BOT_SETTINGS_DEFAULTS = {
   autoStatusEmoji: '💙',
   autoStatusEmojiPool: [],
   autoStatusRandomEmoji: false,
-  readReceipts: 'all',
+  readReceipts: 'off',
   menuImageCustom: false,
   selfMode: false,
   autoSticker: false,
