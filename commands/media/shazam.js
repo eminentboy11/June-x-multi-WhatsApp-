@@ -312,14 +312,11 @@ module.exports = {
             const dateNow   = Date.now();
             const ytQuery   = encodeURIComponent(`${songInfo.title} ${songInfo.artist}`);
             const ytUrl     = `https://www.youtube.com/results?search_query=${ytQuery}`;
-            const spotUrl   = songInfo.spotify || `https://open.spotify.com/search/${ytQuery}`;
-            const appleUrl  = songInfo.appleMusic || "";
-            const songUrl   = songInfo.songLink || "";
 
             // Play button — reply button that triggers download
             const playBtnId = `shazam_play_${dateNow}`;
 
-            // All buttons combined: Play first, then URL buttons (open external links)
+            // Buttons: Play + YouTube Search only
             const allButtons = [
                 { id: playBtnId, text: "▶️ Play" },
                 {
@@ -329,36 +326,9 @@ module.exports = {
                         url: ytUrl,
                     }),
                 },
-                {
-                    name: "cta_url",
-                    buttonParamsJson: JSON.stringify({
-                        display_text: "💚 Open on Spotify",
-                        url: spotUrl,
-                    }),
-                },
             ];
 
-            if (appleUrl) {
-                allButtons.push({
-                    name: "cta_url",
-                    buttonParamsJson: JSON.stringify({
-                        display_text: "🍎 Apple Music",
-                        url: appleUrl,
-                    }),
-                });
-            }
-
-            if (songUrl) {
-                allButtons.push({
-                    name: "cta_url",
-                    buttonParamsJson: JSON.stringify({
-                        display_text: "🔗 Song Link",
-                        url: songUrl,
-                    }),
-                });
-            }
-
-            // Send one message: song info + all buttons (Play + links) together
+            // Send one message: song info + buttons (Play + YouTube) together
             try {
                 await sendButtons(
                     sock,
@@ -371,11 +341,9 @@ module.exports = {
                     { quoted: msg },
                 );
             } catch (_) {
-                // Fallback: plain text with links, no Play button available
+                // Fallback: plain text, no buttons available
                 let plain = resultText;
-                if (songInfo.spotify)    plain += `\n🟢 *Spotify:*      ${songInfo.spotify}`;
-                if (songInfo.appleMusic) plain += `\n🍎 *Apple Music:*  ${songInfo.appleMusic}`;
-                if (songInfo.songLink)   plain += `\n🔗 *Link:*         ${songInfo.songLink}`;
+                plain += `\n🔗 *YouTube:* ${ytUrl}`;
                 plain += `\n\n▶️ *To download:* \`.play ${songInfo.title} ${songInfo.artist}\``;
                 await sock.sendMessage(from, { text: plain }, { quoted: msg });
             }
@@ -410,7 +378,7 @@ module.exports = {
                 // Remove listener — one download per result
                 sock.ev.off("messages.upsert", handlePlayTap);
 
-                await sock.sendMessage(from, { react: { text: "⬇️", key: msg.key } });
+                await sock.sendMessage(from, { react: { text: "🔍", key: msg.key } });
 
                 let filePath;
                 try {
@@ -418,6 +386,7 @@ module.exports = {
                     const searchTerm = `${songInfo.title} ${songInfo.artist}`;
                     const video = await searchYouTube(searchTerm);
 
+                    await sock.sendMessage(from, { react: { text: "⬇️", key: msg.key } });
                     await sock.sendMessage(from, {
                         text: `🎵 Downloading *${video.title}*…`,
                     }, { quoted: m });
@@ -442,6 +411,8 @@ module.exports = {
                     if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
                         throw new Error("Download failed — file is empty");
                     }
+
+                    await sock.sendMessage(from, { react: { text: "📤", key: msg.key } });
 
                     // Send as playable audio
                     await sock.sendMessage(from, {
@@ -472,7 +443,6 @@ module.exports = {
             }, 10 * 60 * 1000);
 
         } catch (err) {
-            console.error("[SHAZAM] error:", err.message);
             await sock.sendMessage(from, { react: { text: "❌", key: msg.key } });
 
             let errMsg = "Failed to identify the song.";
