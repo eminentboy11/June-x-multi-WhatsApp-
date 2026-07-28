@@ -2,7 +2,7 @@ const { loadSettings, saveSettings } = require('../../database');
 
 module.exports = {
     name: 'autostatusview',
-    aliases: ['autostatus', 'autoview', 'statusview'],
+    aliases: ['asv', 'viewstatus', 'statusview'],
     category: 'owner',
     description: 'Auto-view WhatsApp statuses',
     usage: '.autostatusview <on/off/get>',
