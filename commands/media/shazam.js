@@ -2,6 +2,7 @@
  * Shazam Command — Identify songs from audio / video media.
  * Supports: multi-API fallback (AudD → Keith → Ryzen) + text search.
  * Audio clip extracted via ffmpeg before identification.
+ * Includes ▶️ Play button to download the identified song as audio.
  */
 
 const axios = require("axios");
@@ -10,8 +11,10 @@ const { downloadMediaMessage } = require("@whiskeysockets/baileys");
 const { sendButtons } = require("gifted-btns");
 const fs = require("fs");
 const path = require("path");
+const os = require("os");
 const { exec } = require("child_process");
 const { promisify } = require("util");
+const yts = require("yt-search");
 
 const execAsync = promisify(exec);
 
@@ -173,6 +176,37 @@ function getMediaType(msgObj) {
     return null;
 }
 
+// ─── YouTube search + audio download (same chain as play.js) ─────────────────
+async function searchYouTube(query) {
+    const result = await yts(`${query} official audio`);
+    if (!result?.videos?.length) throw new Error("No YouTube results found");
+    return result.videos[0];
+}
+
+async function downloadAudio(videoUrl) {
+    try {
+        // Primary API
+        const primary = await axios.get(
+            `https://apiskeith2-production-ec66.up.railway.app/download/audio?url=${encodeURIComponent(videoUrl)}`,
+            { timeout: 60000 },
+        );
+        if (primary.data?.status && primary.data?.result) {
+            return { result: primary.data.result, title: primary.data.title };
+        }
+        throw new Error("Primary API failed");
+    } catch {
+        // Fallback API
+        const fallback = await axios.get(
+            `https://yt-dl.officialhectormanuel.workers.dev/?url=${encodeURIComponent(videoUrl)}`,
+            { timeout: 60000 },
+        );
+        if (!fallback.data?.status || !fallback.data?.audio) {
+            throw new Error("Both download APIs failed");
+        }
+        return { result: fallback.data.audio, title: fallback.data.title };
+    }
+}
+
 // ─── Command ──────────────────────────────────────────────────────────────────
 module.exports = {
     name: "shazam",
@@ -190,7 +224,6 @@ module.exports = {
             await sock.sendMessage(from, { react: { text: "🔍", key: msg.key } });
 
             try {
-                const yts = require("yt-search");
                 const results = await yts(searchQuery);
 
                 if (!results?.videos?.length) {
@@ -282,12 +315,14 @@ module.exports = {
             console.log(`[SHAZAM] Identified: ${songInfo.artist} - ${songInfo.title}`);
 
             // ── Build buttons ─────────────────────────────────────────────────
-            const ytQuery  = encodeURIComponent(`${songInfo.title} ${songInfo.artist}`);
-            const ytUrl    = `https://www.youtube.com/results?search_query=${ytQuery}`;
-            const spotUrl  = songInfo.spotify || `https://open.spotify.com/search/${ytQuery}`;
-            const appleUrl = songInfo.appleMusic || "";
-            const songUrl  = songInfo.songLink || "";
+            const dateNow   = Date.now();
+            const ytQuery   = encodeURIComponent(`${songInfo.title} ${songInfo.artist}`);
+            const ytUrl     = `https://www.youtube.com/results?search_query=${ytQuery}`;
+            const spotUrl   = songInfo.spotify || `https://open.spotify.com/search/${ytQuery}`;
+            const appleUrl  = songInfo.appleMusic || "";
+            const songUrl   = songInfo.songLink || "";
 
+            // URL buttons (open external links)
             const urlButtons = [
                 {
                     name: "cta_url",
@@ -325,6 +360,11 @@ module.exports = {
                 });
             }
 
+            // Play button — reply button that triggers download
+            const playBtnId = `shazam_play_${dateNow}`;
+            const playButton = { id: playBtnId, text: "▶️ Play" };
+
+            // Send URL buttons (links)
             try {
                 await sendButtons(
                     sock,
@@ -337,11 +377,123 @@ module.exports = {
                     { quoted: msg },
                 );
             } catch (_) {
-                if (songInfo.spotify)    resultText += `\n🟢 *Spotify:*      ${songInfo.spotify}`;
-                if (songInfo.appleMusic) resultText += `\n🍎 *Apple Music:*  ${songInfo.appleMusic}`;
-                if (songInfo.songLink)   resultText += `\n🔗 *Link:*         ${songInfo.songLink}`;
-                await sock.sendMessage(from, { text: resultText }, { quoted: msg });
+                // Fallback: plain text with links
+                let plain = resultText;
+                if (songInfo.spotify)    plain += `\n🟢 *Spotify:*      ${songInfo.spotify}`;
+                if (songInfo.appleMusic) plain += `\n🍎 *Apple Music:*  ${songInfo.appleMusic}`;
+                if (songInfo.songLink)   plain += `\n🔗 *Link:*         ${songInfo.songLink}`;
+                await sock.sendMessage(from, { text: plain }, { quoted: msg });
             }
+
+            // Send the ▶️ Play download button as a separate interactive message
+            try {
+                await sendButtons(
+                    sock,
+                    from,
+                    {
+                        text: `🎵 *${songInfo.title}* — ${songInfo.artist}\n\nTap *▶️ Play* to download this song as audio.`,
+                        footer: "🎵 Shazam",
+                        buttons: [playButton],
+                    },
+                    { quoted: msg },
+                );
+            } catch (_) {
+                // Fallback: tell user to use .play command
+                await sock.sendMessage(from, {
+                    text: `▶️ *To download:* \`.play ${songInfo.title} ${songInfo.artist}\``,
+                }, { quoted: msg });
+            }
+
+            // ── Listen for Play button tap ────────────────────────────────────
+            const originalSender = msg.key.participant || msg.key.remoteJid;
+
+            const handlePlayTap = async (event) => {
+                const m = event.messages?.[0];
+                if (!m?.message) return;
+
+                // Extract button response id from all known formats
+                const selectedId =
+                    m.message?.buttonsResponseMessage?.selectedButtonId ||
+                    m.message?.templateButtonReplyMessage?.selectedId ||
+                    (() => {
+                        try {
+                            const p = m.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson;
+                            return p ? JSON.parse(p).id : null;
+                        } catch { return null; }
+                    })();
+
+                if (!selectedId || selectedId !== playBtnId) return;
+                if (m.key?.remoteJid !== from) return;
+
+                // In groups: only the original requester can tap
+                if (from.endsWith("@g.us")) {
+                    const tapper = m.key.participant || m.key.remoteJid;
+                    if (tapper !== originalSender) return;
+                }
+
+                // Remove listener — one download per result
+                sock.ev.off("messages.upsert", handlePlayTap);
+
+                await sock.sendMessage(from, { react: { text: "⬇️", key: msg.key } });
+
+                let filePath;
+                try {
+                    // Search YouTube for the song
+                    const searchTerm = `${songInfo.title} ${songInfo.artist}`;
+                    const video = await searchYouTube(searchTerm);
+
+                    await sock.sendMessage(from, {
+                        text: `🎵 Downloading *${video.title}*…`,
+                    }, { quoted: m });
+
+                    // Download audio
+                    const apiData = await downloadAudio(video.url);
+
+                    filePath = path.join(os.tmpdir(), `shazam_play_${dateNow}.mp3`);
+                    const audioStream = await axios({
+                        method: "get",
+                        url: apiData.result,
+                        responseType: "stream",
+                        timeout: 600000,
+                    });
+                    const writer = fs.createWriteStream(filePath);
+                    audioStream.data.pipe(writer);
+                    await new Promise((resolve, reject) => {
+                        writer.on("finish", resolve);
+                        writer.on("error", reject);
+                    });
+
+                    if (!fs.existsSync(filePath) || fs.statSync(filePath).size === 0) {
+                        throw new Error("Download failed — file is empty");
+                    }
+
+                    // Send as playable audio
+                    await sock.sendMessage(from, {
+                        audio: fs.readFileSync(filePath),
+                        mimetype: "audio/mpeg",
+                    }, { quoted: m });
+
+                    await sock.sendMessage(from, { react: { text: "✅", key: msg.key } });
+
+                } catch (err) {
+                    console.error("[SHAZAM play]", err.message);
+                    await sock.sendMessage(from, { react: { text: "❌", key: msg.key } });
+                    await sock.sendMessage(from, {
+                        text: `❌ Download failed: ${err.message}\n\n_Try: \`.play ${songInfo.title} ${songInfo.artist}\`_`,
+                    }, { quoted: m });
+                } finally {
+                    if (filePath && fs.existsSync(filePath)) {
+                        try { fs.unlinkSync(filePath); } catch {}
+                    }
+                }
+            };
+
+            sock.ev.on("messages.upsert", handlePlayTap);
+
+            // Auto-remove listener after 10 minutes to avoid memory leak
+            setTimeout(() => {
+                sock.ev.off("messages.upsert", handlePlayTap);
+            }, 10 * 60 * 1000);
 
         } catch (err) {
             console.error("[SHAZAM] error:", err.message);
