@@ -11,7 +11,7 @@ function extractEmojis(str) {
 
 module.exports = {
     name: 'autostatusemoji',
-    aliases: ['statusemoji'],
+    aliases: ['statusemoji', 'ase'],
     category: 'owner',
     description: 'Set the emoji(s) used for status reactions',
     usage: '.autostatusemoji 💙 ✅ 💕 💞 🥰  |  <single emoji>  |  random on/off',
