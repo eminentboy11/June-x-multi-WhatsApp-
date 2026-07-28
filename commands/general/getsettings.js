@@ -1,27 +1,38 @@
 /**
- * Settings Guide — flat reference list of every configurable bot setting.
+ * Settings — flat list showing every setting's current live value.
  */
+const fs   = require('fs');
+const path = require('path');
 const { sendButtons } = require('gifted-btns');
-const config = require('../../config');
+const config   = require('../../config');
+const database = require('../../database');
+
+const on  = '✅ ON';
+const off = '❌ OFF';
+const flag = (v) => (v ? on : off);
+
+function readJson(filePath) {
+    try { return JSON.parse(fs.readFileSync(filePath, 'utf8')); }
+    catch { return {}; }
+}
 
 module.exports = {
     name: 'getsettings',
     aliases: ['settings', 'gsettings', 'setup', 'howtoset'],
     category: 'general',
-    description: 'Shows how to configure every setting and command on the bot',
+    description: 'Shows the current value of every bot and group setting',
     usage: '.settings',
 
     async execute(sock, msg, args, extra) {
         try {
-            const chatId = extra.from;
-            const p      = config.prefix || '.';
-            const owner  = Array.isArray(config.ownerName) ? config.ownerName[0] : (config.ownerName || 'Supreme');
-            const tz     = config.timezone || 'Africa/Nairobi';
-            const footer = `> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${config.botName}`;
+            const chatId  = extra.from;
+            const isGroup = chatId.endsWith('@g.us');
+            const p       = config.prefix || '.';
+            const footer  = `> ᴘᴏᴡᴇʀᴇᴅ ʙʏ ${config.botName}`;
 
-            const ownerDigits = [].concat(config.ownerNumber || [])
-                .map(n => String(n).replace(/\D/g, ''))
-                .filter(Boolean)[0] || '';
+            const ownerNums   = [].concat(config.ownerNumber || []).map(n => String(n).replace(/\D/g, '')).filter(Boolean);
+            const ownerDigits = ownerNums[0] || '';
+            const ownerName   = Array.isArray(config.ownerName) ? config.ownerName[0] : (config.ownerName || 'N/A');
 
             const buttons = [
                 {
@@ -40,126 +51,125 @@ module.exports = {
                 }
             ];
 
-            const text =
-`*⚙️ BOT SETTINGS GUIDE*
+            // ── Read all live bot settings ─────────────────────────────────────
 
-🔹 *prefix* : \`${p}\`
-   Set: \`${p}setprefix .\`
+            let botMode = '🌐 Public';
+            try { botMode = require('../../utils/botMode').getModeLabel(); } catch (_) {}
 
-🔹 *owner* : ${owner}
-   _(Edit config.js → ownerName / ownerNumber)_
+            let presenceMode = 'off';
+            try { presenceMode = require('../../utils/presenceSettings').getMode(); } catch (_) {}
+            const presenceLabel = { typing: '⌨️ typing', recording: '🎙️ recording', recordtype: '🎙️⌨️ record+type', off: 'off' }[presenceMode] || presenceMode;
 
-🔹 *timezone* : ${tz}
-   _(Edit config.js → timezone)_
-   e.g. Africa/Nairobi · Asia/Kolkata · America/New_York
+            const autoReadMode   = database.getBotSetting('autoReadMode')   || 'off';
+            const autoReact      = database.getBotSetting('autoReact')      || false;
+            const autoReactMode  = database.getBotSetting('autoReactMode')  || 'bot';
+            const alwaysOnline   = database.getBotSetting('alwaysOnline')   || false;
+            const selfMode       = database.getBotSetting('selfMode')       || false;
+            const autoBio        = database.getBotSetting('autoBio')        || false;
+            const autoDownload   = database.getBotSetting('autoDownload')   || false;
+            const menuStyle      = database.getBotSetting('menuStyle')      || '1';
+            const fontStyle      = database.getBotSetting('fontStyle')      || 'normal';
 
-🔹 *botname* : ${config.botName}
-   _(Edit config.js → botName)_
+            // Read receipts
+            const readReceiptsVal = database.getBotSetting('readReceipts') || 'off';
+            const rrLabel = { off: '🔵 off (blue ticks)', on: '⚪ on (grey ticks)', contacts: '👥 contacts only' }[readReceiptsVal] || readReceiptsVal;
 
-🔹 *selfmode* : \`${p}selfmode on/off\`
+            // Status automations
+            const s          = database.loadSettings ? database.loadSettings() : {};
+            const asvEnabled = s.enabled   ?? database.getBotSetting('autoStatusView')        ?? false;
+            const asvReact   = s.react     ?? database.getBotSetting('autoStatusReact')       ?? false;
+            const asvEmoji   = s.emoji     ?? database.getBotSetting('autoStatusEmoji')       ?? '💙';
+            const asvPool    = s.emojiPool ?? database.getBotSetting('autoStatusEmojiPool')   ?? [];
+            const asvRandom  = s.randomEmoji ?? database.getBotSetting('autoStatusRandomEmoji') ?? false;
 
-🔹 *botmode* : \`${p}botmode public/private/groups\`
+            const emojiDisplay = asvRandom && asvPool.length
+                ? `random pool: ${asvPool.join(' ')}`
+                : asvEmoji;
 
-🔹 *alwaysonline* : \`${p}alwaysonline on/off\`
+            // Bot protections
+            const antibug       = database.getBotSetting('antibug')       || false;
+            const antibugAction = database.getBotSetting('antibugAction') || 'delete';
 
-🔹 *readreceipts* : \`${p}readreceipts off\` → 🔵 blue ticks _(default)_
-   \`${p}readreceipts on\` → ⚪ grey ticks
-   \`${p}readreceipts contacts\` → blue for contacts only
+            const antideleteData  = readJson(path.join(__dirname, '../../data/antidelete.json'));
+            const antideleteMode  = antideleteData['_global']?.mode || 'off';
+            const antieditData    = readJson(path.join(__dirname, '../../data/antiedit.json'));
+            const antieditMode    = antieditData.mode || 'off';
+            const antidelStData   = readJson(path.join(__dirname, '../../data/antideletestatus.json'));
+            const antidelStOn     = antidelStData.enabled === true;
 
-🔹 *autoread* : \`${p}autoread on/off\`
-   Modes: \`${p}autoread all/pm/groups\`
+            const anticallOn     = database.getBotSetting('anticall')      || false;
+            const anticallAction = database.getBotSetting('anticallAction') || 'decline';
 
-🔹 *autoreact* : \`${p}autoreact on/off\`
-   Modes: \`${p}autoreact bot/all\`
+            // ── Build flat bot settings list ──────────────────────────────────
 
-🔹 *presence* : \`${p}presence typing/recording/off\`
+            let text =
+                `*CURRENT BOT SETTINGS*\n\n` +
 
-🔹 *autobio* : \`${p}autobio on/off\`
+                `🔹 *prefix* : ${p}\n` +
+                `🔹 *owner* : ${ownerName}\n` +
+                `🔹 *timezone* : ${config.timezone || 'Africa/Nairobi'}\n` +
+                `🔹 *botname* : ${config.botName}\n` +
+                `🔹 *botmode* : ${botMode}\n` +
+                `🔹 *selfmode* : ${flag(selfMode)}\n` +
+                `🔹 *alwaysonline* : ${flag(alwaysOnline)}\n` +
+                `🔹 *presence* : ${presenceLabel}\n` +
+                `🔹 *readreceipts* : ${rrLabel}\n` +
+                `🔹 *autoread* : ${autoReadMode}\n` +
+                `🔹 *autoreact* : ${flag(autoReact)}${autoReact ? ` — ${autoReactMode}` : ''}\n` +
+                `🔹 *autobio* : ${flag(autoBio)}\n` +
+                `🔹 *autodownload* : ${flag(autoDownload)}\n` +
+                `🔹 *autostatusview* : ${flag(asvEnabled)}\n` +
+                `🔹 *autostatusreact* : ${flag(asvReact)}\n` +
+                `🔹 *autostatusemoji* : ${emojiDisplay}\n` +
+                `🔹 *antideletestatus* : ${flag(antidelStOn)}\n` +
+                `🔹 *antibug* : ${flag(antibug)}${antibug ? ` — ${antibugAction}` : ''}\n` +
+                `🔹 *antidelete* : ${antideleteMode}\n` +
+                `🔹 *antiedit* : ${antieditMode}\n` +
+                `🔹 *anticall* : ${flag(anticallOn)}${anticallOn ? ` — ${anticallAction}` : ''}\n` +
+                `🔹 *menustyle* : ${menuStyle}\n` +
+                `🔹 *fontstyle* : ${fontStyle}\n`;
 
-🔹 *autodownload* : \`${p}autodownload on/off\`
+            // ── Group settings (only when run in a group) ─────────────────────
 
-🔹 *autostatusview* : \`${p}autostatusview on/off\`
+            if (isGroup) {
+                let groupName = 'This Group';
+                try {
+                    const meta = await sock.groupMetadata(chatId);
+                    groupName  = meta?.subject || 'This Group';
+                } catch (_) {}
 
-🔹 *autostatusreact* : \`${p}autostatusreact on/off\`
+                const gs  = database.getGroupSettings(chatId);
+                const act = (key) => gs[key] ? ` — ${gs[key]}` : '';
 
-🔹 *autostatusemoji* : \`${p}autostatusemoji 💙\` _(single)_
-   \`${p}autostatusemoji 💙,✅,😂,🥰\` _(random pool)_
+                text +=
+                    `\n*GROUP: ${groupName}*\n\n` +
 
-🔹 *antideletestatus* : \`${p}antideletestatus on/off\`
-
-🔹 *antibug* : \`${p}antibug on/off\`
-   \`${p}antibug on delete/kick/warn\`
-
-🔹 *antidelete* : \`${p}antidelete on/off\`
-   Modes: \`${p}antidelete all/pm/groups\`
-
-🔹 *antiedit* : \`${p}antiedit on/off\`
-
-🔹 *anticall* : \`${p}anticall on/off\`
-   \`${p}anticall decline/block\`
-
-🔹 *viewonce* : reply to a view-once → \`${p}viewonce\`
-
-🔹 *antilink* : \`${p}antilink on/off\`
-   Actions: delete · warn · kick
-
-🔹 *antitag* : \`${p}antitag on/off\`
-
-🔹 *antiimage* : \`${p}antiimage on/off\`
-
-🔹 *antisticker* : \`${p}antisticker on/off\`
-
-🔹 *antiaudio* : \`${p}antiaudio on/off\`
-
-🔹 *antigif* : \`${p}antigif on/off\`
-
-🔹 *anticontact* : \`${p}anticontact on/off\`
-
-🔹 *antibadword* : \`${p}antibadword on/off\`
-   Add words: \`${p}antibadword add word1 word2\`
-
-🔹 *antiviewonce* : \`${p}antiviewonce on/off\`
-
-🔹 *antiforward* : \`${p}antiforward on/off\`
-
-🔹 *antibot* : \`${p}antibot on/off\`
-
-🔹 *antiall* : \`${p}antiall on/off\`
-
-🔹 *antivideo* : \`${p}antivideo on/off\`
-
-🔹 *antidemote* : \`${p}antidemote on/off\`
-
-🔹 *antipromote* : \`${p}antipromote on/off\`
-
-🔹 *antikickall* : \`${p}antikickall on/off\`
-
-🔹 *antigroupmention* : \`${p}antigroupmention on/off\`
-
-🔹 *antigroupstatus* : \`${p}antigroupstatus on/off\`
-
-🔹 *antispam* : \`${p}antispam on/off\`
-   \`${p}antispam 5 5 delete\` _(msgs / secs / action)_
-
-🔹 *welcome* : \`${p}welcome on/off\`
-   Custom: \`${p}setwelcome your message\`
-
-🔹 *goodbye* : \`${p}goodbye on/off\`
-   Custom: \`${p}setgoodbye your message\`
-
-🔹 *chatbot* : \`${p}chatbot on/off\`
-
-🔹 *autosticker* : \`${p}autosticker on/off\`
-
-🔹 *nsfw* : \`${p}nsfw on/off\`
-
-🔹 *menustyle* : \`${p}setmenu 1\` / \`${p}setmenu 2\` … \`${p}setmenu 5\`
-
-🔹 *menuimage* : reply to image → \`${p}setmenuimage\`
-   Reset: \`${p}setmenuimage reset\`
-
-🔹 *fontstyle* : \`${p}fontstyle\` _(lists styles)_
-   \`${p}fontstyle 1\` / \`${p}fontstyle 2\` …`;
+                    `🔹 *antilink* : ${flag(gs.antilink)}${act('antilinkAction')}\n` +
+                    `🔹 *antitag* : ${flag(gs.antitag)}${act('antitagAction')}\n` +
+                    `🔹 *antiimage* : ${flag(gs.antiimage)}${act('antiimageAction')}\n` +
+                    `🔹 *antisticker* : ${flag(gs.antisticker)}${act('antistickerAction')}\n` +
+                    `🔹 *antiaudio* : ${flag(gs.antiaudio)}${act('antiaudioAction')}\n` +
+                    `🔹 *antigif* : ${flag(gs.antigif)}${act('antigifAction')}\n` +
+                    `🔹 *anticontact* : ${flag(gs.anticontact)}${act('anticontactAction')}\n` +
+                    `🔹 *antibadword* : ${flag(gs.antibadword)}${act('antibadwordAction')}\n` +
+                    `🔹 *antiviewonce* : ${flag(gs.antiviewonce)}\n` +
+                    `🔹 *antiforward* : ${flag(gs.antiforward)}\n` +
+                    `🔹 *antibot* : ${flag(gs.antibot)}\n` +
+                    `🔹 *antiall* : ${flag(gs.antiall)}\n` +
+                    `🔹 *antivideo* : ${flag(gs.antivideo)}\n` +
+                    `🔹 *antidemote* : ${flag(gs.antidemote)}\n` +
+                    `🔹 *antipromote* : ${flag(gs.antipromote)}\n` +
+                    `🔹 *antikickall* : ${flag(gs.antikickall)}\n` +
+                    `🔹 *antigroupmention* : ${flag(gs.antigroupmention)}${act('antigroupmentionAction')}\n` +
+                    `🔹 *antigroupstatus* : ${flag(gs.antigroupstatus)}${act('antigroupstatusAction')}\n` +
+                    `🔹 *antispam* : ${flag(gs.antiSpam)}${gs.antiSpam ? ` — ${gs.antiSpamLimit || 5} msgs/${gs.antiSpamWindow || 5}s → ${gs.antiSpamAction || 'delete'}` : ''}\n` +
+                    `🔹 *antidelete (group)* : ${flag(gs.antidelete)}\n` +
+                    `🔹 *welcome* : ${flag(gs.welcome)}\n` +
+                    `🔹 *goodbye* : ${flag(gs.goodbye)}\n` +
+                    `🔹 *chatbot* : ${flag(gs.chatbot)}\n` +
+                    `🔹 *autosticker* : ${flag(gs.autosticker)}\n` +
+                    `🔹 *nsfw* : ${flag(gs.nsfw)}\n`;
+            }
 
             await sendButtons(sock, chatId, { text, footer, buttons }, { quoted: msg });
 
