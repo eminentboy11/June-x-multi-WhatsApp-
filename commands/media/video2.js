@@ -57,19 +57,18 @@ async function downloadVideo(videoUrl) {
     return withRetry(async () => {
         // TKM API only
         const response = await axios.get(
-            `https://iamtkm.vercel.app/downloaders/ytmp4?apikey=tkm&url=${encodeURIComponent(videoUrl)}`,
+            `https://apissupreme.vercel.app/media/ytmp4?apikey=supreme&url=${encodeURIComponent(videoUrl)}`,
             { timeout: 60000 }
         );
         
-        if (!response.data?.data?.url) {
+        if (!response.data?.downlodUrl) {
             throw new Error('TKM API failed to fetch video');
         }
         
         return {
             status: true,
-            result: response.data.data.url,
-            title: response.data.data.title,
-            format: response.data.data.format,
+            result: response.data.downloadUrl,
+            title: response.data.title,
         };
     });
 }
