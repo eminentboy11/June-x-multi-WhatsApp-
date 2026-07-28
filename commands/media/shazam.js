@@ -1,9 +1,3 @@
-/**
- * Shazam Command — Identify songs from audio / video media.
- * Supports: multi-API fallback (AudD → Keith → Ryzen) + text search.
- * Audio clip extracted via ffmpeg before identification.
- * Includes ▶️ Play button to download the identified song as audio.
- */
 
 const axios = require("axios");
 const FormData = require("form-data");
@@ -322,8 +316,12 @@ module.exports = {
             const appleUrl  = songInfo.appleMusic || "";
             const songUrl   = songInfo.songLink || "";
 
-            // URL buttons (open external links)
-            const urlButtons = [
+            // Play button — reply button that triggers download
+            const playBtnId = `shazam_play_${dateNow}`;
+
+            // All buttons combined: Play first, then URL buttons (open external links)
+            const allButtons = [
+                { id: playBtnId, text: "▶️ Play" },
                 {
                     name: "cta_url",
                     buttonParamsJson: JSON.stringify({
@@ -341,7 +339,7 @@ module.exports = {
             ];
 
             if (appleUrl) {
-                urlButtons.push({
+                allButtons.push({
                     name: "cta_url",
                     buttonParamsJson: JSON.stringify({
                         display_text: "🍎 Apple Music",
@@ -351,7 +349,7 @@ module.exports = {
             }
 
             if (songUrl) {
-                urlButtons.push({
+                allButtons.push({
                     name: "cta_url",
                     buttonParamsJson: JSON.stringify({
                         display_text: "🔗 Song Link",
@@ -360,11 +358,7 @@ module.exports = {
                 });
             }
 
-            // Play button — reply button that triggers download
-            const playBtnId = `shazam_play_${dateNow}`;
-            const playButton = { id: playBtnId, text: "▶️ Play" };
-
-            // Send URL buttons (links)
+            // Send one message: song info + all buttons (Play + links) together
             try {
                 await sendButtons(
                     sock,
@@ -372,36 +366,18 @@ module.exports = {
                     {
                         text: resultText,
                         footer: "🎵 Powered by Shazam",
-                        buttons: urlButtons,
+                        buttons: allButtons,
                     },
                     { quoted: msg },
                 );
             } catch (_) {
-                // Fallback: plain text with links
+                // Fallback: plain text with links, no Play button available
                 let plain = resultText;
                 if (songInfo.spotify)    plain += `\n🟢 *Spotify:*      ${songInfo.spotify}`;
                 if (songInfo.appleMusic) plain += `\n🍎 *Apple Music:*  ${songInfo.appleMusic}`;
                 if (songInfo.songLink)   plain += `\n🔗 *Link:*         ${songInfo.songLink}`;
+                plain += `\n\n▶️ *To download:* \`.play ${songInfo.title} ${songInfo.artist}\``;
                 await sock.sendMessage(from, { text: plain }, { quoted: msg });
-            }
-
-            // Send the ▶️ Play download button as a separate interactive message
-            try {
-                await sendButtons(
-                    sock,
-                    from,
-                    {
-                        text: `🎵 *${songInfo.title}* — ${songInfo.artist}\n\nTap *▶️ Play* to download this song as audio.`,
-                        footer: "🎵 Shazam",
-                        buttons: [playButton],
-                    },
-                    { quoted: msg },
-                );
-            } catch (_) {
-                // Fallback: tell user to use .play command
-                await sock.sendMessage(from, {
-                    text: `▶️ *To download:* \`.play ${songInfo.title} ${songInfo.artist}\``,
-                }, { quoted: msg });
             }
 
             // ── Listen for Play button tap ────────────────────────────────────
