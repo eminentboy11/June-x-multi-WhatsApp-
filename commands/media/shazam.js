@@ -80,7 +80,7 @@ async function identifySong(audioBuffer) {
                     contentType: "audio/mpeg",
                 });
                 const res = await axios.post(
-                    "https://apiskeith.vercel.app/ai/shazam",
+                    "https://apiskeith2-production-ec66.up.railway.app/ai/shazam",
                     form,
                     { headers: form.getHeaders(), timeout: 30000 },
                 );
