@@ -192,6 +192,7 @@ async function postGroupStatus(sock, jid, content) {
 
   const inside = await generateWAMessageContent(content, {
     upload: sock.waUploadToServer,
+    jid,
     ...(backgroundColor && { backgroundColor }),
   });
 
@@ -208,7 +209,9 @@ async function postGroupStatus(sock, jid, content) {
         },
       },
     },
-    {}
+    {
+      userJid: sock.user.id,
+    }
   );
 
   await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
