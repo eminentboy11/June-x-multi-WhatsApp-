@@ -1,63 +1,76 @@
 // utils/groupStats.js
+// In-memory store with async flush — no sync disk I/O on every message.
 const fs = require('fs');
 const path = require('path');
 
 const DB_PATH = path.join(__dirname, '../database/groupStats.json');
 
-function loadDB() {
+// ── In-memory store ───────────────────────────────────────────────────────────
+let _cache = null;   // null = not loaded yet
+let _dirty = false;  // true = cache has unsaved changes
+
+function _load() {
+    if (_cache !== null) return;
     try {
-        if (!fs.existsSync(DB_PATH)) return {};
-        return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+        if (!fs.existsSync(DB_PATH)) { _cache = {}; return; }
+        const raw = fs.readFileSync(DB_PATH, 'utf8').trim();
+        _cache = raw ? JSON.parse(raw) : {};
     } catch {
-        return {};
+        _cache = {};
     }
 }
 
-function saveDB(data) {
+function _flushToDisk() {
+    if (!_dirty || !_cache) return;
+    _dirty = false;
+    const json = JSON.stringify(_cache);
+    const tmp  = DB_PATH + '.tmp';
     try {
-        fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+        fs.writeFileSync(tmp, json);
+        fs.renameSync(tmp, DB_PATH);
     } catch (err) {
-        console.error('[groupStats] save error:', err);
+        console.error('[groupStats] flush error:', err.message);
     }
 }
+
+// Flush every 5 seconds — only writes if something actually changed
+setInterval(_flushToDisk, 5000).unref();
+
+// Also flush on process exit so no data is lost on clean shutdown
+process.on('exit', _flushToDisk);
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 function addMessage(groupId, senderId) {
-    const db = loadDB();
+    _load();
     const today = new Date().toISOString().slice(0, 10);
-    const hour = new Date().getHours().toString();
+    const hour  = new Date().getHours().toString();
 
-    if (!db[groupId]) db[groupId] = {};
-    if (!db[groupId][today]) {
-        db[groupId][today] = {
-            total: 0,
-            users: {},
-            hours: {}
-        };
+    if (!_cache[groupId]) _cache[groupId] = {};
+    if (!_cache[groupId][today]) {
+        _cache[groupId][today] = { total: 0, users: {}, hours: {} };
     }
 
-    const g = db[groupId][today];
-
+    const g = _cache[groupId][today];
     g.total++;
     g.users[senderId] = (g.users[senderId] || 0) + 1;
-    g.hours[hour] = (g.hours[hour] || 0) + 1;
-
-    saveDB(db);
+    g.hours[hour]     = (g.hours[hour]     || 0) + 1;
+    _dirty = true;
 }
 
 function getStats(groupId) {
-    const db = loadDB();
+    _load();
     const today = new Date().toISOString().slice(0, 10);
-
-    if (!db[groupId] || !db[groupId][today]) return null;
-    return db[groupId][today];
+    if (!_cache[groupId] || !_cache[groupId][today]) return null;
+    return _cache[groupId][today];
 }
 
 function getActiveUsers(groupId, limit = 15) {
-    const db = loadDB();
-    if (!db[groupId]) return [];
+    _load();
+    if (!_cache[groupId]) return [];
 
     const totals = {};
-    for (const day of Object.values(db[groupId])) {
+    for (const day of Object.values(_cache[groupId])) {
         for (const [jid, count] of Object.entries(day.users || {})) {
             totals[jid] = (totals[jid] || 0) + count;
         }
@@ -70,11 +83,11 @@ function getActiveUsers(groupId, limit = 15) {
 }
 
 function getInactiveUsers(groupId, allParticipants) {
-    const db = loadDB();
+    _load();
     const active = new Set();
 
-    if (db[groupId]) {
-        for (const day of Object.values(db[groupId])) {
+    if (_cache[groupId]) {
+        for (const day of Object.values(_cache[groupId])) {
             for (const jid of Object.keys(day.users || {})) {
                 active.add(jid);
             }
