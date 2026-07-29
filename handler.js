@@ -58,6 +58,9 @@ global.invalidateSettingsCache = () => {
 const voCache = new Map();
 const VO_CACHE_TTL = 10 * 60 * 1000; // keep entries for 10 minutes
 
+// Resolve the bot's own JID once, consistently, wherever we need to DM ourselves.
+const getSelfJid = (sock) => sock.user.id.split(':')[0] + '@s.whatsapp.net';
+
 function cacheViewOnceMsg(msg) {
   try {
     const id = msg.key?.id;
@@ -144,9 +147,9 @@ const commands = loadCommands();
 // Unwrap WhatsApp containers (ephemeral, view once, etc.)
 const getMessageContent = (msg) => {
   if (!msg || !msg.message) return null;
-  
+
   let m = msg.message;
-  
+
   // Common wrappers in modern WhatsApp
   if (m.ephemeralMessage) m = m.ephemeralMessage.message;
   // rc13: viewOnceMessageV2Extension is the newest viewonce wrapper — unwrap before V2/V1
@@ -154,7 +157,7 @@ const getMessageContent = (msg) => {
   if (m.viewOnceMessageV2) m = m.viewOnceMessageV2.message;
   if (m.viewOnceMessage) m = m.viewOnceMessage.message;
   if (m.documentWithCaptionMessage) m = m.documentWithCaptionMessage.message;
-  
+
   // You can add more wrappers if needed later
   return m;
 };
@@ -166,27 +169,27 @@ const getCachedGroupMetadata = async (sock, groupId) => {
     if (!groupId || !groupId.endsWith('@g.us')) {
       return null;
     }
-    
+
     // Check cache first
     const cached = groupMetadataCache.get(groupId);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
       return cached.data; // Return cached data (even if null for forbidden groups)
     }
-    
+
     // Fetch from API
     const metadata = await sock.groupMetadata(groupId);
-    
+
     // Cache it
     groupMetadataCache.set(groupId, {
       data: metadata,
       timestamp: Date.now()
     });
-    
+
     return metadata;
   } catch (error) {
     // Handle forbidden (403) errors - cache null to prevent retry storms
     if (error.message && (
-      error.message.includes('forbidden') || 
+      error.message.includes('forbidden') ||
       error.message.includes('403') ||
       error.statusCode === 403 ||
       error.output?.statusCode === 403 ||
@@ -199,7 +202,7 @@ const getCachedGroupMetadata = async (sock, groupId) => {
       });
       return null; // Silently return null for forbidden groups
     }
-    
+
     // Handle rate limit errors
     if (error.message && error.message.includes('rate-overlimit')) {
       const cached = groupMetadataCache.get(groupId);
@@ -208,13 +211,13 @@ const getCachedGroupMetadata = async (sock, groupId) => {
       }
       return null;
     }
-    
+
     // For other errors, try cached data as fallback
     const cached = groupMetadataCache.get(groupId);
     if (cached) {
       return cached.data;
     }
-    
+
     // Return null instead of throwing to prevent crashes
     return null;
   }
@@ -225,13 +228,13 @@ const getLiveGroupMetadata = async (sock, groupId) => {
   try {
     // Always fetch fresh metadata, bypass cache
     const metadata = await sock.groupMetadata(groupId);
-    
+
     // Update cache for other features (antilink, welcome, etc.)
     groupMetadataCache.set(groupId, {
       data: metadata,
       timestamp: Date.now()
     });
-    
+
     return metadata;
   } catch (error) {
     // On error, try cached data as fallback
@@ -297,7 +300,7 @@ setInterval(() => {
 const normalizeJid = (jid) => {
   if (!jid) return null;
   if (typeof jid !== 'string') return null;
-  
+
   // Remove device ID if present (e.g., "1234567890:0@s.whatsapp.net" -> "1234567890")
   if (jid.includes(':')) {
     return jid.split(':')[0];
@@ -312,21 +315,21 @@ const normalizeJid = (jid) => {
 // Get LID mapping value from session files
 const getLidMappingValue = (user, direction) => {
   if (!user) return null;
-  
+
   const cacheKey = `${direction}:${user}`;
   if (lidMappingCache.has(cacheKey)) {
     return lidMappingCache.get(cacheKey);
   }
-  
+
   const sessionPath = path.join(__dirname, config.sessionName || 'session');
   const suffix = direction === 'pnToLid' ? '.json' : '_reverse.json';
   const filePath = path.join(sessionPath, `lid-mapping-${user}${suffix}`);
-  
+
   if (!fs.existsSync(filePath)) {
     lidMappingCache.set(cacheKey, null);
     return null;
   }
-  
+
   try {
     const raw = fs.readFileSync(filePath, 'utf8').trim();
     const value = raw ? JSON.parse(raw) : null;
@@ -341,16 +344,16 @@ const getLidMappingValue = (user, direction) => {
 // Normalize JID handling LID conversion
 const normalizeJidWithLid = (jid) => {
   if (!jid) return jid;
-  
+
   try {
     const decoded = jidDecode(jid);
     if (!decoded?.user) {
       return `${jid.split(':')[0].split('@')[0]}@s.whatsapp.net`;
     }
-    
+
     let user = decoded.user;
     let server = decoded.server === 'c.us' ? 's.whatsapp.net' : decoded.server;
-    
+
     const mapToPn = () => {
       const pnUser = getLidMappingValue(user, 'lidToPn');
       if (pnUser) {
@@ -360,13 +363,13 @@ const normalizeJidWithLid = (jid) => {
       }
       return false;
     };
-    
+
     if (server === 'lid' || server === 'hosted.lid') {
       mapToPn();
     } else if (server === 's.whatsapp.net' || server === 'hosted') {
       mapToPn();
     }
-    
+
     if (server === 'hosted') {
       return jidEncode(user, 'hosted');
     }
@@ -379,21 +382,21 @@ const normalizeJidWithLid = (jid) => {
 // Build comparable JID variants (PN + LID) for matching
 const buildComparableIds = (jid) => {
   if (!jid) return [];
-  
+
   try {
     const decoded = jidDecode(jid);
     if (!decoded?.user) {
       return [normalizeJidWithLid(jid)].filter(Boolean);
     }
-    
+
     const variants = new Set();
     const normalizedServer = decoded.server === 'c.us' ? 's.whatsapp.net' : decoded.server;
-    
+
     variants.add(jidEncode(decoded.user, normalizedServer));
-    
+
     const isPnServer = normalizedServer === 's.whatsapp.net' || normalizedServer === 'hosted';
     const isLidServer = normalizedServer === 'lid' || normalizedServer === 'hosted.lid';
-    
+
     if (isPnServer) {
       const lidUser = getLidMappingValue(decoded.user, 'pnToLid');
       if (lidUser) {
@@ -407,7 +410,7 @@ const buildComparableIds = (jid) => {
         variants.add(jidEncode(pnUser, pnServer));
       }
     }
-    
+
     return Array.from(variants);
   } catch (error) {
     return [jid];
@@ -419,12 +422,12 @@ const findParticipant = (participants = [], userIds) => {
   const targets = (Array.isArray(userIds) ? userIds : [userIds])
     .filter(Boolean)
     .flatMap(id => buildComparableIds(id));
-  
+
   if (!targets.length) return null;
-  
+
   return participants.find(participant => {
     if (!participant) return false;
-    
+
     const participantIds = [
       participant.id,
       participant.lid,
@@ -432,19 +435,19 @@ const findParticipant = (participants = [], userIds) => {
     ]
       .filter(Boolean)
       .flatMap(id => buildComparableIds(id));
-    
+
     return participantIds.some(id => targets.includes(id));
   }) || null;
 };
 
 const isAdmin = async (sock, participant, groupId, groupMetadata = null) => {
   if (!participant) return false;
-  
+
   // Early return for non-group JIDs (DMs) - prevents slow sock.groupMetadata() call
   if (!groupId || !groupId.endsWith('@g.us')) {
     return false;
   }
-  
+
   // Always fetch live metadata for admin checks
   let liveMetadata = groupMetadata;
   if (!liveMetadata || !liveMetadata.participants) {
@@ -454,13 +457,13 @@ const isAdmin = async (sock, participant, groupId, groupMetadata = null) => {
       return false;
     }
   }
-  
+
   if (!liveMetadata || !liveMetadata.participants) return false;
-  
+
   // Use findParticipant to handle LID matching
   const foundParticipant = findParticipant(liveMetadata.participants, participant);
   if (!foundParticipant) return false;
-  
+
   return foundParticipant.admin === 'admin' || foundParticipant.admin === 'superadmin';
 };
 
@@ -507,8 +510,8 @@ const hasGroupLink = (text) => {
 // System JID filter - checks if JID is from broadcast/status/newsletter
 const isSystemJid = (jid) => {
   if (!jid) return true;
-  return jid.includes('@broadcast') || 
-         jid.includes('status.broadcast') || 
+  return jid.includes('@broadcast') ||
+         jid.includes('status.broadcast') ||
          jid.includes('@newsletter') ||
          jid.includes('@newsletter.');
 };
@@ -518,7 +521,7 @@ const handleMessage = async (sock, msg) => {
   try {
     // Debug logging to see all messages
     // Debug log removed
-    
+
     if (!msg.message) return;
 
 
@@ -536,19 +539,25 @@ const handleMessage = async (sock, msg) => {
     try { cacheViewOnceMsg(msg); } catch (_) {}
 
     // ── Emoji reaction → reveal view-once to DM ──────────────────────────────
-    // When the bot owner or a sudo user reacts with any emoji to a view-once
-    // message, the bot sends the media to their private chat.
+    // When the bot owner (either the bot's own linked account reacting, i.e.
+    // fromMe, or a configured sudo/owner number) reacts with any emoji to a
+    // view-once message, the bot sends the media to sock.user.id's own chat.
     if (msg.message?.reactionMessage) {
       try {
-        const _rxn   = msg.message.reactionMessage;
-        const _rxSender = msg.key.participant || msg.key.remoteJid;
-        const _rxFrom   = msg.key.remoteJid;
-        // Only process reactions from owner or sudo users (not the bot itself)
-        if (!msg.key.fromMe && _rxn.text && (isOwner(_rxSender) || isSudo(_rxSender))) {
+        const _rxn = msg.message.reactionMessage;
+        // When the reaction comes from the bot's own linked account (fromMe),
+        // key.participant is empty/unreliable — fall back to our own JID so
+        // isOwner/isSudo checks (and logging) still have something sane to use.
+        const _rxSender = msg.key.fromMe
+          ? getSelfJid(sock)
+          : (msg.key.participant || msg.key.remoteJid);
+        const _rxFrom = msg.key.remoteJid;
+        // Trigger for the bot's own account (fromMe) OR owner/sudo users
+        if (_rxn.text && (msg.key.fromMe || isOwner(_rxSender) || isSudo(_rxSender))) {
           const _origId = _rxn.key?.id;
           const _cached = _origId ? voCache.get(_origId) : null;
           if (_cached && _cached.expires > Date.now()) {
-            const _selfJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+            const _selfJid = getSelfJid(sock);
             const _ok = await revealVoToDM(sock, _cached.msg, _selfJid);
             if (_ok) {
               // React ✅ on the original reaction message to confirm
@@ -572,7 +581,7 @@ const handleMessage = async (sock, msg) => {
     if (isSystemJid(_rawFrom)) {
       return; // Silently ignore system messages
     }
-    
+
     // Auto-React System — uses short-lived cache to avoid disk read every message
     try {
       const arSettings = getCachedArSettings();
@@ -602,11 +611,11 @@ const handleMessage = async (sock, msg) => {
     } catch (e) {
       console.error('[AutoReact Error]', e.message);
     }
-    
+
     // Unwrap containers first
     const content = getMessageContent(msg);
     // Note: We don't return early if content is null because forwarded status messages might not have content
-    
+
     // Still check for actual message content for regular processing
     let actualMessageTypes = [];
     if (content) {
@@ -615,18 +624,18 @@ const handleMessage = async (sock, msg) => {
       const protocolMessages = ['protocolMessage', 'senderKeyDistributionMessage', 'messageContextInfo'];
       actualMessageTypes = allKeys.filter(key => !protocolMessages.includes(key));
     }
-    
+
     // We'll check for empty content later after we've processed group messages
-    
+
     // Use the first actual message type (conversation, extendedTextMessage, etc.)
     const messageType = actualMessageTypes[0];
-    
+
     // Derive sender JID.
     // rc13 LID change: for @lid-based DMs remoteJid is a LID JID and remoteJidAlt
     // carries the phone-number JID.  Use the alt immediately so isOwner / command
     // checks get a real phone number without waiting for an async lookup.
     const _rawSender = msg.key.fromMe
-      ? sock.user.id.split(':')[0] + '@s.whatsapp.net'
+      ? getSelfJid(sock)
       : msg.key.participant || msg.key.remoteJid;
     const _isGroupJid = from.endsWith('@g.us');
     const sender = (!_isGroupJid && _rawSender?.endsWith('@lid') && msg.key.remoteJidAlt)
@@ -666,7 +675,7 @@ const handleMessage = async (sock, msg) => {
 
     // Fetch group metadata immediately if it's a group
     const groupMetadata = isGroup ? await getGroupMetadata(sock, from) : null;
-    
+
     // ── Muted-user enforcement: silently delete their messages ────────────────
     if (isGroup && !msg.key.fromMe && sender) {
       try {
@@ -704,10 +713,10 @@ const handleMessage = async (sock, msg) => {
     if (isGroup) {
       addMessage(from, sender);
     }
-    
+
     // Return early for non-group messages with no recognizable content
     if (!content || actualMessageTypes.length === 0) return;
-    
+
     // Button response — covers both buttonsResponseMessage and templateButtonReplyMessage
     const _btnResp = content.buttonsResponseMessage || msg.message?.buttonsResponseMessage;
     const _tplResp = content.templateButtonReplyMessage || msg.message?.templateButtonReplyMessage;
@@ -780,7 +789,7 @@ const handleMessage = async (sock, msg) => {
         return;
       }
     }
-    
+
     // Get message body from unwrapped content
     let body = '';
     if (content.conversation) {
@@ -792,16 +801,16 @@ const handleMessage = async (sock, msg) => {
     } else if (content.videoMessage) {
       body = content.videoMessage.caption || '';
     }
-    
+
     body = (body || '').trim();
-    
+
     // Check antiall protection (owner only feature)
     if (isGroup) {
       const groupSettings = database.getGroupSettings(from);
       if (groupSettings.antiall) {
         const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
         const senderIsOwner = isOwner(sender);
-        
+
         if (!senderIsAdmin && !senderIsOwner) {
           const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
           if (botIsAdmin) {
@@ -810,50 +819,50 @@ const handleMessage = async (sock, msg) => {
           }
         }
       }
-      
+
       // Anti-tag protection (check BEFORE text check, as tagall can have no text)
       if (groupSettings.antitag && !msg.key.fromMe) {
         const ctx = content.extendedTextMessage?.contextInfo;
         const mentionedJids = ctx?.mentionedJid || [];
-        
+
         const messageText = (
           body ||
           content.imageMessage?.caption ||
           content.videoMessage?.caption ||
           ''
         );
-        
+
         const textMentions = messageText.match(/@[\d+\s\-()~.]+/g) || [];
         const numericMentions = messageText.match(/@\d{10,}/g) || [];
-        
+
         const uniqueNumericMentions = new Set();
         numericMentions.forEach((mention) => {
           const numMatch = mention.match(/@(\d+)/);
           if (numMatch) uniqueNumericMentions.add(numMatch[1]);
         });
-        
+
         const mentionedJidCount = mentionedJids.length;
         const numericMentionCount = uniqueNumericMentions.size;
         const totalMentions = Math.max(mentionedJidCount, numericMentionCount);
-        
+
         if (totalMentions >= 3) {
           try {
             const participants = groupMetadata.participants || [];
             const mentionThreshold = Math.max(3, Math.ceil(participants.length * 0.5));
             const hasManyNumericMentions = numericMentionCount >= 10 ||
               (numericMentionCount >= 5 && numericMentionCount >= mentionThreshold);
-            
+
             if (totalMentions >= mentionThreshold || hasManyNumericMentions) {
               const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
               const senderIsOwner = isOwner(sender);
-              
+
               if (!senderIsAdmin && !senderIsOwner) {
                 const action = (groupSettings.antitagAction || 'delete').toLowerCase();
-                
+
                 if (action === 'delete') {
                   try {
                     await sock.sendMessage(from, { delete: msg.key });
-                    await sock.sendMessage(from, { 
+                    await sock.sendMessage(from, {
                       text: '⚠️ *Tagall Detected!*',
                       mentions: [sender]
                     }, { quoted: msg });
@@ -866,7 +875,7 @@ const handleMessage = async (sock, msg) => {
                   } catch (e) {
                     console.error('Failed to delete tagall message:', e);
                   }
-                  
+
                   const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
                   if (botIsAdmin) {
                     try {
@@ -890,13 +899,13 @@ const handleMessage = async (sock, msg) => {
         }
       }
     }
-    
+
     // AutoSticker feature - convert images/videos to stickers automatically
     if (isGroup) { // Process all messages in groups (including bot's own messages)
       const groupSettings = database.getGroupSettings(from);
       if (groupSettings.autosticker) {
         const mediaMessage = content?.imageMessage || content?.videoMessage;
-        
+
         // Only process if it's an image or video (not documents)
         if (mediaMessage) {
           // Skip if message has a command prefix (let command handle it)
@@ -954,18 +963,18 @@ const handleMessage = async (sock, msg) => {
     } catch (e) {
       // Silently ignore if bomb command doesn't exist or has errors
     }
-    
+
     // Check for active tictactoe games (before prefix check)
     try {
       const tictactoeModule = require('./commands/fun/tictactoe');
       if (tictactoeModule.handleTicTacToeMove) {
         // Check if user is in an active game
-        const isInGame = Object.values(tictactoeModule.games || {}).some(room => 
-          room.id.startsWith('tictactoe') && 
-          [room.game.playerX, room.game.playerO].includes(sender) && 
+        const isInGame = Object.values(tictactoeModule.games || {}).some(room =>
+          room.id.startsWith('tictactoe') &&
+          [room.game.playerX, room.game.playerO].includes(sender) &&
           room.state === 'PLAYING'
         );
-        
+
         if (isInGame) {
           // User has active game, process input
           const handled = await tictactoeModule.handleTicTacToeMove(sock, msg, {
@@ -986,8 +995,8 @@ const handleMessage = async (sock, msg) => {
     } catch (e) {
       // Silently ignore if tictactoe command doesn't exist or has errors
     }
-    
-    
+
+
     // Fancy text style selection: reply to fancy list with just a number
     if (/^\d+$/.test(body.trim())) {
       const quotedMsg = msg.message?.extendedTextMessage?.contextInfo?.quotedMessage;
@@ -1027,8 +1036,11 @@ const handleMessage = async (sock, msg) => {
     // ────────────────────────────────────────────────────────────────────────────
 
     // ── Sticker / single-emoji → auto-reveal view-once ───────────────────────────
-    // When the owner replies to a view-once with any sticker or a bare emoji,
+    // When the bot owner replies to a view-once with any sticker or a bare emoji,
     // intercept here (before the prefix gate) and run the .vv command directly.
+    // Trigger applies for: the bot's own linked account (fromMe) OR an owner/sudo
+    // number — previously fromMe was explicitly excluded, which meant your own
+    // device could never trigger the reveal.
     {
         const _isSticker     = !!msg.message?.stickerMessage;
         const _rawBody       = msg.message?.extendedTextMessage?.text || msg.message?.conversation || '';
@@ -1036,7 +1048,7 @@ const handleMessage = async (sock, msg) => {
         const _isSingleEmoji = _t.length > 0 && _t.length <= 16 &&
             /^\p{Emoji}/u.test(_t) && !/^[a-zA-Z0-9./#]/.test(_t);
 
-        if (!msg.key.fromMe && (_isSticker || _isSingleEmoji) && (isOwner(sender) || isSudo(sender))) {
+        if ((_isSticker || _isSingleEmoji) && (msg.key.fromMe || isOwner(sender) || isSudo(sender))) {
             // Extract contextInfo from whichever wrapper is present
             const _ctx =
                 msg.message?.stickerMessage?.contextInfo ||
@@ -1085,10 +1097,10 @@ const handleMessage = async (sock, msg) => {
     // Parse command
     const args = body.slice(_prefix.length).trim().split(/\s+/);
     const commandName = args.shift().toLowerCase();
-    
+
     // Get command
     const command = commands.get(commandName);
-      
+
     //if (!command) return;
     if (!command) {
     if (body.trim() && !msg.key.fromMe) {
@@ -1170,35 +1182,35 @@ const handleMessage = async (sock, msg) => {
         return;
       }
     }
-    
+
     // Permission checks
     if (command.ownerOnly && !senderIsOwner && !senderIsSudo) {
       return sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
     }
-    
+
     if (command.modOnly && !senderIsSudo) {
       return sock.sendMessage(from, { text: '🔒 This command is only for moderators!' }, { quoted: msg });
     }
-    
+
     if (command.groupOnly && !isGroup) {
       return sock.sendMessage(from, { text: config.messages.groupOnly }, { quoted: msg });
     }
-    
+
     if (command.privateOnly && isGroup) {
       return sock.sendMessage(from, { text: config.messages.privateOnly }, { quoted: msg });
     }
-    
+
     if (command.adminOnly && !(await isAdmin(sock, sender, from, groupMetadata)) && !senderIsOwner) {
       return sock.sendMessage(from, { text: config.messages.adminOnly }, { quoted: msg });
     }
-    
+
     if (command.botAdminNeeded) {
       const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
       if (!botIsAdmin) {
         return sock.sendMessage(from, { text: config.messages.botAdminNeeded }, { quoted: msg });
       }
     }
-    
+
     // Auto presence indicators — read from database/bot-settings.json via presenceSettings
     try {
       const { getMode } = require('./utils/presenceSettings');
@@ -1223,7 +1235,7 @@ const handleMessage = async (sock, msg) => {
       // Never let presence failure block the command
       console.error('[PRESENCE] error:', presenceErr.message);
     }
-    
+
     // Colored command execution log
     const chalk = require('chalk');
     const senderNum = sender.split('@')[0].split(':')[0];
@@ -1233,7 +1245,7 @@ const handleMessage = async (sock, msg) => {
       chalk.yellow(`← ${senderNum}`),
       senderIsOwner ? chalk.green('[OWNER]') : senderIsSudo ? chalk.blue('[SUDO]') : chalk.white('[USER]')
     );
-    
+
     const { applyFont } = require('./utils/fontConverter');
     await command.execute(sock, msg, args, {
       from,
@@ -1254,18 +1266,18 @@ const handleMessage = async (sock, msg) => {
       getActiveUsers: (groupId, limit) => getActiveUsers(groupId, limit),
       getInactiveUsers: (groupId, participants) => getInactiveUsers(groupId, participants)
     });
-    
+
   } catch (error) {
     console.error('Error in message handler:', error);
-    
+
     // Don't send error messages for rate limit errors
     if (error.message && error.message.includes('rate-overlimit')) {
       return;
     }
-    
+
     try {
-      await sock.sendMessage(msg.key.remoteJid, { 
-        text: `${config.messages.error}\n\n${error.message}` 
+      await sock.sendMessage(msg.key.remoteJid, {
+        text: `${config.messages.error}\n\n${error.message}`
       }, { quoted: msg });
     } catch (e) {
       // Don't log rate limit errors when sending error messages
@@ -1280,7 +1292,7 @@ const handleMessage = async (sock, msg) => {
 const handleGroupUpdate = async (sock, update) => {
   try {
     const { id, participants, action, author: actor } = update;
-    
+
     // Validate group JID before processing
     if (!id || !id.endsWith('@g.us')) {
       return;
@@ -1318,12 +1330,12 @@ const handleGroupUpdate = async (sock, update) => {
     }
 
     const groupSettings = database.getGroupSettings(id);
-    
+
     if (!groupSettings.welcome && !groupSettings.goodbye) return;
-    
+
     const groupMetadata = await getGroupMetadata(sock, id);
     if (!groupMetadata) return; // Skip if metadata unavailable (forbidden or error)
-    
+
     // Helper to extract participant JID
     const getParticipantJid = (participant) => {
       if (typeof participant === 'string') {
@@ -1338,16 +1350,16 @@ const handleGroupUpdate = async (sock, update) => {
       }
       return null;
     };
-    
+
     for (const participant of participants) {
       const participantJid = getParticipantJid(participant);
       if (!participantJid) {
         console.warn('Could not extract participant JID:', participant);
         continue;
       }
-      
+
       const participantNumber = participantJid.split('@')[0];
-      
+
       if (action === 'add') {
         // AntiBot check on join
         try {
@@ -1470,7 +1482,7 @@ const handleGroupUpdate = async (sock, update) => {
   } catch (error) {
     // Silently handle forbidden errors and other group metadata errors
     if (error.message && (
-      error.message.includes('forbidden') || 
+      error.message.includes('forbidden') ||
       error.message.includes('403') ||
       error.statusCode === 403 ||
       error.output?.statusCode === 403 ||
@@ -1491,27 +1503,27 @@ const handleAntilink = async (sock, msg, groupMetadata) => {
   try {
     const from = msg.key.remoteJid;
     const sender = msg.key.participant || msg.key.remoteJid;
-    
+
     const groupSettings = database.getGroupSettings(from);
     if (!groupSettings.antilink) return;
-    
-    const body = msg.message?.conversation || 
-                  msg.message?.extendedTextMessage?.text || 
-                  msg.message?.imageMessage?.caption || 
+
+    const body = msg.message?.conversation ||
+                  msg.message?.extendedTextMessage?.text ||
+                  msg.message?.imageMessage?.caption ||
                   msg.message?.videoMessage?.caption || '';
-    
+
     const linkPattern = /https?:\/\/[^\s]+|t\.me\/[^\s]+|wa\.me\/[^\s]+|chat\.whatsapp\.com\/[^\s]+/i;
-    
+
     // Check for any links (with or without protocol)
     if (linkPattern.test(body)) {
               const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
       const senderIsOwner = isOwner(sender);
-      
+
       if (senderIsAdmin || senderIsOwner) return;
-      
+
       const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
       const action = (groupSettings.antilinkAction || 'delete').toLowerCase();
-      
+
       const senderNum = sender.split('@')[0];
 
       if (!botIsAdmin) {
@@ -2099,12 +2111,12 @@ const handleAntiMedia = async (sock, msg, groupMetadata) => {
 
 // ── AntiBug crash-pattern detection ─────────────────────────────────────────
 const CRASH_PATTERNS = [
-  /\u0000/,                       
-  /\u202E{2,}/,                   
-  /[\u200B-\u200D\uFEFF]{10,}/,   
-  /[\u0300-\u036f]{8,}/,          
-  /(.)\1{500,}/,                 
-  /[\u{E0000}-\u{E007F}]/u,      
+  /\u0000/,
+  /\u202E{2,}/,
+  /[\u200B-\u200D\uFEFF]{10,}/,
+  /[\u0300-\u036f]{8,}/,
+  /(.)\1{500,}/,
+  /[\u{E0000}-\u{E007F}]/u,
 ];
 
 const isCrashMessage = (text) => {
@@ -2145,7 +2157,7 @@ const handleAntibug = async (sock, msg, groupMetadata, isGroup, sender, from) =>
         // Cannot delete — leave group to protect bot
         try { await sock.groupLeave(from); } catch (_) {}
         try {
-          const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+          const botJid = getSelfJid(sock);
           await sock.sendMessage(botJid, {
             text:
               `🛡️ *AntiBug Alert*\n` +
@@ -2205,7 +2217,7 @@ const handleAntibug = async (sock, msg, groupMetadata, isGroup, sender, from) =>
       // DM — block sender + notify bot's own number
       try { await sock.updateBlockStatus(sender, 'block'); } catch (_) {}
       try {
-        const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net';
+        const botJid = getSelfJid(sock);
         await sock.sendMessage(botJid, {
           text:
             `🛡️ *AntiBug Alert — DM*\n` +
