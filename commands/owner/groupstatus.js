@@ -243,7 +243,10 @@ function generateWaveform(buffer, bars = 64) {
   return new Promise((resolve, reject) => {
     const input = new PassThrough();
     input.end(buffer);
+    const output = new PassThrough();
     const chunks = [];
+
+    output.on('data', (c) => chunks.push(c));
 
     ffmpeg(input)
       .audioChannels(1)
@@ -273,7 +276,6 @@ function generateWaveform(buffer, bars = 64) {
           Buffer.from(avg.map((v) => Math.floor((v / max) * 100))).toString('base64')
         );
       })
-      .pipe()
-      .on('data', (c) => chunks.push(c));
+      .pipe(output);
   });
 }
