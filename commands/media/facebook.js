@@ -24,17 +24,7 @@ module.exports = {
             processedMessages.add(msg.key.id);
             setTimeout(() => processedMessages.delete(msg.key.id), 5 * 60 * 1000);
 
-            const text = msg.message?.conversation ||
-                         msg.message?.extendedTextMessage?.text ||
-                         args.join(' ');
-
-            if (!text) {
-                return await sock.sendMessage(chatId, {
-                    text: 'Please provide a Facebook link for the video.'
-                }, { quoted: msg });
-            }
-
-            const url = text.split(' ').slice(1).join(' ').trim();
+            const url = args.join(' ').trim();
 
             if (!url) {
                 return await sock.sendMessage(chatId, {
@@ -63,13 +53,16 @@ module.exports = {
 
             try {
                 const apiResponse = await axios.get(
-                    `https://api.nexray.eu.cc/downloader/facebook?url=${encodeURIComponent(url)}`
+                    `https://apissupreme.vercel.app/media/facebook?apikey=supreme&url=${encodeURIComponent(url)}`
                 );
                 const data = apiResponse.data;
 
-                if (data && data.status && data.result && (data.result.video_sd || data.result.video_hd)) {
-                    const videoUrl = data.result.video_sd || data.result.video_hd;
-                    const caption = config.botName;
+                const videoUrl = data?.data?.videos?.hd || data?.data?.videos?.sd;
+
+                if (data && data.status && videoUrl) {
+                    const caption = data.data.title
+                        ? `${data.data.title}\n\n${config.botName}`
+                        : config.botName;
 
                     await sock.sendMessage(chatId, {
                         video: { url: videoUrl },
@@ -77,21 +70,31 @@ module.exports = {
                         caption: caption
                     }, { quoted: msg });
 
+                    await sock.sendMessage(chatId, {
+                        react: { text: '✅', key: msg.key }
+                    });
+
                 } else {
+                    await sock.sendMessage(chatId, {
+                        react: { text: '❌', key: msg.key }
+                    });
                     return await sock.sendMessage(chatId, {
                         text: 'Failed to fetch video. Please check the link or try again later.'
                     }, { quoted: msg });
                 }
 
             } catch (error) {
-                console.error('Error in Facebook API:', error.message || error);
+                console.error('[facebook]', error.message || error);
+                await sock.sendMessage(chatId, {
+                    react: { text: '❌', key: msg.key }
+                });
                 await sock.sendMessage(chatId, {
                     text: 'Failed to download the Facebook video. Please try again later.'
                 }, { quoted: msg });
             }
 
         } catch (error) {
-            console.error('Error in Facebook command:', error.message || error);
+            console.error('[facebook]', error.message || error);
             await sock.sendMessage(chatId, {
                 text: 'An unexpected error occurred. Please try again.'
             }, { quoted: msg });
