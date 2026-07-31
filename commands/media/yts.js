@@ -1,5 +1,23 @@
 const yts = require('yt-search');
 
+// yt-search occasionally throws "title.trim is not a function" (or similar)
+// internally when YouTube returns a malformed/shelf-type result (Mix, Shorts,
+// promoted content, etc). This wrapper retries once and never lets that
+// crash escape unhandled.
+async function safeSearch(query, attempt = 1) {
+    try {
+        return await yts(query);
+    } catch (err) {
+        console.error(`[ytsearch] yts() failed (attempt ${attempt}):`, err.stack || err.message);
+        if (attempt < 2) {
+            // Small delay then retry once — often transient / a single bad shelf item
+            await new Promise(r => setTimeout(r, 800));
+            return safeSearch(query, attempt + 1);
+        }
+        throw err;
+    }
+}
+
 module.exports = {
     name: 'ytsearch',
     aliases: ['youtubesearch', 'yts'],
@@ -21,16 +39,13 @@ module.exports = {
             );
         }
 
-        await extra.react('🔎');
+        await extra.react('☆');
 
-        // Step 1: run the search safely — yt-search itself can throw
-        // (e.g. "title.trim is not a function") when YouTube returns a
-        // malformed result like a Mix/Shelf/Short with a non-string title.
         let searchResults;
         try {
-            searchResults = await yts(query);
+            searchResults = await safeSearch(query);
         } catch (err) {
-            console.error('[ytsearch] yt-search threw internally:', err.message);
+            console.error('[ytsearch] final failure after retry:', err.stack || err.message);
             return extra.reply(
                 '☆━━━━━━━━━━━━━━━☆\n' +
                 '       ★ ERROR ★\n' +
@@ -43,13 +58,13 @@ module.exports = {
         try {
             const rawVideos = Array.isArray(searchResults?.videos) ? searchResults.videos : [];
 
-            // Step 2: sanitize every entry — coerce/validate fields instead
-            // of trusting the library's output shape.
+            // Sanitize every entry — coerce/validate before touching any field,
+            // so a malformed item can never crash string/number methods.
             const videos = rawVideos
                 .filter(v => v && typeof v.title === 'string' && v.title.trim().length > 0 && v.url)
                 .slice(0, 15)
                 .map(v => ({
-                    title: String(v.title).trim(),
+                    title: v.title.trim(),
                     url: String(v.url),
                     timestamp: typeof v.timestamp === 'string' ? v.timestamp : 'N/A',
                     views: typeof v.views === 'number' ? v.views.toLocaleString() : 'N/A',
@@ -95,7 +110,7 @@ module.exports = {
                 await extra.reply(resultMessage);
             }
         } catch (error) {
-            console.error('[ytsearch]', error.message);
+            console.error('[ytsearch]', error.stack || error.message);
             extra.reply(
                 `☆━━━━━━━━━━━━━━━☆\n` +
                 `       ★ ERROR ★\n` +
