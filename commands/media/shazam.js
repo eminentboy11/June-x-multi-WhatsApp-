@@ -138,7 +138,6 @@ async function identifySong(audioBuffer) {
         try {
             const result = await api.identify(audioBuffer);
             if (result) {
-                console.log(`[SHAZAM] Identified via ${api.name}`);
                 return result;
             }
         } catch (err) {
@@ -387,9 +386,6 @@ module.exports = {
                     const video = await searchYouTube(searchTerm);
 
                     await sock.sendMessage(from, { react: { text: "⬇️", key: msg.key } });
-                    await sock.sendMessage(from, {
-                        text: `🎵 Downloading *${video.title}*…`,
-                    }, { quoted: m });
 
                     // Download audio
                     const apiData = await downloadAudio(video.url);
