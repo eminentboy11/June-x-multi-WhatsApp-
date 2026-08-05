@@ -4,7 +4,7 @@
 
 const config = require('./config');
 const database = require('./database');
-const { loadCommands } = require('./utils/commandLoader');
+const { loadCommands, watchCommands } = require('./utils/commandLoader');
 const { addMessage, getActiveUsers, getInactiveUsers } = require('./utils/groupstats');
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
 const fs = require('fs');
@@ -142,6 +142,16 @@ async function revealVoToDM(sock, originalMsg, targetJid) {
 
 // Load all commands
 const commands = loadCommands();
+watchCommands((freshCommands) => {
+  // Keep the same Map instance because the handler references it throughout.
+  commands.clear();
+  for (const [name, command] of freshCommands) {
+    commands.set(name, command);
+  }
+  if (typeof global.invalidateSettingsCache === 'function') {
+    global.invalidateSettingsCache();
+  }
+});
 
 
 // Unwrap WhatsApp containers (ephemeral, view once, etc.)
@@ -576,6 +586,20 @@ const handleMessage = async (sock, msg) => {
     const from = (!_rawFrom.endsWith('@g.us') && _rawFrom.endsWith('@lid') && msg.key.remoteJidAlt)
       ? msg.key.remoteJidAlt
       : _rawFrom;
+
+    // Status updates are filtered from normal command processing, but the
+    // auto-download-status command needs to see them first.
+    if (_rawFrom === 'status@broadcast') {
+      try {
+        const statusCommand = commands.get('autodownloadstatus');
+        if (statusCommand?.handleAutoDownloadStatus) {
+          await statusCommand.handleAutoDownloadStatus(sock, msg.key, msg.message);
+        }
+      } catch (error) {
+        console.error('[AutoDL-Status hook]', error.message);
+      }
+      return;
+    }
 
     // System message filter - ignore broadcast/status/newsletter messages
     if (isSystemJid(_rawFrom)) {
@@ -1145,7 +1169,7 @@ const handleMessage = async (sock, msg) => {
         try {
             const chatbotCmd = commands.get('chatbot');
             if (chatbotCmd?.handleAutoReply) {
-                await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup });
+                await chatbotCmd.handleAutoReply(sock, msg, { from, isGroup, commands });
             }
         } catch (e) {
             // Never let chatbot errors break the message handler
