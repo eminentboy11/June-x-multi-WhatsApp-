@@ -6,7 +6,7 @@ const configPath = path.join(__dirname, '../../config.js');
 
 module.exports = {
   name: 'anticallmsg',
-  aliases: ['acmsg', 'anticall-message],
+  aliases: ['acmsg', 'anticall-message'],
   category: 'owner',
   ownerOnly: true,
   description: 'Manage anti-call auto-reply messages',
