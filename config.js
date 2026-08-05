@@ -63,7 +63,7 @@ module.exports = {
       antiall: false,
       antiviewonce: false,
       antibot: false,
-      anticall: true,
+      anticall: false,
       anticallAction: 'decline',
       anticallMessage: null,  // null = use default preset 1, string = custom message
       anticallNotify: true,   // whether to send message when declining/blocking calls
