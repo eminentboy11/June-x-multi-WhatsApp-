@@ -1,6 +1,6 @@
-'use strict';
+  'use strict';
 
-//const { getFooter } = require('../../utils/menuHelper');
+const FOOTER = '⚡ *Engineered by June_Ultra*';
 
 let giftedBtns;
 try { giftedBtns = require('gifted-btns'); } catch (_) { giftedBtns = null; }
@@ -28,7 +28,7 @@ async function resolveJid(sock, inputJid, chatJid = null) {
 
 async function sendJid(sock, msg, jid) {
   const chat = msg.key.remoteJid;
-  const text = `*JID*\n\`${jid}\`\n${getFooter(chat)}`;
+  const text = `*JID*\n\`${jid}\`\n${FOOTER}`;
   if (giftedBtns?.sendInteractiveMessage) {
     try {
       return giftedBtns.sendInteractiveMessage(sock, chat, {
