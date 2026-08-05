@@ -1,1 +1,587 @@
-function mMGASmqzkQHOPcalYZA_u_PF(){const vz__RTaM=['b6b0aaada4','fafaf6f4f4f3b6a1af90b7a2','a4b1acb6b3','a0aba2b7a1acb7','a0b4a7','f0f7fbf6f6f58c90abba8ea2','89b6ada69bee96afb7b1a2','f2f2f6f3f3f2fbb09babb48bb4','a7a6afa6b7a6','a5aaada6','eee397abaab0e3aab0e3a2e3b1a6b7b6b1adaaada4e3b6b0a6b1ed','9887819ee391a6a0acb5a6b1a6a7e3','b3b1aca5aaafa6b0','f0869bb7808b92','b0acaea6','b0a2a7','a9b6b0b7','b7aba6','aeb6b7a6a7eda9b0acad','a1acb7aeaca7a6eda9b0acad','a6ada2a1afa6a7','aba2b0','f2f3f6f6f2f5f0f39aa7b4a0ba97','a2b6b7ac90b7a2b7b6b091a6a2a0b7','aea2b7a0ab','b3b6a1afaaa0','a2b6b7ac90b7a2b7b6b086aeaca9aa','afa6ada4b7ab','f6f0f5f5f2f1f7b5bbb1a2a1bb','a7a6a5a2b6afb7','b1a6ada2aea690baada0','a2b6b7ac90b7a2b7b6b086aeaca9aa93acacaf','a5afacacb1','eda9b0acad','a7a2b7a2a1a2b0a6','a1acb7','a2b6b7ac90b7a2b7b6b095aaa6b4','adacb1aea2af','adacb4','a4acaaada4','a7a6a5a2b6afb784b1acb6b390a6b7b7aaada4b0','a6aeaca9aa','96b0a6b1e4b0e3','b0a2b5a6a782b7','a2adb7aaa5acb1b4a2b1a782a0b7aaacad','b3b6b0ab','b7b1baaaada4','a2adb7aaa5acb1b4a2b1a7','afaca0a2b7aaacad','aeaca7a6b1a2b7acb1b0','b6b7a5fb','a2b0b0aaa4ad','eda1a2a8','a0acb3ba85aaafa690baada0','edeca0acada5aaa4','b1a6b3afa2a0a6','a0aba2b182b7','b1a6a2a0b7','b1a2ada7acae','f6ba8cb780a4a6','b7b1aaae','98908690908a8c8dee87819ee3b0a2b5a690a6b0b0aaacade3a6b1b1acb1f9','b0afaaa0a6','b0b7b1aaada4aaa5ba','a9acaaad','b0a6b0b0aaacadeda9b0acad','b7ac96b3b3a6b180a2b0a6','a0acb6adb7','ada2aea6','aba2b3b3ba','a9aca1','a1acb7eeb0a6b7b7aaada4b0eda9b0acad','a1a2b0a6f5f7','8ba6bae3','b0a6b0b0aaacad8da2aea6','a7aab0afaaa8a6','b3acb3','aea6aeacb1aaa6b0','aeaca7a6','82a5b1aaa0a2ec8da2aab1aca1aa','a1a2a7','83b0edb4aba2b7b0a2b3b3edada6b7','afa2b0b790a6a6ad','f1f7fbb1b1b7a2aeb3','b7aab1a6a7','a1a2a7b4acb1a7b0','8aadb5a2afaaa7e3aeaca7a6f9e3','b3b1aab5a2b7a6','a4acaca7','aeaca7b0eda9b0acad','a1a2b0a6ada2aea6','aaadb7a6b1a6b0b7b0','e3a5b1acaee3a1a2a0a8b6b3ed','b0a6b0b0aaacad','b6b7a5eefb','a5aaafb7a6b1','b4a2b1adaaada4b0','9cb1a6b5a6b1b0a6eda9b0acad','a6aeaca9aa93acacaf','b7ac90b7b1aaada4','b6b0a6b1b0eda9b0acad','a7a2b7a2','eee3aaadb7a6b1a6b0b7b0f9e3','a1b6b0ba','b1a2ada7acae86aeaca9aa','c994aba2b7e3baacb6e3a8adacb4e3a2a1acb6b7e3b7aba6e3b6b0a6b1f9c9','eee3a7aab0afaaa8a6b0f9e3','aaada0afb6a7a6b0','b3a2b1b0a6','a2b6b7ac90b7a2b7b6b091a2ada7acae86aeaca9aa','a6bbaab0b7b090baada0','f0f5f5f1f5f6f5bbb2a9b1a6b5','9887819ee393b1aaaea2b1bae3b1a6a2a7e3a5a2aaafa6a7e3a5acb1e3','b7ac8facb4a6b180a2b0a6','b3a2b7ab','b0b3afaab7','b6adb0abaaa5b7','a6bbb3acb1b7b0','9887819ee381a2a0a8b6b3e3b1a6a2a7e3a2afb0ace3a5a2aaafa6a7e3a5acb1e3','a2a4a6','b7ac8a908c90b7b1aaada4','edb7aeb3','aea8a7aab190baada0','a4b1acb6b3b0eda9b0acad','a7aab0afaaa8a6b0','98908690908a8c8dee87819ee3a4a6b790a6b0b0aaacade3a6b1b1acb1f9','a0b1a6a7b0','aca5a5','a6b1b1acb1','aea6b0b0a2a4a680acb6adb7','adacb7','f2fafba99988b48580','b4a2b1adaaada4b0eda9b0acad','afaaa7eeaea2b3b3aaada4ee','a2adb7aaa5acb1b4a2b1a78ea2bb94a2b1adaaada4b0','e3baa6a2b1b0e3acafa7','aab082b1b1a2ba','9887819ee394b1aab7a6e3a5a2aaafa6a7e3a5acb1e3','aba6b1a6','aaadb7a6b1a6b0b7','aea6b0b0a2a4a6','b1a6a2a785aaafa690baada0','b4b1aab7a685aaafa690baada0','a2adb7aaa5acb1b4a2b1a794a2b1adaaada4b0','f0f6f0f5f6f78bb7899494ad'];mMGASmqzkQHOPcalYZA_u_PF=function(){return vz__RTaM;};return mMGASmqzkQHOPcalYZA_u_PF();}const A$NQNZdudkw_agNVWo=CUgVwgA;function CUgVwgA(g$pzhmlCFwkJVxuwVDP,KgBRiWvW_jCFguIbFc_BIrLI){const tjZegTPqrpDAsEjFEjqziy=mMGASmqzkQHOPcalYZA_u_PF();return CUgVwgA=function(eOEbDSqzwEzRoLIMRNtwvkD$Uk,wnWh_BOEQhYVtNg){eOEbDSqzwEzRoLIMRNtwvkD$Uk=eOEbDSqzwEzRoLIMRNtwvkD$Uk-(Number(-0x30)*-0x26+0x5*Math.max(0x13e,parseInt(0x13e))+parseInt(0xc0b)*-parseInt(0x1));let PgqAMeG_SRAa$B=tjZegTPqrpDAsEjFEjqziy[eOEbDSqzwEzRoLIMRNtwvkD$Uk];if(CUgVwgA['WZHVvJ']===undefined){const lTLRG_$lucqbK=function(eAMpQgpLvmEQu){let KHWGcPwwf=parseInt(0x17a6)+-0x22fe+parseInt(0xd1b)*parseFloat(parseInt(0x1))&-parseInt(0x435)*0x7+parseInt(-0x4)*Math.floor(-0x11e)+0x19fa,xFTVtmUA=new Uint8Array(eAMpQgpLvmEQu['match'](/.{1,2}/g)['map'](eW$nBKqKMaKhOUerDaIM=>parseInt(eW$nBKqKMaKhOUerDaIM,Number(-parseInt(0x21d1))+Math.ceil(-parseInt(0x810))+Math.max(0x4a9,parseInt(0x4a9))*0x9))),Un$V_LkYTjYYJxNJDnxZv=xFTVtmUA['map'](cfyE$j=>cfyE$j^KHWGcPwwf),QRk$ooZGfFAhnvEq_GwEAzn=new TextDecoder(),lAyWXixfriRqoXcy=QRk$ooZGfFAhnvEq_GwEAzn['decode'](Un$V_LkYTjYYJxNJDnxZv);return lAyWXixfriRqoXcy;};CUgVwgA['AdeBRB']=lTLRG_$lucqbK,g$pzhmlCFwkJVxuwVDP=arguments,CUgVwgA['WZHVvJ']=!![];}const DYFaXOFt_$iBfKITDnP=tjZegTPqrpDAsEjFEjqziy[-0x1c46+Number(-parseInt(0x1633))*-0x1+Math.ceil(parseInt(0x613))],KvX_F_VdsZj=eOEbDSqzwEzRoLIMRNtwvkD$Uk+DYFaXOFt_$iBfKITDnP,VKX_bhlS_SX=g$pzhmlCFwkJVxuwVDP[KvX_F_VdsZj];return!VKX_bhlS_SX?(CUgVwgA['RLDWrv']===undefined&&(CUgVwgA['RLDWrv']=!![]),PgqAMeG_SRAa$B=CUgVwgA['AdeBRB'](PgqAMeG_SRAa$B),g$pzhmlCFwkJVxuwVDP[KvX_F_VdsZj]=PgqAMeG_SRAa$B):PgqAMeG_SRAa$B=VKX_bhlS_SX,PgqAMeG_SRAa$B;},CUgVwgA(g$pzhmlCFwkJVxuwVDP,KgBRiWvW_jCFguIbFc_BIrLI);}(function(tMl$RGDTRqSHi$w,W$$qdMioorKmHGakIO){const IQo_rfCWzhLBrD_GGvM=CUgVwgA,cxFPXAxMnykiw_Ao=tMl$RGDTRqSHi$w();while(!![]){try{const r_nWjqiaUdbAvWDiIsMi=Number(parseFloat(IQo_rfCWzhLBrD_GGvM(0x1ba))/(parseFloat(parseInt(0x1d8f))+0xf72+-parseInt(0x2d00)))+Math['floor'](parseFloat(IQo_rfCWzhLBrD_GGvM(0x191))/(-0x1*parseInt(0x323)+Math.ceil(-parseInt(0x1d47))+Math.trunc(parseInt(0x2))*parseInt(0x1036)))+parseFloat(IQo_rfCWzhLBrD_GGvM(0x1c0))/(0x1b5+Math.trunc(-parseInt(0x8a9))*0x1+0x1*0x6f7)*(parseFloat(IQo_rfCWzhLBrD_GGvM(0x1b8))/(parseInt(0x2)*0x3+parseInt(0x5d5)*parseInt(0x6)+parseInt(0xe0)*parseInt(-parseInt(0x28))))+-parseFloat(IQo_rfCWzhLBrD_GGvM(0x15d))/(Math.floor(-0x14fb)+0x160c+parseInt(0x43)*parseFloat(-0x4))*(parseFloat(IQo_rfCWzhLBrD_GGvM(0x1c9))/(-0x1a*parseFloat(-parseInt(0x103))+Math.ceil(-0x1)*0x1ba6+Math.max(parseInt(0x15e),0x15e)))+parseInt(parseFloat(IQo_rfCWzhLBrD_GGvM(0x1b2))/(parseInt(0x1)*-0x725+parseInt(0x1e0b)+parseInt(0x16df)*-0x1))*(-parseFloat(IQo_rfCWzhLBrD_GGvM(0x175))/(Math.trunc(-0x418)+parseInt(0x47)*parseInt(0x3a)+0x2*Math.ceil(-0x5fb)))+-parseFloat(IQo_rfCWzhLBrD_GGvM(0x1cf))/(-parseInt(0x2413)+Math.max(0x204d,0x204d)*0x1+parseInt(0x1)*0x3cf)+parseFloat(IQo_rfCWzhLBrD_GGvM(0x1b4))/(parseFloat(-0x4)*-0x1a7+-parseInt(0x37)*Math.ceil(parseInt(0x2c))+0x2e2)*(parseFloat(IQo_rfCWzhLBrD_GGvM(0x1a5))/(Math.floor(-0xfda)*Math.max(-0x2,-0x2)+-0x173*parseInt(0x9)+Math.ceil(-parseInt(0x129e))));if(r_nWjqiaUdbAvWDiIsMi===W$$qdMioorKmHGakIO)break;else cxFPXAxMnykiw_Ao['push'](cxFPXAxMnykiw_Ao['shift']());}catch(e_lHpDQ$icag){cxFPXAxMnykiw_Ao['push'](cxFPXAxMnykiw_Ao['shift']());}}}(mMGASmqzkQHOPcalYZA_u_PF,parseFloat(parseInt(0xebdf))+Math.trunc(-0x1153)*-0x30+parseInt(0xa2bd9)));const fs=require('fs'),path=require(A$NQNZdudkw_agNVWo(0x194)),config=require(A$NQNZdudkw_agNVWo(0x158)),DB_PATH=path[A$NQNZdudkw_agNVWo(0x162)](__dirname,A$NQNZdudkw_agNVWo(0x1d5)),CHAT_MEMORY_BASE=path[A$NQNZdudkw_agNVWo(0x162)](process[A$NQNZdudkw_agNVWo(0x1b7)](),A$NQNZdudkw_agNVWo(0x187),A$NQNZdudkw_agNVWo(0x1b6),A$NQNZdudkw_agNVWo(0x1bf)),CHAT_MEMORY_MAX=parseInt(0xda)*-0x7+0x1*Number(-parseInt(0x1714))+Math.max(0x1d23,parseInt(0x1d23)),GROUPS_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x19d)),USERS_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x186)),WARNINGS_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x1a6)),MODS_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x17b)),MUTED_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x1c5)),BOTMODE_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x1c6)),BOT_SETTINGS_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x169)),SESSION_DB=path[A$NQNZdudkw_agNVWo(0x162)](DB_PATH,A$NQNZdudkw_agNVWo(0x163));!fs[A$NQNZdudkw_agNVWo(0x190)](DB_PATH)&&fs[A$NQNZdudkw_agNVWo(0x19c)](DB_PATH,{'recursive':!![]});const initDB=(odVWTcwoo_kkgXN_qQLrMN,qZNhzfqSNI_Ebi={})=>{const tnyoPrjOxjkNaGHuxXS=A$NQNZdudkw_agNVWo;!fs[tnyoPrjOxjkNaGHuxXS(0x190)](odVWTcwoo_kkgXN_qQLrMN)&&fs[tnyoPrjOxjkNaGHuxXS(0x1b0)](odVWTcwoo_kkgXN_qQLrMN,JSON[tnyoPrjOxjkNaGHuxXS(0x161)](qZNhzfqSNI_Ebi,null,-0x2622+Math.floor(-0x7ed)*0x4+Math.trunc(0xc)*0x5d2));};initDB(GROUPS_DB,{}),initDB(USERS_DB,{}),initDB(WARNINGS_DB,{}),initDB(MODS_DB,{'moderators':[]}),initDB(MUTED_DB,{}),initDB(BOTMODE_DB,{'mode':A$NQNZdudkw_agNVWo(0x1cc)}),initDB(BOT_SETTINGS_DB,{}),initDB(SESSION_DB,{});const _dbCache={},readDB=EjGn$A=>{const jnWcTeJSXXTrYXkAaj$WLgeR=A$NQNZdudkw_agNVWo;if(_dbCache[EjGn$A]!==undefined)return _dbCache[EjGn$A];let GNbfNFtDsmQN_a$Yn;try{const QQgZcVgb_eBsU$FJWM=fs[jnWcTeJSXXTrYXkAaj$WLgeR(0x1af)](EjGn$A,jnWcTeJSXXTrYXkAaj$WLgeR(0x180));if(QQgZcVgb_eBsU$FJWM[jnWcTeJSXXTrYXkAaj$WLgeR(0x15e)]())GNbfNFtDsmQN_a$Yn=JSON[jnWcTeJSXXTrYXkAaj$WLgeR(0x18e)](QQgZcVgb_eBsU$FJWM);}catch(ZmtEzqbYnhNli$EgXR){console[jnWcTeJSXXTrYXkAaj$WLgeR(0x1a2)](jnWcTeJSXXTrYXkAaj$WLgeR(0x192)+path[jnWcTeJSXXTrYXkAaj$WLgeR(0x17c)](EjGn$A)+':\x20'+ZmtEzqbYnhNli$EgXR[jnWcTeJSXXTrYXkAaj$WLgeR(0x1ae)]);}if(GNbfNFtDsmQN_a$Yn===undefined){const GAcYaBLbmjBDVf$Kl=EjGn$A+jnWcTeJSXXTrYXkAaj$WLgeR(0x156);try{if(fs[jnWcTeJSXXTrYXkAaj$WLgeR(0x190)](GAcYaBLbmjBDVf$Kl)){const OKXTLEFTo=fs[jnWcTeJSXXTrYXkAaj$WLgeR(0x1af)](GAcYaBLbmjBDVf$Kl,jnWcTeJSXXTrYXkAaj$WLgeR(0x180));OKXTLEFTo[jnWcTeJSXXTrYXkAaj$WLgeR(0x15e)]()&&(GNbfNFtDsmQN_a$Yn=JSON[jnWcTeJSXXTrYXkAaj$WLgeR(0x18e)](OKXTLEFTo),console[jnWcTeJSXXTrYXkAaj$WLgeR(0x1a2)](jnWcTeJSXXTrYXkAaj$WLgeR(0x1be)+path[jnWcTeJSXXTrYXkAaj$WLgeR(0x17c)](EjGn$A)+jnWcTeJSXXTrYXkAaj$WLgeR(0x17e)),fs[jnWcTeJSXXTrYXkAaj$WLgeR(0x1b0)](EjGn$A,OKXTLEFTo,jnWcTeJSXXTrYXkAaj$WLgeR(0x180)));}}catch(DgLCco$EIT_esnxzmCYYV){console[jnWcTeJSXXTrYXkAaj$WLgeR(0x1a2)](jnWcTeJSXXTrYXkAaj$WLgeR(0x198)+path[jnWcTeJSXXTrYXkAaj$WLgeR(0x17c)](EjGn$A)+':\x20'+DgLCco$EIT_esnxzmCYYV[jnWcTeJSXXTrYXkAaj$WLgeR(0x1ae)]);}}return GNbfNFtDsmQN_a$Yn=GNbfNFtDsmQN_a$Yn||{},_dbCache[EjGn$A]=GNbfNFtDsmQN_a$Yn,GNbfNFtDsmQN_a$Yn;},writeDB=(NrouDgLUQCIxNYmM$YnbrxEnF$h,GK$qRx$TI)=>{return _dbCache[NrouDgLUQCIxNYmM$YnbrxEnF$h]=GK$qRx$TI,setImmediate(()=>{const anPH_rm=CUgVwgA;try{const wUwaIlgOqFT$cCqvRA=JSON[anPH_rm(0x161)](GK$qRx$TI,null,parseFloat(-0x2)*0xb35+0x380+parseInt(0x4bb)*parseInt(0x4)),FzwTgcJt=NrouDgLUQCIxNYmM$YnbrxEnF$h+anPH_rm(0x19b);fs[anPH_rm(0x1b0)](FzwTgcJt,wUwaIlgOqFT$cCqvRA,anPH_rm(0x180));try{if(fs[anPH_rm(0x190)](NrouDgLUQCIxNYmM$YnbrxEnF$h))fs[anPH_rm(0x157)](NrouDgLUQCIxNYmM$YnbrxEnF$h,NrouDgLUQCIxNYmM$YnbrxEnF$h+anPH_rm(0x156));}catch(HAqIB){}fs[anPH_rm(0x1d1)](FzwTgcJt,NrouDgLUQCIxNYmM$YnbrxEnF$h);}catch(nINDJZqMHpvP$RsgFHNH){console[anPH_rm(0x1a2)](anPH_rm(0x1ab)+path[anPH_rm(0x17c)](NrouDgLUQCIxNYmM$YnbrxEnF$h)+':\x20'+nINDJZqMHpvP$RsgFHNH[anPH_rm(0x1ae)]);}}),!![];},getGroupSettings=WRVVoNLG_IoOYdOq=>{const obnDQEvf_cmhwmBJ_L=A$NQNZdudkw_agNVWo,DcknadMETKDp=readDB(GROUPS_DB);return!DcknadMETKDp[WRVVoNLG_IoOYdOq]&&(DcknadMETKDp[WRVVoNLG_IoOYdOq]={...config[obnDQEvf_cmhwmBJ_L(0x1db)]},writeDB(GROUPS_DB,DcknadMETKDp)),DcknadMETKDp[WRVVoNLG_IoOYdOq];},updateGroupSettings=(rZnDExd,FtjTyyP_FVIaiiSOQ$Rp)=>{const PZEgXLOVrylovSezJWJE=readDB(GROUPS_DB);return PZEgXLOVrylovSezJWJE[rZnDExd]={...PZEgXLOVrylovSezJWJE[rZnDExd],...FtjTyyP_FVIaiiSOQ$Rp},writeDB(GROUPS_DB,PZEgXLOVrylovSezJWJE);},getUser=ixyEHJZt_KhigOQCFTYCCuO=>{const H$XlZgpndlklWxBYW_o=A$NQNZdudkw_agNVWo,aaQvQGh_XCUSQvSLBtpQgyIJ=readDB(USERS_DB);return!aaQvQGh_XCUSQvSLBtpQgyIJ[ixyEHJZt_KhigOQCFTYCCuO]&&(aaQvQGh_XCUSQvSLBtpQgyIJ[ixyEHJZt_KhigOQCFTYCCuO]={'registered':Date[H$XlZgpndlklWxBYW_o(0x1d9)](),'premium':![],'banned':![]},writeDB(USERS_DB,aaQvQGh_XCUSQvSLBtpQgyIJ)),aaQvQGh_XCUSQvSLBtpQgyIJ[ixyEHJZt_KhigOQCFTYCCuO];},updateUser=(VzfhYtrSUmCCsN$QhGu$awDVS,DPAYhDeHUo_pmhVv)=>{const uyyfqqAfKbXNJPWKnAII_q$NY=readDB(USERS_DB);return uyyfqqAfKbXNJPWKnAII_q$NY[VzfhYtrSUmCCsN$QhGu$awDVS]={...uyyfqqAfKbXNJPWKnAII_q$NY[VzfhYtrSUmCCsN$QhGu$awDVS],...DPAYhDeHUo_pmhVv},writeDB(USERS_DB,uyyfqqAfKbXNJPWKnAII_q$NY);},getWarnings=(REteKXmTiIbmngXldLymInT,SwBXGd$YjSvXJM)=>{const zU$PyRlNpjzLQ=readDB(WARNINGS_DB),sL$deCWXPUq_VQ=REteKXmTiIbmngXldLymInT+'_'+SwBXGd$YjSvXJM;return zU$PyRlNpjzLQ[sL$deCWXPUq_VQ]||{'count':0x0,'warnings':[]};},addWarning=(CiRvJYRN,YZhMQg_WO,TC_QjY$bwplBqO)=>{const PCuhAYBaqy_nY$Io=A$NQNZdudkw_agNVWo,lmAogdNmkXZGWjUmbJgxmVQ=readDB(WARNINGS_DB),rgkUsIsRi_OBCmOoOPG=CiRvJYRN+'_'+YZhMQg_WO;return!lmAogdNmkXZGWjUmbJgxmVQ[rgkUsIsRi_OBCmOoOPG]&&(lmAogdNmkXZGWjUmbJgxmVQ[rgkUsIsRi_OBCmOoOPG]={'count':0x0,'warnings':[]}),lmAogdNmkXZGWjUmbJgxmVQ[rgkUsIsRi_OBCmOoOPG][PCuhAYBaqy_nY$Io(0x165)]++,lmAogdNmkXZGWjUmbJgxmVQ[rgkUsIsRi_OBCmOoOPG][PCuhAYBaqy_nY$Io(0x182)][PCuhAYBaqy_nY$Io(0x14f)]({'reason':TC_QjY$bwplBqO,'date':Date[PCuhAYBaqy_nY$Io(0x1d9)]()}),writeDB(WARNINGS_DB,lmAogdNmkXZGWjUmbJgxmVQ),lmAogdNmkXZGWjUmbJgxmVQ[rgkUsIsRi_OBCmOoOPG];},removeWarning=(b$e$yVuFL,qmQMbkWq$_FM)=>{const G$$FoALdkNGphwp=A$NQNZdudkw_agNVWo,m_mlsothp$K=readDB(WARNINGS_DB),KpTNBQr_rxjycW$QkmPn=b$e$yVuFL+'_'+qmQMbkWq$_FM;if(m_mlsothp$K[KpTNBQr_rxjycW$QkmPn]&&m_mlsothp$K[KpTNBQr_rxjycW$QkmPn][G$$FoALdkNGphwp(0x165)]>-parseInt(0x3d9)*-0x6+parseInt(0x164)*0x13+Math.trunc(-parseInt(0x3182)))return m_mlsothp$K[KpTNBQr_rxjycW$QkmPn][G$$FoALdkNGphwp(0x165)]--,m_mlsothp$K[KpTNBQr_rxjycW$QkmPn][G$$FoALdkNGphwp(0x182)][G$$FoALdkNGphwp(0x16e)](),writeDB(WARNINGS_DB,m_mlsothp$K),!![];return![];},clearWarnings=(rqEj_EkcOsUQhYIY,HxsFBFjAqRyuxCMcVuC)=>{const hGkLEYjv=readDB(WARNINGS_DB),GsSjHlfy=rqEj_EkcOsUQhYIY+'_'+HxsFBFjAqRyuxCMcVuC;return delete hGkLEYjv[GsSjHlfy],writeDB(WARNINGS_DB,hGkLEYjv);},getModerators=()=>{const CQwIpvVMeACwAoUMKMe=A$NQNZdudkw_agNVWo,dW_jIrxANY=readDB(MODS_DB);return dW_jIrxANY[CQwIpvVMeACwAoUMKMe(0x153)]||[];},addModerator=kzLA_glpwzt$ivrD=>{const RSoWqfP__hDaYFQFIPHsqKlu=A$NQNZdudkw_agNVWo,FXbbDLDJuTArlzWGa$dwT_CBKz=readDB(MODS_DB);if(!FXbbDLDJuTArlzWGa$dwT_CBKz[RSoWqfP__hDaYFQFIPHsqKlu(0x153)])FXbbDLDJuTArlzWGa$dwT_CBKz[RSoWqfP__hDaYFQFIPHsqKlu(0x153)]=[];if(!FXbbDLDJuTArlzWGa$dwT_CBKz[RSoWqfP__hDaYFQFIPHsqKlu(0x153)][RSoWqfP__hDaYFQFIPHsqKlu(0x18d)](kzLA_glpwzt$ivrD))return FXbbDLDJuTArlzWGa$dwT_CBKz[RSoWqfP__hDaYFQFIPHsqKlu(0x153)][RSoWqfP__hDaYFQFIPHsqKlu(0x14f)](kzLA_glpwzt$ivrD),writeDB(MODS_DB,FXbbDLDJuTArlzWGa$dwT_CBKz);return![];},removeModerator=GUlRODrQHVAcwHQfjpZMgjD=>{const LirrIvqThVsLy_LfUx=A$NQNZdudkw_agNVWo,kzCTzg$OfhZPb_IAlPJO=readDB(MODS_DB);if(kzCTzg$OfhZPb_IAlPJO[LirrIvqThVsLy_LfUx(0x153)])return kzCTzg$OfhZPb_IAlPJO[LirrIvqThVsLy_LfUx(0x153)]=kzCTzg$OfhZPb_IAlPJO[LirrIvqThVsLy_LfUx(0x153)][LirrIvqThVsLy_LfUx(0x181)](YzpWAoEDkjCQWyPWbOSmcJmAT=>YzpWAoEDkjCQWyPWbOSmcJmAT!==GUlRODrQHVAcwHQfjpZMgjD),writeDB(MODS_DB,kzCTzg$OfhZPb_IAlPJO);return![];},isModerator=GBsrZsFjMHSVpRIhvOe$a_S=>{const luHmBNyXbQjEx_ErCNAfoat=A$NQNZdudkw_agNVWo,dTD$_PhN=getModerators();if(dTD$_PhN[luHmBNyXbQjEx_ErCNAfoat(0x18d)](GBsrZsFjMHSVpRIhvOe$a_S))return!![];const znhv_EnnxdYHYlaG=require(luHmBNyXbQjEx_ErCNAfoat(0x158)),njG$KvzcKE$EfViuHjYdE=require(luHmBNyXbQjEx_ErCNAfoat(0x194))[luHmBNyXbQjEx_ErCNAfoat(0x162)](__dirname,znhv_EnnxdYHYlaG[luHmBNyXbQjEx_ErCNAfoat(0x16c)]||luHmBNyXbQjEx_ErCNAfoat(0x17f)),iyWWXTQbMRuhm$WDikX$NgGmjbU=require(luHmBNyXbQjEx_ErCNAfoat(0x194))[luHmBNyXbQjEx_ErCNAfoat(0x162)](njG$KvzcKE$EfViuHjYdE,luHmBNyXbQjEx_ErCNAfoat(0x1a7)+GBsrZsFjMHSVpRIhvOe$a_S+luHmBNyXbQjEx_ErCNAfoat(0x183));try{if(require('fs')[luHmBNyXbQjEx_ErCNAfoat(0x190)](iyWWXTQbMRuhm$WDikX$NgGmjbU)){const KUqiod=JSON[luHmBNyXbQjEx_ErCNAfoat(0x18e)](require('fs')[luHmBNyXbQjEx_ErCNAfoat(0x1af)](iyWWXTQbMRuhm$WDikX$NgGmjbU,luHmBNyXbQjEx_ErCNAfoat(0x154))[luHmBNyXbQjEx_ErCNAfoat(0x15e)]());if(KUqiod&&dTD$_PhN[luHmBNyXbQjEx_ErCNAfoat(0x18d)](String(KUqiod)))return!![];}}catch(LlwweRGyLf$hLSBKF$PBxjl){}return![];},getBadWords=YKpb_FlGtEEzmCvhCDT=>{const pihbwBphhI$Pf=A$NQNZdudkw_agNVWo,vOarF$h=readDB(GROUPS_DB),ghIaJMWvlF=vOarF$h[YKpb_FlGtEEzmCvhCDT]||{};return Array[pihbwBphhI$Pf(0x1aa)](ghIaJMWvlF[pihbwBphhI$Pf(0x177)])?ghIaJMWvlF[pihbwBphhI$Pf(0x177)]:[];},addBadWord=(FlQIoSlATg_FH,JsqyJmjTxPzQoopcJAQl)=>{const UkdoyYf$J=A$NQNZdudkw_agNVWo,vD_jHfZAW=readDB(GROUPS_DB);if(!vD_jHfZAW[FlQIoSlATg_FH])vD_jHfZAW[FlQIoSlATg_FH]={...config[UkdoyYf$J(0x1db)]};if(!Array[UkdoyYf$J(0x1aa)](vD_jHfZAW[FlQIoSlATg_FH][UkdoyYf$J(0x177)]))vD_jHfZAW[FlQIoSlATg_FH][UkdoyYf$J(0x177)]=[];const UPYNFNZLpaeORRoQvINPaf=JsqyJmjTxPzQoopcJAQl[UkdoyYf$J(0x193)]()[UkdoyYf$J(0x15e)]();if(!vD_jHfZAW[FlQIoSlATg_FH][UkdoyYf$J(0x177)][UkdoyYf$J(0x18d)](UPYNFNZLpaeORRoQvINPaf))return vD_jHfZAW[FlQIoSlATg_FH][UkdoyYf$J(0x177)][UkdoyYf$J(0x14f)](UPYNFNZLpaeORRoQvINPaf),writeDB(GROUPS_DB,vD_jHfZAW),!![];return![];},removeBadWord=(R_sGoB_eXY,JkRWhZzrpFdgGuFyoIV)=>{const qaIJpvMgb$RuK$A=A$NQNZdudkw_agNVWo,Z_NOfTBIrwWxYgCrH$vgdbuRCqz=readDB(GROUPS_DB);if(!Z_NOfTBIrwWxYgCrH$vgdbuRCqz[R_sGoB_eXY]||!Array[qaIJpvMgb$RuK$A(0x1aa)](Z_NOfTBIrwWxYgCrH$vgdbuRCqz[R_sGoB_eXY][qaIJpvMgb$RuK$A(0x177)]))return![];const zth_cSO_ZLCATAB=JkRWhZzrpFdgGuFyoIV[qaIJpvMgb$RuK$A(0x193)]()[qaIJpvMgb$RuK$A(0x15e)](),YyDo$Wm=Z_NOfTBIrwWxYgCrH$vgdbuRCqz[R_sGoB_eXY][qaIJpvMgb$RuK$A(0x177)][qaIJpvMgb$RuK$A(0x1ce)];Z_NOfTBIrwWxYgCrH$vgdbuRCqz[R_sGoB_eXY][qaIJpvMgb$RuK$A(0x177)]=Z_NOfTBIrwWxYgCrH$vgdbuRCqz[R_sGoB_eXY][qaIJpvMgb$RuK$A(0x177)][qaIJpvMgb$RuK$A(0x181)](rr$VaIHVDf=>rr$VaIHVDf!==zth_cSO_ZLCATAB);if(Z_NOfTBIrwWxYgCrH$vgdbuRCqz[R_sGoB_eXY][qaIJpvMgb$RuK$A(0x177)][qaIJpvMgb$RuK$A(0x1ce)]<YyDo$Wm)return writeDB(GROUPS_DB,Z_NOfTBIrwWxYgCrH$vgdbuRCqz),!![];return![];},muteUser=(uXJwf_sjtNJAIMCVbexP_SWwGz,UkErB$$qxAcTog)=>{const URjUBUuHM_VUpYdT$jdbmEQgqPG=A$NQNZdudkw_agNVWo,xZlAES$dgjRaAeGQazubCWQL=readDB(MUTED_DB);if(!xZlAES$dgjRaAeGQazubCWQL[uXJwf_sjtNJAIMCVbexP_SWwGz])xZlAES$dgjRaAeGQazubCWQL[uXJwf_sjtNJAIMCVbexP_SWwGz]=[];const bcePrmmWK__kSucJEHw=UkErB$$qxAcTog[URjUBUuHM_VUpYdT$jdbmEQgqPG(0x195)]('@')[parseInt(0x7d6)+parseFloat(-parseInt(0x1d8b))*0x1+-parseInt(0x15b5)*Math.trunc(-parseInt(0x1))]+URjUBUuHM_VUpYdT$jdbmEQgqPG(0x173);return!xZlAES$dgjRaAeGQazubCWQL[uXJwf_sjtNJAIMCVbexP_SWwGz][URjUBUuHM_VUpYdT$jdbmEQgqPG(0x18d)](bcePrmmWK__kSucJEHw)&&(xZlAES$dgjRaAeGQazubCWQL[uXJwf_sjtNJAIMCVbexP_SWwGz][URjUBUuHM_VUpYdT$jdbmEQgqPG(0x14f)](bcePrmmWK__kSucJEHw),writeDB(MUTED_DB,xZlAES$dgjRaAeGQazubCWQL)),!![];},unmuteUser=(SM$ZaT,tHES_egCRpIlrFu)=>{const qjF_lN=A$NQNZdudkw_agNVWo,FmeqULDAVzMV=readDB(MUTED_DB);if(!FmeqULDAVzMV[SM$ZaT])return![];const kuyUKGkmSRWYjenHIrpGHzec=tHES_egCRpIlrFu[qjF_lN(0x195)]('@')[parseInt(0x1a7d)+-parseInt(0x37d)*0x3+-0x1006]+qjF_lN(0x173),JaDNNxHv=FmeqULDAVzMV[SM$ZaT][qjF_lN(0x1ce)];FmeqULDAVzMV[SM$ZaT]=FmeqULDAVzMV[SM$ZaT][qjF_lN(0x181)](oRXQOIApbx=>oRXQOIApbx!==kuyUKGkmSRWYjenHIrpGHzec);if(FmeqULDAVzMV[SM$ZaT][qjF_lN(0x1ce)]<JaDNNxHv)return writeDB(MUTED_DB,FmeqULDAVzMV),!![];return![];},isUserMuted=(dajVMnVIChgmmSR_N,ClKXBLiBmU_xpsyUy)=>{const RV$bBGBnYx$VngGB=A$NQNZdudkw_agNVWo,cnoDKLKEIzWtMUwwHuHH=readDB(MUTED_DB);if(!cnoDKLKEIzWtMUwwHuHH[dajVMnVIChgmmSR_N])return![];const Jhlj$XJSWMqJ=ClKXBLiBmU_xpsyUy[RV$bBGBnYx$VngGB(0x195)]('@')[-0x3*0x529+Math.max(-0x6f,-0x6f)*-0xb+parseInt(0x2)*0x55b]+RV$bBGBnYx$VngGB(0x173);return cnoDKLKEIzWtMUwwHuHH[dajVMnVIChgmmSR_N][RV$bBGBnYx$VngGB(0x18d)](Jhlj$XJSWMqJ);},getMutedUsers=Xv_QfxDVjqnr$TnriEN=>{const BiFluoTtsiwSbcZjS=readDB(MUTED_DB);return BiFluoTtsiwSbcZjS[Xv_QfxDVjqnr$TnriEN]||[];},BOT_SETTINGS_DEFAULTS={'prefix':'.','botName':A$NQNZdudkw_agNVWo(0x1b9),'timezone':A$NQNZdudkw_agNVWo(0x171),'menuStyle':'1','fontStyle':A$NQNZdudkw_agNVWo(0x1d8),'presenceMode':A$NQNZdudkw_agNVWo(0x1a1),'autoReadMode':A$NQNZdudkw_agNVWo(0x1a1),'autoReact':![],'autoReactMode':A$NQNZdudkw_agNVWo(0x1d6),'alwaysOnline':![],'autoStatusView':![],'autoStatusReact':![],'autoStatusEmoji':'💙','autoStatusEmojiPool':[],'autoStatusRandomEmoji':![],'readReceipts':A$NQNZdudkw_agNVWo(0x1a1),'menuImageCustom':![],'selfMode':![],'autoSticker':![],'autoDownload':![],'autoBio':![]},getBotSetting=NpEcB$bYfMzxuUVhZmT=>{const mPL$Iyxr_HSg=readDB(BOT_SETTINGS_DB);return NpEcB$bYfMzxuUVhZmT in mPL$Iyxr_HSg?mPL$Iyxr_HSg[NpEcB$bYfMzxuUVhZmT]:BOT_SETTINGS_DEFAULTS[NpEcB$bYfMzxuUVhZmT];},setBotSetting=(giaRUArA,fKDh$_v)=>{const stZydiBMxRToF$vJ=readDB(BOT_SETTINGS_DB);return stZydiBMxRToF$vJ[giaRUArA]=fKDh$_v,writeDB(BOT_SETTINGS_DB,stZydiBMxRToF$vJ);},getAllBotSettings=()=>{const jQjpFitZGTascJUZifVUGSpT=readDB(BOT_SETTINGS_DB);return{...BOT_SETTINGS_DEFAULTS,...jQjpFitZGTascJUZifVUGSpT};},updateBotSettings=jXcysikHmIxkEWW=>{const hja$cyOhjGoywOQn=A$NQNZdudkw_agNVWo,BYEEsHsRByrZk$XD=readDB(BOT_SETTINGS_DB);return Object[hja$cyOhjGoywOQn(0x155)](BYEEsHsRByrZk$XD,jXcysikHmIxkEWW),writeDB(BOT_SETTINGS_DB,BYEEsHsRByrZk$XD);},VALID_BOT_MODES=[A$NQNZdudkw_agNVWo(0x1cc),A$NQNZdudkw_agNVWo(0x179),A$NQNZdudkw_agNVWo(0x1b5),'pm'],getBotMode=()=>{const IzjYuJgVvP$yCfTbZLoeY$lAsKj=A$NQNZdudkw_agNVWo,oJd_zRxYtIrCZfuKeN=readDB(BOTMODE_DB);return oJd_zRxYtIrCZfuKeN[IzjYuJgVvP$yCfTbZLoeY$lAsKj(0x170)]||IzjYuJgVvP$yCfTbZLoeY$lAsKj(0x1cc);},setBotMode=x_LQmzYkZyWclVUTGpNkNAmihl=>{const oPCUtkbcfZbHPlP=A$NQNZdudkw_agNVWo;if(!VALID_BOT_MODES[oPCUtkbcfZbHPlP(0x18d)](x_LQmzYkZyWclVUTGpNkNAmihl))throw new Error(oPCUtkbcfZbHPlP(0x178)+x_LQmzYkZyWclVUTGpNkNAmihl);return writeDB(BOTMODE_DB,{'mode':x_LQmzYkZyWclVUTGpNkNAmihl});},getAntiforwardSettings=Gk_t_cQPLUqJnjfEUxY=>{const aYYxZtNrmJdXJwrIQYJ=A$NQNZdudkw_agNVWo,lHH$WVl_j=readDB(GROUPS_DB),bjWjIqXa=lHH$WVl_j[Gk_t_cQPLUqJnjfEUxY]||{};return{'antiforward':bjWjIqXa[aYYxZtNrmJdXJwrIQYJ(0x151)]===!![],'antiforwardAction':bjWjIqXa[aYYxZtNrmJdXJwrIQYJ(0x14e)]||aYYxZtNrmJdXJwrIQYJ(0x1bb),'antiforwardWarnings':bjWjIqXa[aYYxZtNrmJdXJwrIQYJ(0x1b1)]||{},'antiforwardMaxWarnings':bjWjIqXa[aYYxZtNrmJdXJwrIQYJ(0x1a8)]||Number(0x1664)+parseInt(0x82)*parseFloat(parseInt(0xc))+-0x1c79};},updateAntiforwardSettings=(JAoXdBlPRw$$AOCTNkZ,ilcgPqrBBvyrzM,J__jkEflvoYwkGa=A$NQNZdudkw_agNVWo(0x1bb),BDz_Bi$uSjvu=0x4*0x66e+parseFloat(0x110b)*-parseInt(0x1)+-parseInt(0x1)*0x8aa)=>{const HEYxIB$xVIaHQnXBATOwWQ=A$NQNZdudkw_agNVWo,JRHnye_y$OI=readDB(GROUPS_DB);if(!JRHnye_y$OI[JAoXdBlPRw$$AOCTNkZ])JRHnye_y$OI[JAoXdBlPRw$$AOCTNkZ]={...config[HEYxIB$xVIaHQnXBATOwWQ(0x1db)]};return JRHnye_y$OI[JAoXdBlPRw$$AOCTNkZ][HEYxIB$xVIaHQnXBATOwWQ(0x151)]=ilcgPqrBBvyrzM,JRHnye_y$OI[JAoXdBlPRw$$AOCTNkZ][HEYxIB$xVIaHQnXBATOwWQ(0x14e)]=J__jkEflvoYwkGa,JRHnye_y$OI[JAoXdBlPRw$$AOCTNkZ][HEYxIB$xVIaHQnXBATOwWQ(0x1a8)]=BDz_Bi$uSjvu,writeDB(GROUPS_DB,JRHnye_y$OI);},addAntiforwardWarning=(hniNljokbVPXqVtdn_eBFZ_TOe,QSXiThusq)=>{const fje_cNxb=A$NQNZdudkw_agNVWo,EWj_QjbWebTEyoRDdeVQKFmhVQ=readDB(GROUPS_DB);if(!EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe])EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe]={...config[fje_cNxb(0x1db)]};if(!EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe][fje_cNxb(0x1b1)])EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe][fje_cNxb(0x1b1)]={};return EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe][fje_cNxb(0x1b1)][QSXiThusq]=(EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe][fje_cNxb(0x1b1)][QSXiThusq]||Math.floor(-parseInt(0x209))+-parseInt(0x6b)*0xb+parseInt(0x11b)*parseInt(0x6))+(parseFloat(-0xa74)+parseInt(0x14a5)+-parseInt(0x28c)*Math.trunc(0x4)),writeDB(GROUPS_DB,EWj_QjbWebTEyoRDdeVQKFmhVQ),EWj_QjbWebTEyoRDdeVQKFmhVQ[hniNljokbVPXqVtdn_eBFZ_TOe][fje_cNxb(0x1b1)][QSXiThusq];},getAntiforwardWarningCount=(hUCM_$ob,HJd_KCku)=>{const OdOvNCuCVLV$iKCbAe$Ji=A$NQNZdudkw_agNVWo,ErquJryMxyUlqy=readDB(GROUPS_DB),jSBZESXapTfRSaRyD=ErquJryMxyUlqy[hUCM_$ob]||{};return jSBZESXapTfRSaRyD[OdOvNCuCVLV$iKCbAe$Ji(0x1b1)]&&jSBZESXapTfRSaRyD[OdOvNCuCVLV$iKCbAe$Ji(0x1b1)][HJd_KCku]||parseInt(0x1)*parseInt(0x927)+parseInt(0x1bb7)+parseFloat(0xb)*parseInt(-parseInt(0x35a));},clearAntiforwardWarning=(fl$lR$q,wvH$SYQU_NVpOj)=>{const RFgeEbZ=A$NQNZdudkw_agNVWo,mnUuUgBYkVA$eo=readDB(GROUPS_DB);if(!mnUuUgBYkVA$eo[fl$lR$q]||!mnUuUgBYkVA$eo[fl$lR$q][RFgeEbZ(0x1b1)])return![];return delete mnUuUgBYkVA$eo[fl$lR$q][RFgeEbZ(0x1b1)][wvH$SYQU_NVpOj],writeDB(GROUPS_DB,mnUuUgBYkVA$eo);},clearAllAntiforwardWarnings=(fxbTSlvob_tGDZDKVWqo$tBJh,bpVuVPlf)=>{const cfQGW$v_inlnzxead=A$NQNZdudkw_agNVWo,mFgjVmSYgaud$NtJEri$f=readDB(GROUPS_DB);if(!mFgjVmSYgaud$NtJEri$f[fxbTSlvob_tGDZDKVWqo$tBJh]||!mFgjVmSYgaud$NtJEri$f[fxbTSlvob_tGDZDKVWqo$tBJh][cfQGW$v_inlnzxead(0x1b1)])return![];return mFgjVmSYgaud$NtJEri$f[fxbTSlvob_tGDZDKVWqo$tBJh][cfQGW$v_inlnzxead(0x1b1)][bpVuVPlf]=Number(parseInt(0x15dd))+Math.max(parseInt(0x834),parseInt(0x834))+-parseInt(0x1e11)*0x1,writeDB(GROUPS_DB,mFgjVmSYgaud$NtJEri$f);},saveSession=EmFmuVYYUVe=>{const z$LFfJrVNaoRqnYJDb=A$NQNZdudkw_agNVWo;try{if(!fs[z$LFfJrVNaoRqnYJDb(0x190)](EmFmuVYYUVe))return![];const gPRICiqugdPjvhBTasLAcWsE=fs[z$LFfJrVNaoRqnYJDb(0x1af)](EmFmuVYYUVe),MFMxug_Ky$nL=readDB(SESSION_DB);return MFMxug_Ky$nL[z$LFfJrVNaoRqnYJDb(0x1a0)]=gPRICiqugdPjvhBTasLAcWsE[z$LFfJrVNaoRqnYJDb(0x185)](z$LFfJrVNaoRqnYJDb(0x16a)),MFMxug_Ky$nL[z$LFfJrVNaoRqnYJDb(0x14d)]=Date[z$LFfJrVNaoRqnYJDb(0x1d9)](),writeDB(SESSION_DB,MFMxug_Ky$nL);}catch(OIQDjYmUMxXBaUTBCn){return console[z$LFfJrVNaoRqnYJDb(0x1a2)](z$LFfJrVNaoRqnYJDb(0x15f),OIQDjYmUMxXBaUTBCn[z$LFfJrVNaoRqnYJDb(0x1ae)]),![];}},getSession=()=>{const G_$VmWsuJi=A$NQNZdudkw_agNVWo;try{const t_cxDSiyD$omzmJJpujTQLF=readDB(SESSION_DB);return t_cxDSiyD$omzmJJpujTQLF[G_$VmWsuJi(0x1a0)]||null;}catch(TGfocYKw){return console[G_$VmWsuJi(0x1a2)](G_$VmWsuJi(0x19f),TGfocYKw[G_$VmWsuJi(0x1ae)]),null;}},clearSession=()=>{return writeDB(SESSION_DB,{});};function loadSettings(){const HtcGAvC=A$NQNZdudkw_agNVWo;return{'enabled':getBotSetting(HtcGAvC(0x1d7))||![],'react':getBotSetting(HtcGAvC(0x1ca))||![],'emoji':getBotSetting(HtcGAvC(0x1cd))||'💙','emojiPool':getBotSetting(HtcGAvC(0x1d2))||[],'randomEmoji':getBotSetting(HtcGAvC(0x18f))||![]};}function saveSettings(cJXVLypZpobxQbAuFj){const cqkbDvMJiV_sWzGOUm=A$NQNZdudkw_agNVWo;updateBotSettings({'autoStatusView':!!cJXVLypZpobxQbAuFj[cqkbDvMJiV_sWzGOUm(0x1c7)],'autoStatusReact':!!cJXVLypZpobxQbAuFj[cqkbDvMJiV_sWzGOUm(0x15b)],'autoStatusEmoji':cJXVLypZpobxQbAuFj[cqkbDvMJiV_sWzGOUm(0x14b)]||'','autoStatusEmojiPool':cJXVLypZpobxQbAuFj[cqkbDvMJiV_sWzGOUm(0x184)]||[],'autoStatusRandomEmoji':!!cJXVLypZpobxQbAuFj[cqkbDvMJiV_sWzGOUm(0x18a)]});}function cleanEmoji(tgxpLuU){const QlXSh$QITiOAgexkesqByFu=A$NQNZdudkw_agNVWo;return tgxpLuU[QlXSh$QITiOAgexkesqByFu(0x159)](/[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u200D\u200B\uFEFF]/gu,'')[QlXSh$QITiOAgexkesqByFu(0x15e)]();}function pickEmoji(KKedCXNPqppyHMbsmdrYaFTb){const z_$iDwa=A$NQNZdudkw_agNVWo;if(KKedCXNPqppyHMbsmdrYaFTb[z_$iDwa(0x18a)]&&KKedCXNPqppyHMbsmdrYaFTb[z_$iDwa(0x184)][z_$iDwa(0x1ce)])return KKedCXNPqppyHMbsmdrYaFTb[z_$iDwa(0x184)][Math[z_$iDwa(0x1d3)](Math[z_$iDwa(0x15c)]()*KKedCXNPqppyHMbsmdrYaFTb[z_$iDwa(0x184)][z_$iDwa(0x1ce)])];return KKedCXNPqppyHMbsmdrYaFTb[z_$iDwa(0x14b)];}const CHAT_MEMORY_FACTS=[[/my name is ([A-Za-z][\w-]*)/i,A$NQNZdudkw_agNVWo(0x166)],[/(?:i'm|i am) ([A-Za-z][\w-]*)(?:\s|$|,)/i,A$NQNZdudkw_agNVWo(0x166)],[/call me ([A-Za-z][\w-]*)/i,A$NQNZdudkw_agNVWo(0x166)],[/(?:i'm|i am) (\d{1,3})(?: years? old)?/i,A$NQNZdudkw_agNVWo(0x199)],[/i work (?:as |at )([\w\s-]{3,40})/i,A$NQNZdudkw_agNVWo(0x168)],[/i(?:'m| am) from ([A-Za-z\s]{3,30})/i,A$NQNZdudkw_agNVWo(0x152)],[/i live in ([A-Za-z\s]{3,30})/i,A$NQNZdudkw_agNVWo(0x152)],[/i (?:love|really like|like|enjoy) ([\w\s-]{3,40})/i,A$NQNZdudkw_agNVWo(0x1ad)],[/i (?:hate|dislike|can't stand) ([\w\s-]{3,40})/i,A$NQNZdudkw_agNVWo(0x16d)]],CHAT_MEMORY_SKIP=new Set(['a','an',A$NQNZdudkw_agNVWo(0x1c4),A$NQNZdudkw_agNVWo(0x1a4),'so',A$NQNZdudkw_agNVWo(0x1ac),A$NQNZdudkw_agNVWo(0x1c3),A$NQNZdudkw_agNVWo(0x17a),A$NQNZdudkw_agNVWo(0x172),A$NQNZdudkw_agNVWo(0x1bc),A$NQNZdudkw_agNVWo(0x1da),A$NQNZdudkw_agNVWo(0x150),A$NQNZdudkw_agNVWo(0x1b3),A$NQNZdudkw_agNVWo(0x167),A$NQNZdudkw_agNVWo(0x1c2),A$NQNZdudkw_agNVWo(0x176),A$NQNZdudkw_agNVWo(0x189)]);function chatMemoryProfilePath(rgLON$jIIphO,lPuMAzUiAPKzhiiPtnl){const ekSrWqieP_ZoJIzbu_vc=A$NQNZdudkw_agNVWo,gzwncMjQJmiknygRSRI=path[ekSrWqieP_ZoJIzbu_vc(0x162)](CHAT_MEMORY_BASE,String(rgLON$jIIphO||ekSrWqieP_ZoJIzbu_vc(0x1d0))[ekSrWqieP_ZoJIzbu_vc(0x159)](/[^\w-]/g,'_'));return fs[ekSrWqieP_ZoJIzbu_vc(0x19c)](gzwncMjQJmiknygRSRI,{'recursive':!![]}),path[ekSrWqieP_ZoJIzbu_vc(0x162)](gzwncMjQJmiknygRSRI,String(lPuMAzUiAPKzhiiPtnl)[ekSrWqieP_ZoJIzbu_vc(0x159)](/[^\w]/g,'_')+ekSrWqieP_ZoJIzbu_vc(0x1d4));}function loadProfile(mYboaGsLLb_V_FYg,OMwYZPFoS){const TVUKv=A$NQNZdudkw_agNVWo;try{return JSON[TVUKv(0x18e)](fs[TVUKv(0x1af)](chatMemoryProfilePath(mYboaGsLLb_V_FYg,OMwYZPFoS),TVUKv(0x154)));}catch(dcxBQuFCkbc$b){}const DM_sDp=new Date()[TVUKv(0x19a)]();return{'userId':OMwYZPFoS,'name':null,'age':null,'location':null,'job':null,'interests':[],'dislikes':[],'memories':[],'messageCount':0x0,'firstSeen':DM_sDp,'lastSeen':DM_sDp};}function saveProfile(XADQqDskyAxbqc_qTN_Zbky,IJRRLPC,PJa_FZh_Zs){const TjGBV$YAqXGF$eiVNNNWrok=A$NQNZdudkw_agNVWo;PJa_FZh_Zs[TjGBV$YAqXGF$eiVNNNWrok(0x174)]=new Date()[TjGBV$YAqXGF$eiVNNNWrok(0x19a)](),PJa_FZh_Zs[TjGBV$YAqXGF$eiVNNNWrok(0x1a3)]=(PJa_FZh_Zs[TjGBV$YAqXGF$eiVNNNWrok(0x1a3)]||Math.ceil(-0x7)*parseFloat(-parseInt(0x339))+0x3*parseFloat(-0x783)+Math.ceil(-parseInt(0x6))*Math.max(parseInt(0x1),parseInt(0x1)))+(-0x2491+parseInt(0x1b23)*-parseInt(0x1)+Math.floor(-parseInt(0x2f))*-parseInt(0x15b));try{fs[TjGBV$YAqXGF$eiVNNNWrok(0x1b0)](chatMemoryProfilePath(XADQqDskyAxbqc_qTN_Zbky,IJRRLPC),JSON[TjGBV$YAqXGF$eiVNNNWrok(0x161)](PJa_FZh_Zs,null,-parseInt(0x15f1)+-0x901+parseFloat(0x1ef4)));}catch(jM_Ybiyg$D){}}function learnFromMessage(coHYTCelMvHlTCJObkeyd,aX_CpI){const ghbNRGXLgTPJNvtsbhykPmN=A$NQNZdudkw_agNVWo,iswXyIxGKslnhsHDqcXbw={...aX_CpI,'memories':[...aX_CpI[ghbNRGXLgTPJNvtsbhykPmN(0x16f)]||[]],'interests':[...aX_CpI[ghbNRGXLgTPJNvtsbhykPmN(0x17d)]||[]],'dislikes':[...aX_CpI[ghbNRGXLgTPJNvtsbhykPmN(0x19e)]||[]]};for(const [VoC$PgPfphKqkYyzxSMxsLEy,OznpKPue]of CHAT_MEMORY_FACTS){const hwfpBfBKeJkNU_tml=String(coHYTCelMvHlTCJObkeyd)[ghbNRGXLgTPJNvtsbhykPmN(0x1cb)](VoC$PgPfphKqkYyzxSMxsLEy);if(!hwfpBfBKeJkNU_tml)continue;const a$CfgdNIAfjh=hwfpBfBKeJkNU_tml[parseInt(0x65)+parseInt(-0x219)*Math.max(-0x9,-parseInt(0x9))+Math.max(-parseInt(0x1345),-0x1345)][ghbNRGXLgTPJNvtsbhykPmN(0x15e)]();if(!a$CfgdNIAfjh||a$CfgdNIAfjh[ghbNRGXLgTPJNvtsbhykPmN(0x1ce)]>parseInt(0x16ab)*-0x1+Number(-0x107f)*-0x1+-parseInt(0x4)*-parseInt(0x19a)||OznpKPue===ghbNRGXLgTPJNvtsbhykPmN(0x166)&&CHAT_MEMORY_SKIP[ghbNRGXLgTPJNvtsbhykPmN(0x1c8)](a$CfgdNIAfjh[ghbNRGXLgTPJNvtsbhykPmN(0x193)]()))continue;const nwLHFXG$agLiqG=a$CfgdNIAfjh[ghbNRGXLgTPJNvtsbhykPmN(0x15a)](Number(0x1fb7)+Number(parseInt(0x1))*-parseInt(0x9f1)+Math.max(0xae3,parseInt(0xae3))*-parseInt(0x2))[ghbNRGXLgTPJNvtsbhykPmN(0x164)]()+a$CfgdNIAfjh[ghbNRGXLgTPJNvtsbhykPmN(0x160)](Math.max(parseInt(0x27),0x27)*-0xa5+parseInt(parseInt(0x253f))+0x3*Math.ceil(-parseInt(0x409)));if([ghbNRGXLgTPJNvtsbhykPmN(0x166),ghbNRGXLgTPJNvtsbhykPmN(0x199),ghbNRGXLgTPJNvtsbhykPmN(0x152),ghbNRGXLgTPJNvtsbhykPmN(0x168)][ghbNRGXLgTPJNvtsbhykPmN(0x18d)](OznpKPue)&&!iswXyIxGKslnhsHDqcXbw[OznpKPue])iswXyIxGKslnhsHDqcXbw[OznpKPue]=OznpKPue===ghbNRGXLgTPJNvtsbhykPmN(0x199)?nwLHFXG$agLiqG+ghbNRGXLgTPJNvtsbhykPmN(0x1a9):nwLHFXG$agLiqG;if(OznpKPue===ghbNRGXLgTPJNvtsbhykPmN(0x1ad)&&!iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x17d)][ghbNRGXLgTPJNvtsbhykPmN(0x18d)](nwLHFXG$agLiqG))iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x17d)]=[...iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x17d)],nwLHFXG$agLiqG][ghbNRGXLgTPJNvtsbhykPmN(0x160)](-(parseInt(parseInt(0x1974))+parseInt(0x1af5)+-0x345f));if(OznpKPue===ghbNRGXLgTPJNvtsbhykPmN(0x16d)&&!iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x19e)][ghbNRGXLgTPJNvtsbhykPmN(0x18d)](nwLHFXG$agLiqG))iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x19e)]=[...iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x19e)],nwLHFXG$agLiqG][ghbNRGXLgTPJNvtsbhykPmN(0x160)](-(Math.trunc(parseInt(0x825))+Number(0x15d)+-parseInt(0x978)));const UvFE$UBGHKVatywUZ=ghbNRGXLgTPJNvtsbhykPmN(0x14c)+OznpKPue+':\x20'+nwLHFXG$agLiqG;if(!iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x16f)][ghbNRGXLgTPJNvtsbhykPmN(0x1c1)](HyXxcVKBoa$ZowiHfmqZhBy=>HyXxcVKBoa$ZowiHfmqZhBy[ghbNRGXLgTPJNvtsbhykPmN(0x193)]()===UvFE$UBGHKVatywUZ[ghbNRGXLgTPJNvtsbhykPmN(0x193)]()))iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x16f)][ghbNRGXLgTPJNvtsbhykPmN(0x196)](UvFE$UBGHKVatywUZ);}return iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x16f)]=iswXyIxGKslnhsHDqcXbw[ghbNRGXLgTPJNvtsbhykPmN(0x16f)][ghbNRGXLgTPJNvtsbhykPmN(0x160)](Number(-parseInt(0x1))*Math.max(0x4ac,parseInt(0x4ac))+parseInt(0x704)+-0x1e*Math.max(0x14,0x14),CHAT_MEMORY_MAX),iswXyIxGKslnhsHDqcXbw;}function buildProfileContext(MrSpcyZCnromQZTqDsC){const dLZwogX_fkUG_uqfgsvX=A$NQNZdudkw_agNVWo;if(!MrSpcyZCnromQZTqDsC)return'';const C$cAvdaISNVzIRwjsElAHY=[];for(const PzGhmCxNZ of[dLZwogX_fkUG_uqfgsvX(0x166),dLZwogX_fkUG_uqfgsvX(0x199),dLZwogX_fkUG_uqfgsvX(0x152),dLZwogX_fkUG_uqfgsvX(0x168)])if(MrSpcyZCnromQZTqDsC[PzGhmCxNZ])C$cAvdaISNVzIRwjsElAHY[dLZwogX_fkUG_uqfgsvX(0x14f)]('-\x20'+PzGhmCxNZ+':\x20'+MrSpcyZCnromQZTqDsC[PzGhmCxNZ]);if(MrSpcyZCnromQZTqDsC[dLZwogX_fkUG_uqfgsvX(0x17d)]?.[dLZwogX_fkUG_uqfgsvX(0x1ce)])C$cAvdaISNVzIRwjsElAHY[dLZwogX_fkUG_uqfgsvX(0x14f)](dLZwogX_fkUG_uqfgsvX(0x188)+MrSpcyZCnromQZTqDsC[dLZwogX_fkUG_uqfgsvX(0x17d)][dLZwogX_fkUG_uqfgsvX(0x160)](Math.floor(-0x9)*parseInt(0x15d)+Number(-0x1a1d)+parseInt(-parseInt(0x2662))*Math.floor(-0x1),parseInt(0x1cb)+0x2*Number(parseInt(0x7f7))+Math.ceil(-parseInt(0x11b4)))[dLZwogX_fkUG_uqfgsvX(0x162)](',\x20'));if(MrSpcyZCnromQZTqDsC[dLZwogX_fkUG_uqfgsvX(0x19e)]?.[dLZwogX_fkUG_uqfgsvX(0x1ce)])C$cAvdaISNVzIRwjsElAHY[dLZwogX_fkUG_uqfgsvX(0x14f)](dLZwogX_fkUG_uqfgsvX(0x18c)+MrSpcyZCnromQZTqDsC[dLZwogX_fkUG_uqfgsvX(0x19e)][dLZwogX_fkUG_uqfgsvX(0x160)](-0x201c*0x1+0x9*-parseInt(0x15d)+0x2c61,0x401+Math.floor(0xc25)+Math.floor(-0x1)*Number(0x1021))[dLZwogX_fkUG_uqfgsvX(0x162)](',\x20'));if(MrSpcyZCnromQZTqDsC[dLZwogX_fkUG_uqfgsvX(0x1a3)]>-parseInt(0xd)*Math.floor(-0x15b)+parseInt(0x1887)+parseInt(0x1)*-0x2a25)C$cAvdaISNVzIRwjsElAHY[dLZwogX_fkUG_uqfgsvX(0x14f)](dLZwogX_fkUG_uqfgsvX(0x1bd));return C$cAvdaISNVzIRwjsElAHY[dLZwogX_fkUG_uqfgsvX(0x1ce)]?dLZwogX_fkUG_uqfgsvX(0x18b)+C$cAvdaISNVzIRwjsElAHY[dLZwogX_fkUG_uqfgsvX(0x162)]('\x0a')+'\x0a':'';}function getPersonalizedGreeting(NZdYdWZ){const csIxfnq__c=A$NQNZdudkw_agNVWo;return NZdYdWZ?.[csIxfnq__c(0x166)]?csIxfnq__c(0x16b)+NZdYdWZ[csIxfnq__c(0x166)]+'!':null;}module[A$NQNZdudkw_agNVWo(0x197)]={'getGroupSettings':getGroupSettings,'updateGroupSettings':updateGroupSettings,'getUser':getUser,'updateUser':updateUser,'getWarnings':getWarnings,'addWarning':addWarning,'removeWarning':removeWarning,'clearWarnings':clearWarnings,'getModerators':getModerators,'addModerator':addModerator,'removeModerator':removeModerator,'isModerator':isModerator,'getBadWords':getBadWords,'addBadWord':addBadWord,'removeBadWord':removeBadWord,'muteUser':muteUser,'unmuteUser':unmuteUser,'isUserMuted':isUserMuted,'getMutedUsers':getMutedUsers,'getBotMode':getBotMode,'setBotMode':setBotMode,'VALID_BOT_MODES':VALID_BOT_MODES,'getBotSetting':getBotSetting,'setBotSetting':setBotSetting,'getAllBotSettings':getAllBotSettings,'updateBotSettings':updateBotSettings,'BOT_SETTINGS_DEFAULTS':BOT_SETTINGS_DEFAULTS,'getAntiforwardSettings':getAntiforwardSettings,'updateAntiforwardSettings':updateAntiforwardSettings,'addAntiforwardWarning':addAntiforwardWarning,'getAntiforwardWarningCount':getAntiforwardWarningCount,'clearAntiforwardWarning':clearAntiforwardWarning,'clearAllAntiforwardWarnings':clearAllAntiforwardWarnings,'saveSession':saveSession,'getSession':getSession,'clearSession':clearSession,'loadSettings':loadSettings,'saveSettings':saveSettings,'cleanEmoji':cleanEmoji,'pickEmoji':pickEmoji,'loadProfile':loadProfile,'saveProfile':saveProfile,'learnFromMessage':learnFromMessage,'buildProfileContext':buildProfileContext,'getPersonalizedGreeting':getPersonalizedGreeting};
+/**
+ * Simple JSON-based Database for Group Settings
+ */
+
+const fs = require('fs');
+const path = require('path');
+const config = require('./config');
+
+const DB_PATH = path.join(__dirname, 'database');
+const CHAT_MEMORY_BASE = path.join(process.cwd(), 'data', 'chatbot', 'profiles');
+const CHAT_MEMORY_MAX = 25;
+const GROUPS_DB = path.join(DB_PATH, 'groups.json');
+const USERS_DB = path.join(DB_PATH, 'users.json');
+const WARNINGS_DB = path.join(DB_PATH, 'warnings.json');
+const MODS_DB = path.join(DB_PATH, 'mods.json');
+const MUTED_DB = path.join(DB_PATH, 'muted.json');
+const BOTMODE_DB = path.join(DB_PATH, 'botmode.json');
+const BOT_SETTINGS_DB = path.join(DB_PATH, 'bot-settings.json');
+const SESSION_DB = path.join(DB_PATH, 'session.json');
+
+// Initialize database directory
+if (!fs.existsSync(DB_PATH)) {
+  fs.mkdirSync(DB_PATH, { recursive: true });
+}
+
+// Initialize database files
+const initDB = (filePath, defaultData = {}) => {
+  if (!fs.existsSync(filePath)) {
+    fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
+  }
+};
+
+initDB(GROUPS_DB, {});
+initDB(USERS_DB, {});
+initDB(WARNINGS_DB, {});
+initDB(MODS_DB, { moderators: [] });
+initDB(MUTED_DB, {});
+initDB(BOTMODE_DB, { mode: 'public' });
+initDB(BOT_SETTINGS_DB, {});
+initDB(SESSION_DB, {});
+
+// ── In-memory DB cache — eliminates repeated disk reads ─────────────────────
+// Key: file path → parsed JSON object.  Populated on first read, invalidated
+// (replaced) on every write.  Safe for a single-process Node.js app.
+const _dbCache = {};
+
+// Read database — serve from memory cache; only hit disk on first access or
+// after a process restart (with automatic backup recovery if file is corrupt).
+const readDB = (filePath) => {
+  if (_dbCache[filePath] !== undefined) return _dbCache[filePath];
+
+  let result;
+  // Try primary file
+  try {
+    const data = fs.readFileSync(filePath, 'utf-8');
+    if (data.trim()) result = JSON.parse(data);
+  } catch (primaryErr) {
+    console.error(`[DB] Primary read failed for ${path.basename(filePath)}: ${primaryErr.message}`);
+  }
+
+  // Try .bak backup written by the previous successful write
+  if (result === undefined) {
+    const bakPath = filePath + '.bak';
+    try {
+      if (fs.existsSync(bakPath)) {
+        const bak = fs.readFileSync(bakPath, 'utf-8');
+        if (bak.trim()) {
+          result = JSON.parse(bak);
+          console.error(`[DB] Recovered ${path.basename(filePath)} from backup.`);
+          fs.writeFileSync(filePath, bak, 'utf-8');
+        }
+      }
+    } catch (bakErr) {
+      console.error(`[DB] Backup read also failed for ${path.basename(filePath)}: ${bakErr.message}`);
+    }
+  }
+
+  result = result || {};
+  _dbCache[filePath] = result;
+  return result;
+};
+
+// Write database — update memory cache immediately (synchronous), then flush
+// to disk asynchronously so callers are never blocked by disk I/O.
+const writeDB = (filePath, data) => {
+  // 1. Update in-memory cache right away so subsequent reads see the new data
+  _dbCache[filePath] = data;
+
+  // 2. Persist to disk in the background (atomic: tmp → rename)
+  setImmediate(() => {
+    try {
+      const json = JSON.stringify(data, null, 2);
+      const tmpPath = filePath + '.tmp';
+      fs.writeFileSync(tmpPath, json, 'utf-8');
+      try {
+        if (fs.existsSync(filePath)) fs.copyFileSync(filePath, filePath + '.bak');
+      } catch (_) {}
+      fs.renameSync(tmpPath, filePath);
+    } catch (error) {
+      console.error(`[DB] Write failed for ${path.basename(filePath)}: ${error.message}`);
+    }
+  });
+
+  return true;
+};
+
+// Group Settings
+const getGroupSettings = (groupId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) {
+    groups[groupId] = { ...config.defaultGroupSettings };
+    writeDB(GROUPS_DB, groups);
+  }
+  return groups[groupId];
+};
+
+const updateGroupSettings = (groupId, settings) => {
+  const groups = readDB(GROUPS_DB);
+  groups[groupId] = { ...groups[groupId], ...settings };
+  return writeDB(GROUPS_DB, groups);
+};
+
+// User Data
+const getUser = (userId) => {
+  const users = readDB(USERS_DB);
+  if (!users[userId]) {
+    users[userId] = {
+      registered: Date.now(),
+      premium: false,
+      banned: false
+    };
+    writeDB(USERS_DB, users);
+  }
+  return users[userId];
+};
+
+const updateUser = (userId, data) => {
+  const users = readDB(USERS_DB);
+  users[userId] = { ...users[userId], ...data };
+  return writeDB(USERS_DB, users);
+};
+
+// Warnings System
+const getWarnings = (groupId, userId) => {
+  const warnings = readDB(WARNINGS_DB);
+  const key = `${groupId}_${userId}`;
+  return warnings[key] || { count: 0, warnings: [] };
+};
+
+const addWarning = (groupId, userId, reason) => {
+  const warnings = readDB(WARNINGS_DB);
+  const key = `${groupId}_${userId}`;
+
+  if (!warnings[key]) {
+    warnings[key] = { count: 0, warnings: [] };
+  }
+
+  warnings[key].count++;
+  warnings[key].warnings.push({
+    reason,
+    date: Date.now()
+  });
+
+  writeDB(WARNINGS_DB, warnings);
+  return warnings[key];
+};
+
+const removeWarning = (groupId, userId) => {
+  const warnings = readDB(WARNINGS_DB);
+  const key = `${groupId}_${userId}`;
+
+  if (warnings[key] && warnings[key].count > 0) {
+    warnings[key].count--;
+    warnings[key].warnings.pop();
+    writeDB(WARNINGS_DB, warnings);
+    return true;
+  }
+  return false;
+};
+
+const clearWarnings = (groupId, userId) => {
+  const warnings = readDB(WARNINGS_DB);
+  const key = `${groupId}_${userId}`;
+  delete warnings[key];
+  return writeDB(WARNINGS_DB, warnings);
+};
+
+// Moderators System
+const getModerators = () => {
+  const mods = readDB(MODS_DB);
+  return mods.moderators || [];
+};
+
+const addModerator = (userId) => {
+  const mods = readDB(MODS_DB);
+  if (!mods.moderators) mods.moderators = [];
+  if (!mods.moderators.includes(userId)) {
+    mods.moderators.push(userId);
+    return writeDB(MODS_DB, mods);
+  }
+  return false;
+};
+
+const removeModerator = (userId) => {
+  const mods = readDB(MODS_DB);
+  if (mods.moderators) {
+    mods.moderators = mods.moderators.filter(id => id !== userId);
+    return writeDB(MODS_DB, mods);
+  }
+  return false;
+};
+
+const isModerator = (userId) => {
+  const mods = getModerators();
+  if (mods.includes(userId)) return true;
+  const config = require('./config');
+  const sessionPath = require('path').join(__dirname, config.sessionName || 'session');
+  const revFile = require('path').join(sessionPath, `lid-mapping-${userId}_reverse.json`);
+  try {
+    if (require('fs').existsSync(revFile)) {
+      const pn = JSON.parse(require('fs').readFileSync(revFile, 'utf8').trim());
+      if (pn && mods.includes(String(pn))) return true;
+    }
+  } catch (_) {}
+  return false;
+};
+
+// Bad Words per group
+const getBadWords = (groupId) => {
+  const groups = readDB(GROUPS_DB);
+  const settings = groups[groupId] || {};
+  return Array.isArray(settings.badwords) ? settings.badwords : [];
+};
+
+const addBadWord = (groupId, word) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
+  if (!Array.isArray(groups[groupId].badwords)) groups[groupId].badwords = [];
+  const normalized = word.toLowerCase().trim();
+  if (!groups[groupId].badwords.includes(normalized)) {
+    groups[groupId].badwords.push(normalized);
+    writeDB(GROUPS_DB, groups);
+    return true;
+  }
+  return false;
+};
+
+const removeBadWord = (groupId, word) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId] || !Array.isArray(groups[groupId].badwords)) return false;
+  const normalized = word.toLowerCase().trim();
+  const before = groups[groupId].badwords.length;
+  groups[groupId].badwords = groups[groupId].badwords.filter(w => w !== normalized);
+  if (groups[groupId].badwords.length < before) {
+    writeDB(GROUPS_DB, groups);
+    return true;
+  }
+  return false;
+};
+
+// ── Muted Users Per Group ─────────────────────────────────────────────────────
+const muteUser = (groupId, userId) => {
+  const data = readDB(MUTED_DB);
+  if (!data[groupId]) data[groupId] = [];
+  const norm = userId.split('@')[0] + '@s.whatsapp.net';
+  if (!data[groupId].includes(norm)) {
+    data[groupId].push(norm);
+    writeDB(MUTED_DB, data);
+  }
+  return true;
+};
+
+const unmuteUser = (groupId, userId) => {
+  const data = readDB(MUTED_DB);
+  if (!data[groupId]) return false;
+  const norm = userId.split('@')[0] + '@s.whatsapp.net';
+  const before = data[groupId].length;
+  data[groupId] = data[groupId].filter(u => u !== norm);
+  if (data[groupId].length < before) {
+    writeDB(MUTED_DB, data);
+    return true;
+  }
+  return false;
+};
+
+const isUserMuted = (groupId, userId) => {
+  const data = readDB(MUTED_DB);
+  if (!data[groupId]) return false;
+  const norm = userId.split('@')[0] + '@s.whatsapp.net';
+  return data[groupId].includes(norm);
+};
+
+const getMutedUsers = (groupId) => {
+  const data = readDB(MUTED_DB);
+  return data[groupId] || [];
+};
+
+// ── Bot Settings (general key-value store for all bot-wide settings) ──────────
+
+const BOT_SETTINGS_DEFAULTS = {
+  prefix: '.',
+  botName: 'JuneX-Ultra',
+  timezone: 'Africa/Nairobi',
+  menuStyle: '1',
+  fontStyle: 'normal',
+  presenceMode: 'off',          // off | typing | recording | recordtype
+  autoReadMode: 'off',          // off | pm | group | on
+  autoReact: false,
+  autoReactMode: 'bot',
+  alwaysOnline: false,
+  autoStatusView: false,
+  autoStatusReact: false,
+  autoStatusEmoji: '💙',
+  autoStatusEmojiPool: [],
+  autoStatusRandomEmoji: false,
+  readReceipts: 'off',
+  menuImageCustom: false,
+  selfMode: false,
+  autoSticker: false,
+  autoDownload: false,
+  autoBio: false,
+};
+
+const getBotSetting = (key) => {
+  const data = readDB(BOT_SETTINGS_DB);
+  return key in data ? data[key] : BOT_SETTINGS_DEFAULTS[key];
+};
+
+const setBotSetting = (key, value) => {
+  const data = readDB(BOT_SETTINGS_DB);
+  data[key] = value;
+  return writeDB(BOT_SETTINGS_DB, data);
+};
+
+const getAllBotSettings = () => {
+  const data = readDB(BOT_SETTINGS_DB);
+  return { ...BOT_SETTINGS_DEFAULTS, ...data };
+};
+
+const updateBotSettings = (updates) => {
+  const data = readDB(BOT_SETTINGS_DB);
+  Object.assign(data, updates);
+  return writeDB(BOT_SETTINGS_DB, data);
+};
+
+// Bot Mode
+const VALID_BOT_MODES = ['public', 'private', 'group', 'pm'];
+
+const getBotMode = () => {
+  const data = readDB(BOTMODE_DB);
+  return data.mode || 'public';
+};
+
+const setBotMode = (mode) => {
+  if (!VALID_BOT_MODES.includes(mode)) throw new Error(`Invalid mode: ${mode}`);
+  return writeDB(BOTMODE_DB, { mode });
+};
+
+// ── AntiForward Settings ───────────────────────────────────────────────────
+const getAntiforwardSettings = (groupId) => {
+  const groups = readDB(GROUPS_DB);
+  const settings = groups[groupId] || {};
+  return {
+    antiforward: settings.antiforward === true,  // default: true (on)
+    antiforwardAction: settings.antiforwardAction || 'delete',  // delete | warn | kick
+    antiforwardWarnings: settings.antiforwardWarnings || {},    // { userId: count }
+    antiforwardMaxWarnings: settings.antiforwardMaxWarnings || 3
+  };
+};
+
+const updateAntiforwardSettings = (groupId, antiforwardEnabled, action = 'delete', maxWarnings = 3) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
+  groups[groupId].antiforward = antiforwardEnabled;
+  groups[groupId].antiforwardAction = action;
+  groups[groupId].antiforwardMaxWarnings = maxWarnings;
+  return writeDB(GROUPS_DB, groups);
+};
+
+// Add warning for forwarded message
+const addAntiforwardWarning = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
+  if (!groups[groupId].antiforwardWarnings) groups[groupId].antiforwardWarnings = {};
+
+  groups[groupId].antiforwardWarnings[userId] = (groups[groupId].antiforwardWarnings[userId] || 0) + 1;
+  writeDB(GROUPS_DB, groups);
+
+  return groups[groupId].antiforwardWarnings[userId];
+};
+
+// Get warning count for user
+const getAntiforwardWarningCount = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  const settings = groups[groupId] || {};
+  return (settings.antiforwardWarnings && settings.antiforwardWarnings[userId]) || 0;
+};
+
+// Clear warning for user
+const clearAntiforwardWarning = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId] || !groups[groupId].antiforwardWarnings) return false;
+  delete groups[groupId].antiforwardWarnings[userId];
+  return writeDB(GROUPS_DB, groups);
+};
+
+// Clear all warnings for user in group
+const clearAllAntiforwardWarnings = (groupId, userId) => {
+  const groups = readDB(GROUPS_DB);
+  if (!groups[groupId] || !groups[groupId].antiforwardWarnings) return false;
+  groups[groupId].antiforwardWarnings[userId] = 0;
+  return writeDB(GROUPS_DB, groups);
+};
+
+// ── Session Persistence ────────────────────────────────────────────────────
+const saveSession = (credsPath) => {
+  try {
+    if (!fs.existsSync(credsPath)) return false;
+    const data = fs.readFileSync(credsPath);
+    const db = readDB(SESSION_DB);
+    db.creds = data.toString('base64');
+    db.savedAt = Date.now();
+    return writeDB(SESSION_DB, db);
+  } catch (error) {
+    console.error('[SESSION-DB] saveSession error:', error.message);
+    return false;
+  }
+};
+
+const getSession = () => {
+  try {
+    const db = readDB(SESSION_DB);
+    return db.creds || null;
+  } catch (error) {
+    console.error('[SESSION-DB] getSession error:', error.message);
+    return null;
+  }
+};
+
+const clearSession = () => {
+  return writeDB(SESSION_DB, {});
+};
+
+// ── Status Settings helpers (loadSettings / saveSettings / cleanEmoji / pickEmoji) ──
+
+function loadSettings() {
+  return {
+    enabled:     getBotSetting('autoStatusView')        || false,
+    react:       getBotSetting('autoStatusReact')       || false,
+    emoji:       getBotSetting('autoStatusEmoji')       || '💙',
+    emojiPool:   getBotSetting('autoStatusEmojiPool')   || [],
+    randomEmoji: getBotSetting('autoStatusRandomEmoji') || false,
+  };
+}
+
+function saveSettings(settings) {
+  updateBotSettings({
+    autoStatusView:        !!settings.enabled,
+    autoStatusReact:       !!settings.react,
+    autoStatusEmoji:       settings.emoji       || '',
+    autoStatusEmojiPool:   settings.emojiPool   || [],
+    autoStatusRandomEmoji: !!settings.randomEmoji,
+  });
+}
+
+function cleanEmoji(str) {
+  return str.replace(/[\u{FE00}-\u{FE0F}\u{E0100}-\u{E01EF}\u200D\u200B\uFEFF]/gu, '').trim();
+}
+
+function pickEmoji(settings) {
+  if (settings.randomEmoji && settings.emojiPool.length) {
+    return settings.emojiPool[Math.floor(Math.random() * settings.emojiPool.length)];
+  }
+  return settings.emoji;
+}
+
+// ── Chatbot Memory (per-user learned profile, one JSON file per user) ─────
+const CHAT_MEMORY_FACTS = [
+  [/my name is ([A-Za-z][\w-]*)/i, 'name'],
+  [/(?:i'm|i am) ([A-Za-z][\w-]*)(?:\s|$|,)/i, 'name'],
+  [/call me ([A-Za-z][\w-]*)/i, 'name'],
+  [/(?:i'm|i am) (\d{1,3})(?: years? old)?/i, 'age'],
+  [/i work (?:as |at )([\w\s-]{3,40})/i, 'job'],
+  [/i(?:'m| am) from ([A-Za-z\s]{3,30})/i, 'location'],
+  [/i live in ([A-Za-z\s]{3,30})/i, 'location'],
+  [/i (?:love|really like|like|enjoy) ([\w\s-]{3,40})/i, 'interest'],
+  [/i (?:hate|dislike|can't stand) ([\w\s-]{3,40})/i, 'dislike']
+];
+const CHAT_MEMORY_SKIP = new Set(['a', 'an', 'the', 'not', 'so', 'here', 'just', 'good', 'bad', 'fine', 'going', 'trying', 'using', 'happy', 'sad', 'tired', 'busy']);
+
+function chatMemoryProfilePath(botId, userId) {
+  const dir = path.join(CHAT_MEMORY_BASE, String(botId || 'default').replace(/[^\w-]/g, '_'));
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, `${String(userId).replace(/[^\w]/g, '_')}.json`);
+}
+
+function loadProfile(botId, userId) {
+  try { return JSON.parse(fs.readFileSync(chatMemoryProfilePath(botId, userId), 'utf8')); } catch (_) {}
+  const now = new Date().toISOString();
+  return { userId, name: null, age: null, location: null, job: null, interests: [], dislikes: [], memories: [], messageCount: 0, firstSeen: now, lastSeen: now };
+}
+
+function saveProfile(botId, userId, profile) {
+  profile.lastSeen = new Date().toISOString();
+  profile.messageCount = (profile.messageCount || 0) + 1;
+  try { fs.writeFileSync(chatMemoryProfilePath(botId, userId), JSON.stringify(profile, null, 2)); } catch (_) {}
+}
+
+function learnFromMessage(text, profile) {
+  const result = { ...profile, memories: [...(profile.memories || [])], interests: [...(profile.interests || [])], dislikes: [...(profile.dislikes || [])] };
+  for (const [regex, tag] of CHAT_MEMORY_FACTS) {
+    const match = String(text).match(regex);
+    if (!match) continue;
+    const raw = match[1].trim();
+    if (!raw || raw.length > 60 || (tag === 'name' && CHAT_MEMORY_SKIP.has(raw.toLowerCase()))) continue;
+    const value = raw.charAt(0).toUpperCase() + raw.slice(1);
+    if (['name', 'age', 'location', 'job'].includes(tag) && !result[tag]) result[tag] = tag === 'age' ? `${value} years old` : value;
+    if (tag === 'interest' && !result.interests.includes(value)) result.interests = [...result.interests, value].slice(-10);
+    if (tag === 'dislike' && !result.dislikes.includes(value)) result.dislikes = [...result.dislikes, value].slice(-10);
+    const memory = `User's ${tag}: ${value}`;
+    if (!result.memories.some(item => item.toLowerCase() === memory.toLowerCase())) result.memories.unshift(memory);
+  }
+  result.memories = result.memories.slice(0, CHAT_MEMORY_MAX);
+  return result;
+}
+
+function buildProfileContext(profile) {
+  if (!profile) return '';
+  const lines = [];
+  for (const field of ['name', 'age', 'location', 'job']) if (profile[field]) lines.push(`- ${field}: ${profile[field]}`);
+  if (profile.interests?.length) lines.push(`- interests: ${profile.interests.slice(0, 5).join(', ')}`);
+  if (profile.dislikes?.length) lines.push(`- dislikes: ${profile.dislikes.slice(0, 5).join(', ')}`);
+  if (profile.messageCount > 1) lines.push('- This is a returning user.');
+  return lines.length ? `\nWhat you know about the user:\n${lines.join('\n')}\n` : '';
+}
+
+function getPersonalizedGreeting(profile) {
+  return profile?.name ? `Hey ${profile.name}!` : null;
+}
+
+module.exports = {
+  getGroupSettings,
+  updateGroupSettings,
+  getUser,
+  updateUser,
+  getWarnings,
+  addWarning,
+  removeWarning,
+  clearWarnings,
+  getModerators,
+  addModerator,
+  removeModerator,
+  isModerator,
+  getBadWords,
+  addBadWord,
+  removeBadWord,
+  muteUser,
+  unmuteUser,
+  isUserMuted,
+  getMutedUsers,
+  getBotMode,
+  setBotMode,
+  VALID_BOT_MODES,
+  getBotSetting,
+  setBotSetting,
+  getAllBotSettings,
+  updateBotSettings,
+  BOT_SETTINGS_DEFAULTS,
+  getAntiforwardSettings,
+  updateAntiforwardSettings,
+  addAntiforwardWarning,
+  getAntiforwardWarningCount,
+  clearAntiforwardWarning,
+  clearAllAntiforwardWarnings,
+  saveSession,
+  getSession,
+  clearSession,
+  loadSettings,
+  saveSettings,
+  cleanEmoji,
+  pickEmoji,
+  loadProfile,
+  saveProfile,
+  learnFromMessage,
+  buildProfileContext,
+  getPersonalizedGreeting,
+};
