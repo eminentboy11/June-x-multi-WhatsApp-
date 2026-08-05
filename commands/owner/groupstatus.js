@@ -1,15 +1,16 @@
 const crypto = require('crypto');
-const {
-  generateWAMessageContent,
-  generateWAMessageFromContent,
-  downloadContentFromMessage,
-} = require('@whiskeysockets/baileys');
 const { PassThrough } = require('stream');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('../../utils/ffmpegPath');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PURPLE_COLOR = '#9C27B0';
+
+let _baileys = null;
+async function getBaileys() {
+  if (!_baileys) _baileys = await import('@whiskeysockets/baileys');
+  return _baileys;
+}
 
 module.exports = [
   {
@@ -47,7 +48,15 @@ module.exports = [
         }
 
         const caption = captionArgs.join(' ').trim();
-        const ctxInfo = msg.message?.extendedTextMessage?.contextInfo;
+
+        const msgContent = msg.message || {};
+        const ctxInfo =
+          msgContent.extendedTextMessage?.contextInfo ||
+          msgContent.imageMessage?.contextInfo ||
+          msgContent.videoMessage?.contextInfo ||
+          msgContent.audioMessage?.contextInfo ||
+          msgContent.documentMessage?.contextInfo ||
+          null;
         const hasQuoted = !!ctxInfo?.quotedMessage;
 
         // ── TEXT STATUS ──────────────────────────────────────────
@@ -68,7 +77,7 @@ module.exports = [
               text: caption,
               backgroundColor: PURPLE_COLOR,
             });
-            return extra.reply('✅ Text status posted!');
+            return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] text error:', e);
             return extra.reply('❌ Failed to post text status: ' + (e.message || e));
@@ -95,13 +104,12 @@ module.exports = [
           } catch {
             return extra.reply('❌ Failed to download image/sticker.');
           }
-
           try {
             await postGroupStatus(sock, targetJid, {
               image: buf,
               caption: caption || '',
             });
-            return extra.reply('✅ Image status posted!');
+            return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] image error:', e);
             return extra.reply('❌ Failed to post image status: ' + (e.message || e));
@@ -116,13 +124,12 @@ module.exports = [
           } catch {
             return extra.reply('❌ Failed to download video.');
           }
-
           try {
             await postGroupStatus(sock, targetJid, {
               video: buf,
               caption: caption || '',
             });
-            return extra.reply('✅ Video status posted!');
+            return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] video error:', e);
             return extra.reply('❌ Failed to post video status: ' + (e.message || e));
@@ -137,21 +144,10 @@ module.exports = [
           } catch {
             return extra.reply('❌ Failed to download audio.');
           }
-
           let vnBuf;
-          try {
-            vnBuf = await toVN(buf);
-          } catch {
-            vnBuf = buf;
-          }
-
+          try { vnBuf = await toVN(buf); } catch { vnBuf = buf; }
           let waveform;
-          try {
-            waveform = await generateWaveform(buf);
-          } catch {
-            waveform = undefined;
-          }
-
+          try { waveform = await generateWaveform(buf); } catch { waveform = undefined; }
           try {
             await postGroupStatus(sock, targetJid, {
               audio: vnBuf,
@@ -159,7 +155,7 @@ module.exports = [
               ptt: true,
               waveform,
             });
-            return extra.reply('✅ Audio status posted!');
+            return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] audio error:', e);
             return extra.reply('❌ Failed to post audio status: ' + (e.message || e));
@@ -179,6 +175,7 @@ module.exports = [
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
 async function downloadMedia(msg, type) {
+  const { downloadContentFromMessage } = await getBaileys();
   const mediaMsg = msg[`${type}Message`] || msg;
   const stream = await downloadContentFromMessage(mediaMsg, type);
   const chunks = [];
@@ -187,6 +184,8 @@ async function downloadMedia(msg, type) {
 }
 
 async function postGroupStatus(sock, jid, content) {
+  const { generateWAMessageContent, generateWAMessageFromContent } = await getBaileys();
+
   const backgroundColor = content.backgroundColor;
   delete content.backgroundColor;
 
@@ -209,9 +208,7 @@ async function postGroupStatus(sock, jid, content) {
         },
       },
     },
-    {
-      userJid: sock.user.id,
-    }
+    { userJid: sock.user.id }
   );
 
   await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
@@ -224,7 +221,6 @@ function toVN(buffer) {
     const output = new PassThrough();
     const chunks = [];
     input.end(buffer);
-
     ffmpeg(input)
       .noVideo()
       .audioCodec('libopus')
@@ -234,7 +230,6 @@ function toVN(buffer) {
       .on('error', reject)
       .on('end', () => resolve(Buffer.concat(chunks)))
       .pipe(output);
-
     output.on('data', (c) => chunks.push(c));
   });
 }
@@ -245,9 +240,7 @@ function generateWaveform(buffer, bars = 64) {
     input.end(buffer);
     const output = new PassThrough();
     const chunks = [];
-
     output.on('data', (c) => chunks.push(c));
-
     ffmpeg(input)
       .audioChannels(1)
       .audioFrequency(16000)
@@ -257,21 +250,16 @@ function generateWaveform(buffer, bars = 64) {
         const raw = Buffer.concat(chunks);
         const samples = raw.length / 2;
         const amps = [];
-
         for (let i = 0; i < samples; i++) {
           amps.push(Math.abs(raw.readInt16LE(i * 2)) / 32768);
         }
-
         const size = Math.floor(amps.length / bars);
         if (size === 0) return resolve(undefined);
-
         const avg = Array.from({ length: bars }, (_, i) =>
           amps.slice(i * size, (i + 1) * size).reduce((a, b) => a + b, 0) / size
         );
-
         const max = Math.max(...avg);
         if (max === 0) return resolve(undefined);
-
         resolve(
           Buffer.from(avg.map((v) => Math.floor((v / max) * 100))).toString('base64')
         );
