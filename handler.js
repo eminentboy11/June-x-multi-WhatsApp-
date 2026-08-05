@@ -142,7 +142,7 @@ async function revealVoToDM(sock, originalMsg, targetJid) {
 
 // Load all commands
 const commands = loadCommands();
-watchCommands((freshCommands) => {
+/*watchCommands((freshCommands) => {
   // Keep the same Map instance because the handler references it throughout.
   commands.clear();
   for (const [name, command] of freshCommands) {
@@ -151,7 +151,7 @@ watchCommands((freshCommands) => {
   if (typeof global.invalidateSettingsCache === 'function') {
     global.invalidateSettingsCache();
   }
-});
+});*/
 
 
 // Unwrap WhatsApp containers (ephemeral, view once, etc.)
