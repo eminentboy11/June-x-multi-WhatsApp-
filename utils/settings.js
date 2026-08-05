@@ -1,15 +1,5 @@
 /**
- * Runtime Settings — persists prefix, botName, timezone, menuStyle, fontStyle
- * and other owner-changed config values across bot restarts.
- *
- * Storage: All values are written to database/bot-settings.json via database.js,
- * which survives every restart and session-clear scenario.
- *
- * Usage:
- *   const settings = require('./utils/settings');
- *   settings.get('prefix')          // read a value
- *   settings.set('prefix', '!')     // write and persist
- *   settings.applyToConfig(config)  // call once at startup
+ * settings.applyToConfig(config)  // call once at startup
  */
 
 const db = require('../database');
