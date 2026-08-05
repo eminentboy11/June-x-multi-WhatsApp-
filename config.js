@@ -26,6 +26,35 @@ module.exports = {
     autoRecording: false,
     autoRecordType: false,
     
+    // Anti-call message presets
+    anticallPresets: [
+      {
+        id: 1,
+        emoji: '📵',
+        message: 'Sorry, I don\'t accept WhatsApp calls. Please send a message.'
+      },
+      {
+        id: 2,
+        emoji: '💬',
+        message: 'I\'m currently unavailable. Kindly text me instead.'
+      },
+      {
+        id: 3,
+        emoji: '🚫',
+        message: 'Calls are disabled. Please chat with me here.'
+      },
+      {
+        id: 4,
+        emoji: '🤖',
+        message: 'This account doesn\'t accept calls. Send a message to continue.'
+      },
+      {
+        id: 5,
+        emoji: '🌙',
+        message: 'Do Not Disturb. I\'ll reply when available.'
+      }
+    ],
+    
     defaultGroupSettings: {
       antilink: false,
       antilinkAction: 'delete',
@@ -34,8 +63,10 @@ module.exports = {
       antiall: false,
       antiviewonce: false,
       antibot: false,
-      anticall: false,
+      anticall: true,
       anticallAction: 'decline',
+      anticallMessage: null,  // null = use default preset 1, string = custom message
+      anticallNotify: true,   // whether to send message when declining/blocking calls
       antigroupmention: false,
       antigroupmentionAction: 'delete',
       antigroupstatus: false,
