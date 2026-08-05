@@ -11,7 +11,7 @@ const DEFAULTS = {
   prefix:    '.',
   botName:   'JuneX-Ultra',
   timezone:  'Africa/Nairobi',
-  menuStyle: '1',
+  menuStyle: '2',
   fontStyle: 'normal',
 };
 
