@@ -9,7 +9,7 @@ const BASE_URL = 'https://integrate.api.nvidia.com/v1/chat/completions';
 const DEFAULT_MODEL = 'nvidia/nemotron-nano-12b-v2-vl';
 
 function getApiKey() {
-  const key = process.env.NVIDIA_API_KEY || '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';
+  const key = process.env.NVIDIA_API_KEY || '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';
   if (!key) {
     throw new Error(
       'NVIDIA_API_KEY is not set. Get a free key at https://build.nvidia.com and add it to Replit Secrets.'
