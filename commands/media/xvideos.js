@@ -10,7 +10,7 @@ const {
 
 module.exports = {
   name: 'xvideos',
-  aliases: ['xvdl', 'xvid'],
+  aliases: ['xvdl', 'xnxx','xvid'],
   category: 'media',
   description: 'Download or search XVideos videos',
   usage: `${config.prefix || '.'}xvideos <URL or name>`,
