@@ -1,6 +1,6 @@
 'use strict';
 
-const { getFooter } = require('../../utils/menuHelper');
+//const { getFooter } = require('../../utils/menuHelper');
 
 let giftedBtns;
 try { giftedBtns = require('gifted-btns'); } catch (_) { giftedBtns = null; }
