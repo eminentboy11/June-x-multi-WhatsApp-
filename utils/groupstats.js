@@ -1,71 +1,100 @@
-// utils/groupstats.js
-// SQLite-backed group statistics — same public API as before.
-'use strict';
+// utils/groupStats.js
+// In-memory store with async flush — no sync disk I/O on every message.
+const fs = require('fs');
+const path = require('path');
 
-const { _db: db } = require('../database');
+const DB_PATH = path.join(__dirname, '../database/groupStats.json');
 
-// Ensure table exists (database.js already creates it, this is a safety net)
-db.exec(`
-  CREATE TABLE IF NOT EXISTS group_stats (
-    group_id TEXT NOT NULL,
-    date     TEXT NOT NULL,
-    data     TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (group_id, date)
-  );
-`);
+// ── In-memory store ───────────────────────────────────────────────────────────
+let _cache = null;   // null = not loaded yet
+let _dirty = false;  // true = cache has unsaved changes
 
-const stmtGet    = db.prepare('SELECT data FROM group_stats WHERE group_id = ? AND date = ?');
-const stmtUpsert = db.prepare('INSERT INTO group_stats (group_id, date, data) VALUES (?, ?, ?) ON CONFLICT(group_id, date) DO UPDATE SET data = excluded.data');
-const stmtAll    = db.prepare('SELECT date, data FROM group_stats WHERE group_id = ?');
+function _load() {
+    if (_cache !== null) return;
+    try {
+        if (!fs.existsSync(DB_PATH)) { _cache = {}; return; }
+        const raw = fs.readFileSync(DB_PATH, 'utf8').trim();
+        _cache = raw ? JSON.parse(raw) : {};
+    } catch {
+        _cache = {};
+    }
+}
 
-const parse  = (str) => { try { return JSON.parse(str); } catch { return {}; } };
-const serial = (val) => JSON.stringify(val);
+function _flushToDisk() {
+    if (!_dirty || !_cache) return;
+    _dirty = false;
+    const json = JSON.stringify(_cache);
+    const tmp  = DB_PATH + '.tmp';
+    try {
+        fs.writeFileSync(tmp, json);
+        fs.renameSync(tmp, DB_PATH);
+    } catch (err) {
+        console.error('[groupStats] flush error:', err.message);
+    }
+}
+
+// Flush every 5 seconds — only writes if something actually changed
+setInterval(_flushToDisk, 5000).unref();
+
+// Also flush on process exit so no data is lost on clean shutdown
+process.on('exit', _flushToDisk);
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 function addMessage(groupId, senderId) {
-  const today = new Date().toISOString().slice(0, 10);
-  const hour  = new Date().getHours().toString();
+    _load();
+    const today = new Date().toISOString().slice(0, 10);
+    const hour  = new Date().getHours().toString();
 
-  const row = stmtGet.get(groupId, today);
-  const day = row
-    ? parse(row.data)
-    : { total: 0, users: {}, hours: {} };
+    if (!_cache[groupId]) _cache[groupId] = {};
+    if (!_cache[groupId][today]) {
+        _cache[groupId][today] = { total: 0, users: {}, hours: {} };
+    }
 
-  day.total++;
-  day.users[senderId] = (day.users[senderId] || 0) + 1;
-  day.hours[hour]     = (day.hours[hour]     || 0) + 1;
-
-  stmtUpsert.run(groupId, today, serial(day));
+    const g = _cache[groupId][today];
+    g.total++;
+    g.users[senderId] = (g.users[senderId] || 0) + 1;
+    g.hours[hour]     = (g.hours[hour]     || 0) + 1;
+    _dirty = true;
 }
 
 function getStats(groupId) {
-  const today = new Date().toISOString().slice(0, 10);
-  const row   = stmtGet.get(groupId, today);
-  return row ? parse(row.data) : null;
+    _load();
+    const today = new Date().toISOString().slice(0, 10);
+    if (!_cache[groupId] || !_cache[groupId][today]) return null;
+    return _cache[groupId][today];
 }
 
 function getActiveUsers(groupId, limit = 15) {
-  const rows   = stmtAll.all(groupId);
-  const totals = {};
-  for (const { data } of rows) {
-    const day = parse(data);
-    for (const [jid, count] of Object.entries(day.users || {})) {
-      totals[jid] = (totals[jid] || 0) + count;
+    _load();
+    if (!_cache[groupId]) return [];
+
+    const totals = {};
+    for (const day of Object.values(_cache[groupId])) {
+        for (const [jid, count] of Object.entries(day.users || {})) {
+            totals[jid] = (totals[jid] || 0) + count;
+        }
     }
-  }
-  return Object.entries(totals)
-    .map(([jid, count]) => ({ jid, count }))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, limit);
+
+    return Object.entries(totals)
+        .map(([jid, count]) => ({ jid, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, limit);
 }
 
 function getInactiveUsers(groupId, allParticipants) {
-  const rows   = stmtAll.all(groupId);
-  const active = new Set();
-  for (const { data } of rows) {
-    const day = parse(data);
-    for (const jid of Object.keys(day.users || {})) active.add(jid);
-  }
-  return allParticipants.filter(jid => !active.has(jid));
+    _load();
+    const active = new Set();
+
+    if (_cache[groupId]) {
+        for (const day of Object.values(_cache[groupId])) {
+            for (const jid of Object.keys(day.users || {})) {
+                active.add(jid);
+            }
+        }
+    }
+
+    return allParticipants.filter(jid => !active.has(jid));
 }
 
 module.exports = { addMessage, getStats, getActiveUsers, getInactiveUsers };
