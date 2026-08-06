@@ -6,27 +6,10 @@
  * .antiall      → shows current status of all features
  */
 
-const fs   = require('fs');
-const path = require('path');
 const database = require(require('path').join(global.__CORE__, 'database'));
-
-const ANTIBOT_PATH   = path.join(__dirname, '../../data/antibot.json');
-const ANTIDEL_PATH   = path.join(__dirname, '../../data/antidelete.json');
-const ANTIEDIT_PATH  = path.join(__dirname, '../../data/antiedit.json');
-
-function loadJson(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, '{}');
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch { return {}; }
-}
-
-function saveJson(filePath, data) {
-  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch {}
-}
+const kv       = require('../../utils/kvstore');
 
 // All features that live in database.updateGroupSettings
-// key = database field name, label = display name
 const DB_FEATURES = [
   { key: 'antilink',         label: '🔗 Anti-Link' },
   { key: 'antiSpam',         label: '🛡️ Anti-Spam' },
@@ -57,18 +40,19 @@ module.exports = {
 
     // ── STATUS (no args) ────────────────────────────────────────────────────
     if (!sub) {
-      const gs       = database.getGroupSettings(from);
-      const botCfg   = loadJson(ANTIBOT_PATH);
-      const delCfg   = loadJson(ANTIDEL_PATH);
+      const gs     = database.getGroupSettings(from);
+      const botCfg = kv.get('antibot', from, {});
+      const delCfg = kv.get('antidelete', '_global', {});
+      const edtCfg = kv.get('antiedit', '_global', { mode: 'off' });
 
       const icon = (v) => v ? '✅' : '❌';
 
       const lines = DB_FEATURES.map(f => `  ${icon(gs[f.key])} ${f.label}`);
 
-      const editCfg  = loadJson(ANTIEDIT_PATH);
-      lines.push(`  ${icon(botCfg[from]?.enabled)} 🤖 Anti-Bot`);
-      lines.push(`  ${icon(delCfg['_global']?.mode && delCfg['_global'].mode !== 'off')} 🗑️ Anti-Delete`);
-      lines.push(`  ${icon(editCfg[from]?.mode && editCfg[from].mode !== 'off')} ✏️ Anti-Edit`);
+      const delMode = delCfg['_global']?.mode || delCfg.mode;
+      lines.push(`  ${icon(botCfg.enabled)} 🤖 Anti-Bot`);
+      lines.push(`  ${icon(delMode && delMode !== 'off')} 🗑️ Anti-Delete`);
+      lines.push(`  ${icon(edtCfg.mode && edtCfg.mode !== 'off')} ✏️ Anti-Edit`);
 
       return reply(
         `🛡️ *AntiAll — Group Protection Status*\n` +
@@ -87,17 +71,10 @@ module.exports = {
       DB_FEATURES.forEach(f => { dbUpdate[f.key] = true; });
       database.updateGroupSettings(from, dbUpdate);
 
-      const botCfg = loadJson(ANTIBOT_PATH);
-      botCfg[from] = { ...(botCfg[from] || {}), enabled: true };
-      saveJson(ANTIBOT_PATH, botCfg);
-
-      const delCfg = loadJson(ANTIDEL_PATH);
-      delCfg['_global'] = { mode: 'chat' };
-      saveJson(ANTIDEL_PATH, delCfg);
-
-      const editCfgOn = loadJson(ANTIEDIT_PATH);
-      editCfgOn[from] = { ...(editCfgOn[from] || {}), mode: 'chat' };
-      saveJson(ANTIEDIT_PATH, editCfgOn);
+      database.updateGroupSettings(from, { antibot: true });
+      kv.set('antibot', from, { enabled: true });
+      kv.set('antidelete', '_global', { '_global': { mode: 'chat' } });
+      kv.set('antiedit', '_global', { mode: 'chat' });
 
       return reply(
         `✅ *AntiAll — All Protections ENABLED*\n` +
@@ -117,17 +94,10 @@ module.exports = {
       DB_FEATURES.forEach(f => { dbUpdate[f.key] = false; });
       database.updateGroupSettings(from, dbUpdate);
 
-      const botCfg = loadJson(ANTIBOT_PATH);
-      botCfg[from] = { ...(botCfg[from] || {}), enabled: false };
-      saveJson(ANTIBOT_PATH, botCfg);
-
-      const delCfg = loadJson(ANTIDEL_PATH);
-      delete delCfg['_global'];
-      saveJson(ANTIDEL_PATH, delCfg);
-
-      const editCfgOff = loadJson(ANTIEDIT_PATH);
-      editCfgOff[from] = { ...(editCfgOff[from] || {}), mode: 'off' };
-      saveJson(ANTIEDIT_PATH, editCfgOff);
+      database.updateGroupSettings(from, { antibot: false });
+      kv.set('antibot', from, { enabled: false });
+      kv.set('antidelete', '_global', {});
+      kv.set('antiedit', '_global', { mode: 'off' });
 
       return reply(
         `❌ *AntiAll — All Protections DISABLED*\n` +
