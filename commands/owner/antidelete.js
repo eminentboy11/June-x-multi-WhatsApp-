@@ -5,271 +5,282 @@
  *   chat    → GLOBAL: reveals deleted msg in the same chat it was deleted from (all chats)
  *   private → GLOBAL: ALL deleted msgs across ALL chats go to owner's DM
  *   off     → disabled globally
- *
- * Config stored in SQLite kv_store (namespace='antidelete', key='_global').
  */
 
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const fs       = require('fs');
+const path     = require('path');
+const config   = require(require('path').join(global.__ROOT__, 'config'));
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const kv = require('../../utils/kvstore');
 
-const NS = 'antidelete';
+const CONFIG_PATH = path.join(__dirname, '../../data/antidelete.json');
 
 const messageStore = new Map();
 
-const loadConfig = () => kv.get(NS, '_global', {});
-const saveConfig = (cfg) => kv.set(NS, '_global', cfg);
+const loadConfig = () => {
+    try {
+        if (!fs.existsSync(CONFIG_PATH)) fs.writeFileSync(CONFIG_PATH, '{}');
+        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+    } catch { return {}; }
+};
+const saveConfig = (cfg) => {
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch {}
+};
 
 const MEDIA_MAP = {
-  imageMessage:    'image',
-  videoMessage:    'video',
-  audioMessage:    'audio',
-  stickerMessage:  'sticker',
-  documentMessage: 'document',
+    imageMessage:    'image',
+    videoMessage:    'video',
+    audioMessage:    'audio',
+    stickerMessage:  'sticker',
+    documentMessage: 'document',
 };
 
 function unwrap(raw) {
-  return (
-    raw.ephemeralMessage?.message ||
-    raw.viewOnceMessageV2Extension?.message ||
-    raw.viewOnceMessageV2?.message ||
-    raw.viewOnceMessage?.message ||
-    raw
-  );
+    return (
+        raw.ephemeralMessage?.message ||
+        raw.viewOnceMessageV2Extension?.message ||
+        raw.viewOnceMessageV2?.message ||
+        raw.viewOnceMessage?.message ||
+        raw
+    );
 }
 
 const storeMessage = (msg) => {
-  try {
-    if (!msg?.key?.id || !msg.message) return;
-    const chatId = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
-    const inner  = unwrap(msg.message);
+    try {
+        if (!msg?.key?.id || !msg.message) return;
+        const chatId = msg.key.remoteJid;
+        const sender = msg.key.participant || msg.key.remoteJid;
+        const inner  = unwrap(msg.message);
 
-    const text =
-      inner.conversation ||
-      inner.extendedTextMessage?.text ||
-      inner.imageMessage?.caption ||
-      inner.videoMessage?.caption ||
-      inner.documentMessage?.caption ||
-      null;
+        const text =
+            inner.conversation ||
+            inner.extendedTextMessage?.text ||
+            inner.imageMessage?.caption ||
+            inner.videoMessage?.caption ||
+            inner.documentMessage?.caption ||
+            null;
 
-    const mtype = Object.keys(MEDIA_MAP).find(k => inner[k]);
-    if (!text && !mtype) return;
+        const mtype = Object.keys(MEDIA_MAP).find(k => inner[k]);
+        if (!text && !mtype) return;
 
-    const entry = {
-      sender,
-      timestamp: msg.messageTimestamp,
-      type:      mtype ? MEDIA_MAP[mtype] : 'text',
-      mtype:     mtype || null,
-      inner,
-      text:      text || null,
-    };
+        const entry = {
+            sender,
+            timestamp: msg.messageTimestamp,
+            type:      mtype ? MEDIA_MAP[mtype] : 'text',
+            mtype:     mtype || null,
+            inner,
+            text:      text || null,
+        };
 
-    if (!messageStore.has(chatId)) messageStore.set(chatId, new Map());
-    const chatMap = messageStore.get(chatId);
-    chatMap.set(msg.key.id, entry);
-    if (chatMap.size > 500) chatMap.delete(chatMap.keys().next().value);
-  } catch (_) {}
+        if (!messageStore.has(chatId)) messageStore.set(chatId, new Map());
+        const chatMap = messageStore.get(chatId);
+        chatMap.set(msg.key.id, entry);
+        if (chatMap.size > 500) chatMap.delete(chatMap.keys().next().value);
+    } catch (_) {}
 };
 
 async function downloadMedia(stored) {
-  try {
-    const { inner, mtype } = stored;
-    const stream = await downloadContentFromMessage(inner[mtype], MEDIA_MAP[mtype]);
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    return Buffer.concat(chunks);
-  } catch { return null; }
+    try {
+        const { inner, mtype } = stored;
+        const stream = await downloadContentFromMessage(inner[mtype], MEDIA_MAP[mtype]);
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        return Buffer.concat(chunks);
+    } catch { return null; }
 }
 
+// Fetch group name if it's a group chat
 async function getChatLabel(sock, chatId) {
-  try {
-    if (chatId.endsWith('@g.us')) {
-      const meta = await sock.groupMetadata(chatId);
-      return `👥 *${meta.subject}*`;
+    try {
+        if (chatId.endsWith('@g.us')) {
+            const meta = await sock.groupMetadata(chatId);
+            return `👥 *${meta.subject}*`;
+        }
+        return `💬 DM (${chatId.split('@')[0]})`;
+    } catch {
+        return chatId.endsWith('@g.us')
+            ? `👥 Group (${chatId.split('@')[0]})`
+            : `💬 DM (${chatId.split('@')[0]})`;
     }
-    return `💬 DM (${chatId.split('@')[0]})`;
-  } catch {
-    return chatId.endsWith('@g.us')
-      ? `👥 Group (${chatId.split('@')[0]})`
-      : `💬 DM (${chatId.split('@')[0]})`;
-  }
 }
 
 async function sendRecovered(sock, targetJid, stored, originChat) {
-  const senderNum = stored.sender?.split('@')[0]?.split(':')[0] || 'Unknown';
-  const typeEmoji = {
-    image: '🖼️', video: '🎬', audio: '🎵',
-    sticker: '🧩', document: '📄', text: '📝'
-  }[stored.type] || '📝';
+    const senderNum = stored.sender?.split('@')[0]?.split(':')[0] || 'Unknown';
+    const typeEmoji = {
+        image: '🖼️', video: '🎬', audio: '🎵',
+        sticker: '🧩', document: '📄', text: '📝'
+    }[stored.type] || '📝';
 
-  const readmore = String.fromCharCode(8206).repeat(4001);
-  const divider  = '━━━━━━━━━━━━━━━━━━━━';
+    const readmore  = String.fromCharCode(8206).repeat(4001);
+    const divider   = '━━━━━━━━━━━━━━━━━━━━';
 
-  const timestamp = stored.timestamp
-    ? new Date(stored.timestamp * 1000).toLocaleString('en-GB', {
-        hour12: false, timeZone: config.timezone || 'Africa/Nairobi',
-        day: '2-digit', month: '2-digit', year: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      })
-    : new Date().toLocaleString();
+    const timestamp = stored.timestamp
+        ? new Date(stored.timestamp * 1000).toLocaleString('en-GB', {
+            hour12: false, timeZone: config.timezone || 'Africa/Nairobi',
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+          })
+        : new Date().toLocaleString();
 
-  const chatLabel = originChat && originChat !== targetJid
-    ? `\n📍 *Chat:* ${await getChatLabel(sock, originChat)}`
-    : '';
+    // Resolve chat label (group name or DM)
+    const chatLabel = originChat && originChat !== targetJid
+        ? `\n📍 *Chat:* ${await getChatLabel(sock, originChat)}`
+        : '';
 
-  const mentions = stored.sender ? [stored.sender] : [];
+    const mentions = stored.sender ? [stored.sender] : [];
 
-  const meta =
-    `🗑️ *DELETED MESSAGE* 🗑️\n` +
-    `${divider}\n` +
-    `👤 *From:* @${senderNum}\n` +
-    `🕐 *Time:* ${timestamp}\n` +
-    `${typeEmoji} *Type:* ${stored.type}` +
-    chatLabel + '\n' +
-    `${divider}\n${readmore}\n`;
+    const meta =
+        `🗑️ *DELETED MESSAGE* 🗑️\n` +
+        `${divider}\n` +
+        `👤 *From:* @${senderNum}\n` +
+        `🕐 *Time:* ${timestamp}\n` +
+        `${typeEmoji} *Type:* ${stored.type}` +
+        chatLabel + '\n' +
+        `${divider}\n${readmore}\n`;
 
-  if (stored.type === 'text') {
-    await sock.sendMessage(targetJid, {
-      text: `${meta}📝 *Message:*\n${stored.text}\n${divider}`,
-      mentions
-    });
-    return;
-  }
+    if (stored.type === 'text') {
+        await sock.sendMessage(targetJid, {
+            text: `${meta}📝 *Message:*\n${stored.text}\n${divider}`,
+            mentions
+        });
+        return;
+    }
 
-  const buffer = await downloadMedia(stored);
+    const buffer = await downloadMedia(stored);
 
-  if (!buffer) {
-    await sock.sendMessage(targetJid, {
-      text: `${meta}⚠️ _Media expired (CDN link gone)._\n${divider}`,
-      mentions
-    });
-    return;
-  }
+    if (!buffer) {
+        await sock.sendMessage(targetJid, {
+            text: `${meta}⚠️ _Media expired (CDN link gone)._\n${divider}`,
+            mentions
+        });
+        return;
+    }
 
-  const caption =
-    `🗑️ *Deleted Message Recovered*\n${divider}\n` +
-    `👤 *From:* @${senderNum}\n` +
-    `🕐 *Time:* ${timestamp}\n` +
-    `${typeEmoji} *Type:* ${stored.type}` +
-    chatLabel +
-    (stored.text ? `\n${divider}\n${readmore}\n📝 *Caption:*\n${stored.text}` : '') +
-    `\n${divider}`;
+    const caption =
+        `🗑️ *Deleted Message Recovered*\n${divider}\n` +
+        `👤 *From:* @${senderNum}\n` +
+        `🕐 *Time:* ${timestamp}\n` +
+        `${typeEmoji} *Type:* ${stored.type}` +
+        chatLabel +
+        (stored.text ? `\n${divider}\n${readmore}\n📝 *Caption:*\n${stored.text}` : '') +
+        `\n${divider}`;
 
-  const textHeader =
-    `${meta}${stored.text ? `📝 *Caption:*\n${stored.text}\n` : ''}${divider}`;
+    const textHeader =
+        `${meta}${stored.text ? `📝 *Caption:*\n${stored.text}\n` : ''}${divider}`;
 
-  if (stored.type === 'image') {
-    await sock.sendMessage(targetJid, { image: buffer, caption, mentions });
-  } else if (stored.type === 'video') {
-    await sock.sendMessage(targetJid, {
-      video: buffer, caption, mentions,
-      mimetype: stored.inner?.videoMessage?.mimetype || 'video/mp4',
-    });
-  } else if (stored.type === 'audio') {
-    const isVoice = stored.inner?.audioMessage?.ptt === true;
-    await sock.sendMessage(targetJid, {
-      audio: buffer, ptt: isVoice,
-      mimetype: stored.inner?.audioMessage?.mimetype || 'audio/ogg; codecs=opus',
-    });
-    await sock.sendMessage(targetJid, { text: textHeader, mentions });
-  } else if (stored.type === 'sticker') {
-    await sock.sendMessage(targetJid, {
-      sticker: buffer,
-      mimetype: stored.inner?.stickerMessage?.mimetype || 'image/webp',
-    });
-    await sock.sendMessage(targetJid, { text: textHeader, mentions });
-  } else if (stored.type === 'document') {
-    await sock.sendMessage(targetJid, {
-      document: buffer,
-      mimetype: stored.inner?.documentMessage?.mimetype || 'application/octet-stream',
-      fileName: stored.inner?.documentMessage?.fileName || 'file',
-      caption, mentions,
-    });
-  }
+    if (stored.type === 'image') {
+        await sock.sendMessage(targetJid, { image: buffer, caption, mentions });
+    } else if (stored.type === 'video') {
+        await sock.sendMessage(targetJid, {
+            video: buffer, caption, mentions,
+            mimetype: stored.inner?.videoMessage?.mimetype || 'video/mp4',
+        });
+    } else if (stored.type === 'audio') {
+        const isVoice = stored.inner?.audioMessage?.ptt === true;
+        await sock.sendMessage(targetJid, {
+            audio: buffer, ptt: isVoice,
+            mimetype: stored.inner?.audioMessage?.mimetype || 'audio/ogg; codecs=opus',
+        });
+        await sock.sendMessage(targetJid, { text: textHeader, mentions });
+    } else if (stored.type === 'sticker') {
+        await sock.sendMessage(targetJid, {
+            sticker: buffer,
+            mimetype: stored.inner?.stickerMessage?.mimetype || 'image/webp',
+        });
+        await sock.sendMessage(targetJid, { text: textHeader, mentions });
+    } else if (stored.type === 'document') {
+        await sock.sendMessage(targetJid, {
+            document: buffer,
+            mimetype: stored.inner?.documentMessage?.mimetype || 'application/octet-stream',
+            fileName: stored.inner?.documentMessage?.fileName || 'file',
+            caption, mentions,
+        });
+    }
 }
 
 function ownerJid(sock) {
-  const id = sock.user?.id;
-  if (!id) return null;
-  return id.includes(':') ? id.split(':')[0] + '@s.whatsapp.net' : id;
+    const id = sock.user?.id;
+    if (!id) return null;
+    return id.includes(':') ? id.split(':')[0] + '@s.whatsapp.net' : id;
 }
 
 const handleDelete = async (sock, revokeItems) => {
-  try {
-    const cfg        = loadConfig();
-    const globalMode = cfg['_global']?.mode || cfg.mode;
-    const botJid     = ownerJid(sock);
+    try {
+        const cfg        = loadConfig();
+        const globalMode = cfg['_global']?.mode;
+        const botJid     = ownerJid(sock);
 
-    if (!globalMode || globalMode === 'off') return;
+        if (!globalMode || globalMode === 'off') return;
 
-    for (const item of revokeItems) {
-      const chatId    = item.key?.remoteJid;
-      const deletedId = item.key?.id;
-      if (!chatId || !deletedId) continue;
-      if (chatId === 'status@broadcast') continue;
+        for (const item of revokeItems) {
+            const chatId    = item.key?.remoteJid;
+            const deletedId = item.key?.id;
+            if (!chatId || !deletedId) continue;
+            if (chatId === 'status@broadcast') continue;
 
-      let targetJid;
-      if (globalMode === 'private' && botJid) {
-        targetJid = botJid;
-      } else if (globalMode === 'chat') {
-        targetJid = chatId;
-      } else {
-        continue;
-      }
+            let targetJid;
+            if (globalMode === 'private' && botJid) {
+                targetJid = botJid;
+            } else if (globalMode === 'chat') {
+                targetJid = chatId;
+            } else {
+                continue;
+            }
 
-      const chatMap = messageStore.get(chatId);
-      if (!chatMap) continue;
-      const stored = chatMap.get(deletedId);
-      if (!stored) continue;
+            const chatMap = messageStore.get(chatId);
+            if (!chatMap) continue;
+            const stored = chatMap.get(deletedId);
+            if (!stored) continue;
 
-      await sendRecovered(sock, targetJid, stored, chatId);
+            await sendRecovered(sock, targetJid, stored, chatId);
+        }
+    } catch (e) {
+        console.error('[ANTIDELETE] handleDelete error:', e.message);
     }
-  } catch (e) {
-    console.error('[ANTIDELETE] handleDelete error:', e.message);
-  }
 };
 
 module.exports = {
-  name: 'antidelete',
-  aliases: ['antidel'],
-  category: 'owner',
-  description: 'Recover deleted messages',
-  usage: '.antidelete on/private/off/status',
-  adminOnly: true,
+    name: 'antidelete',
+    aliases: ['antidel'],
+    category: 'owner',
+    description: 'Recover deleted messages',
+    usage: '.antidelete on/private/off/status',
+    adminOnly: true,
 
-  storeMessage,
-  handleDelete,
+    storeMessage,
+    handleDelete,
 
-  async execute(sock, msg, args, extra) {
-    const { reply } = extra;
-    const sub = (args[0] || '').toLowerCase();
-    const cfg = loadConfig();
-    const globalMode = cfg['_global']?.mode || cfg.mode;
+    async execute(sock, msg, args, extra) {
+        const { reply } = extra;
+        const sub = (args[0] || '').toLowerCase();
+        const cfg = loadConfig();
+        const globalMode = cfg['_global']?.mode;
 
-    const statusLabel =
-      globalMode === 'chat'    ? '✅ ON — Chat'    :
-      globalMode === 'private' ? '✅ ON — Private' : '❌ OFF';
+        const statusLabel =
+            globalMode === 'chat'    ? '✅ ON — Chat'    :
+            globalMode === 'private' ? '✅ ON — Private' : '❌ OFF';
 
-    if (!sub || sub === 'status') {
-      return reply(`🗑️ Anti-Delete: *${statusLabel}*\n\n.antidelete on | private | off`);
+        if (!sub || sub === 'status') {
+            return reply(`🗑️ Anti-Delete: *${statusLabel}*\n\n.antidelete on | private | off`);
+        }
+
+        if (sub === 'on' || sub === 'chat') {
+            cfg['_global'] = { mode: 'chat' };
+            saveConfig(cfg);
+            return reply('🗑️ Anti-Delete set to *ON* — deleted msgs shown in each chat.');
+        }
+
+        if (sub === 'private') {
+            cfg['_global'] = { mode: 'private' };
+            saveConfig(cfg);
+            return reply('🗑️ Anti-Delete set to *Private* — all deleted msgs go to owner DM.');
+        }
+
+        if (sub === 'off') {
+            delete cfg['_global'];
+            saveConfig(cfg);
+            return reply('🗑️ Anti-Delete set to *OFF*.');
+        }
+
+        return reply('⚠️ Usage: .antidelete on | private | off | status');
     }
-
-    if (sub === 'on' || sub === 'chat') {
-      saveConfig({ '_global': { mode: 'chat' } });
-      return reply('🗑️ Anti-Delete set to *ON* — deleted msgs shown in each chat.');
-    }
-
-    if (sub === 'private') {
-      saveConfig({ '_global': { mode: 'private' } });
-      return reply('🗑️ Anti-Delete set to *Private* — all deleted msgs go to owner DM.');
-    }
-
-    if (sub === 'off') {
-      saveConfig({});
-      return reply('🗑️ Anti-Delete set to *OFF*.');
-    }
-
-    return reply('⚠️ Usage: .antidelete on | private | off | status');
-  }
 };

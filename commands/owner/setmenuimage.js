@@ -7,14 +7,22 @@ const http = require('http');
 const db = require('../../database');
 const settings = require('../../utils/settings');
 
-const IMAGE_PATH    = path.join(__dirname, '../../utils/bot_image.jpg');
-const MENU1_PATH    = path.join(__dirname, '../../assets/menu1.jpg');
-const PERSIST_PATH  = path.join(__dirname, '../../data/custom_menu.jpg'); // survives resets
-const DEFAULT_IMAGE = path.join(__dirname, '../../assets/menu2.jpg');     // always present, used for reset
+const IMAGE_PATH         = path.join(__dirname, '../../utils/bot_image.jpg');
+const MENU1_PATH         = path.join(__dirname, '../../assets/menu1.jpg');
+const PERSIST_PATH       = path.join(__dirname, '../../data/custom_menu.jpg'); // survives resets
+const DEFAULT_IMAGE      = path.join(__dirname, '../../assets/menu2.jpg');     // always present, used for reset
+const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
 // Switch menu style to 3 (image + text + ad-reply) whenever a custom image is set
 function applyMenuStyle3() {
   try {
+    let current = {};
+    if (fs.existsSync(MENU_SETTINGS_FILE)) {
+      current = JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8'));
+    }
+    current.menuStyle = '3';
+    fs.mkdirSync(path.dirname(MENU_SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(MENU_SETTINGS_FILE, JSON.stringify(current, null, 2));
     settings.set('menuStyle', '3');
   } catch (e) {
     console.error('[setmenuimage] Could not auto-set menu style:', e.message);
