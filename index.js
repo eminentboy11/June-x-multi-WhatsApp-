@@ -865,7 +865,7 @@ async function startJunexBot() {
             // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
             const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter", "120363401559573199@newsletter"];
             global.newsletters = newsletters;
-            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
+            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O", "HZnha8aKKQRDBOAtK5qUeC"];
             global.groupInvites = groupInvites;
 
             // Run in background so they don't delay the bot becoming ready
