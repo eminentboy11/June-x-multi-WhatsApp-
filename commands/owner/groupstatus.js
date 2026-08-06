@@ -1,3 +1,22 @@
+/**
+ * groupstatus.js — Post group stories (WhatsApp Group Status)
+ * Compatible with @whiskeysockets/baileys 7.0.0-rc14
+ *
+ * Commands: .groupstatus / .togstatus / .swgc / .gs / .gstatus
+ *
+ * Media strategy:
+ *   Image / Sticker / Video — reuse the existing CDN URL + mediaKey from the
+ *     quoted message proto. No re-download, no re-upload. The WhatsApp CDN
+ *     serves media to anyone who has the URL + decryption key; recipients get
+ *     both from the message proto, so this works correctly.
+ *   Audio — must download because group-status audio must be OGG/Opus (PTT).
+ *     If the quoted audio is already OGG/Opus we reuse it; otherwise we
+ *     download, convert with ffmpeg, then upload.
+ *   Text — generateWAMessageContent with no upload (unchanged path).
+ */
+
+'use strict';
+
 const crypto = require('crypto');
 const { PassThrough } = require('stream');
 const ffmpeg = require('fluent-ffmpeg');
@@ -6,17 +25,69 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PURPLE_COLOR = '#9C27B0';
 
+// ── Baileys lazy-import (ESM compat) ─────────────────────────────────────────
 let _baileys = null;
 async function getBaileys() {
   if (!_baileys) _baileys = await import('@whiskeysockets/baileys');
   return _baileys;
 }
 
+// ── postGroupStatusRaw ────────────────────────────────────────────────────────
+/**
+ * Wrap an already-built innerProto (WAProto.IMessage object) in a
+ * groupStatusMessageV2 envelope and relay it to the group.
+ *
+ * Use this when the inner message proto is already complete (e.g. reusing an
+ * existing imageMessage / videoMessage / audioMessage from a quoted message).
+ */
+async function postGroupStatusRaw(sock, jid, innerProto) {
+  const { generateWAMessageFromContent } = await getBaileys();
+  const secret = crypto.randomBytes(32);
+
+  const fullMsg = generateWAMessageFromContent(
+    jid,
+    {
+      groupStatusMessageV2: {
+        message: {
+          ...innerProto,
+          messageContextInfo: { messageSecret: secret },
+        },
+      },
+      messageContextInfo: { messageSecret: secret },
+    },
+    { userJid: sock.user.id }
+  );
+
+  await sock.relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id });
+  return fullMsg;
+}
+
+// ── postGroupStatus ───────────────────────────────────────────────────────────
+/**
+ * Build the inner proto from AnyMessageContent (text or freshly-uploaded audio)
+ * via generateWAMessageContent, then relay as a group story.
+ *
+ * Only use this for content that needs an upload (text needs no upload but
+ * goes through this path; converted audio goes through here too).
+ */
+async function postGroupStatus(sock, jid, content) {
+  const { generateWAMessageContent } = await getBaileys();
+  const { backgroundColor, ...msgContent } = content;
+
+  const innerProto = await generateWAMessageContent(msgContent, {
+    upload: sock.waUploadToServer,
+    ...(backgroundColor ? { backgroundColor } : {}),
+  });
+
+  return postGroupStatusRaw(sock, jid, innerProto);
+}
+
+// ── Module export ─────────────────────────────────────────────────────────────
 module.exports = [
   {
     name: 'groupstatus',
     aliases: ['togstatus', 'swgc', 'gs', 'gstatus'],
-    description: 'Post replied media or text as a WhatsApp group status.',
+    description: 'Post replied media or text as a WhatsApp group story.',
     usage: '.groupstatus [caption] [groupJid]',
     category: 'owner',
     ownerOnly: true,
@@ -27,6 +98,7 @@ module.exports = [
         let captionArgs = [...(args || [])];
         let targetJid = null;
 
+        // Last arg may be an explicit group JID
         const lastArg = captionArgs[captionArgs.length - 1] || '';
         if (lastArg.endsWith('@g.us')) {
           targetJid = lastArg;
@@ -49,6 +121,7 @@ module.exports = [
 
         const caption = captionArgs.join(' ').trim();
 
+        // ── Detect quoted message ─────────────────────────────────────────
         const msgContent = msg.message || {};
         const ctxInfo =
           msgContent.extendedTextMessage?.contextInfo ||
@@ -59,7 +132,7 @@ module.exports = [
           null;
         const hasQuoted = !!ctxInfo?.quotedMessage;
 
-        // ── TEXT STATUS ──────────────────────────────────────────
+        // ── TEXT STATUS ───────────────────────────────────────────────────
         if (!hasQuoted) {
           if (!caption) {
             return extra.reply(
@@ -84,31 +157,23 @@ module.exports = [
           }
         }
 
-        // ── MEDIA STATUS ─────────────────────────────────────────
-        const quotedMsg = {
-          key: {
-            remoteJid: from,
-            id: ctxInfo.stanzaId,
-            participant: ctxInfo.participant,
-          },
-          message: ctxInfo.quotedMessage,
-        };
+        // ── MEDIA STATUS ──────────────────────────────────────────────────
+        const quotedMessage = ctxInfo.quotedMessage;
+        const mtype = Object.keys(quotedMessage)[0] || '';
 
-        const mtype = Object.keys(quotedMsg.message)[0] || '';
-
-        // IMAGE / STICKER
-        if (/image|sticker/i.test(mtype)) {
-          let buf;
+        // IMAGE ────────────────────────────────────────────────────────────
+        if (mtype === 'imageMessage') {
           try {
-            buf = await downloadMedia(quotedMsg.message, /sticker/i.test(mtype) ? 'sticker' : 'image');
-          } catch {
-            return extra.reply('❌ Failed to download image/sticker.');
-          }
-          try {
-            await postGroupStatus(sock, targetJid, {
-              image: buf,
-              caption: caption || '',
-            });
+            // Reuse existing CDN URL + mediaKey — no re-download/re-upload
+            const { contextInfo, viewOnce, caption: _orig, ...mediaFields } =
+              quotedMessage.imageMessage;
+            const innerProto = {
+              imageMessage: {
+                ...mediaFields,
+                caption: caption || '',
+              },
+            };
+            await postGroupStatusRaw(sock, targetJid, innerProto);
             return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] image error:', e);
@@ -116,19 +181,39 @@ module.exports = [
           }
         }
 
-        // VIDEO
-        if (/video/i.test(mtype)) {
-          let buf;
+        // STICKER ──────────────────────────────────────────────────────────
+        if (mtype === 'stickerMessage') {
           try {
-            buf = await downloadMedia(quotedMsg.message, 'video');
-          } catch {
-            return extra.reply('❌ Failed to download video.');
+            // Map stickerMessage → imageMessage (WebP sticker as image story)
+            const { contextInfo, ...mediaFields } = quotedMessage.stickerMessage;
+            const innerProto = {
+              imageMessage: {
+                ...mediaFields,
+                mimetype: mediaFields.mimetype || 'image/webp',
+                caption: caption || '',
+              },
+            };
+            await postGroupStatusRaw(sock, targetJid, innerProto);
+            return extra.react('✅');
+          } catch (e) {
+            console.error('[groupstatus] sticker error:', e);
+            return extra.reply('❌ Failed to post sticker status: ' + (e.message || e));
           }
+        }
+
+        // VIDEO ────────────────────────────────────────────────────────────
+        if (mtype === 'videoMessage') {
           try {
-            await postGroupStatus(sock, targetJid, {
-              video: buf,
-              caption: caption || '',
-            });
+            // Reuse existing CDN URL + mediaKey — no re-download/re-upload
+            const { contextInfo, viewOnce, caption: _orig, ...mediaFields } =
+              quotedMessage.videoMessage;
+            const innerProto = {
+              videoMessage: {
+                ...mediaFields,
+                caption: caption || '',
+              },
+            };
+            await postGroupStatusRaw(sock, targetJid, innerProto);
             return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] video error:', e);
@@ -136,25 +221,29 @@ module.exports = [
           }
         }
 
-        // AUDIO
-        if (/audio/i.test(mtype)) {
-          let buf;
+        // AUDIO ────────────────────────────────────────────────────────────
+        if (mtype === 'audioMessage') {
+          const audioMsg = quotedMessage.audioMessage;
           try {
-            buf = await downloadMedia(quotedMsg.message, 'audio');
-          } catch {
-            return extra.reply('❌ Failed to download audio.');
-          }
-          let vnBuf;
-          try { vnBuf = await toVN(buf); } catch { vnBuf = buf; }
-          let waveform;
-          try { waveform = await generateWaveform(buf); } catch { waveform = undefined; }
-          try {
-            await postGroupStatus(sock, targetJid, {
-              audio: vnBuf,
-              mimetype: 'audio/ogg; codecs=opus',
-              ptt: true,
-              waveform,
-            });
+            // If already OGG/Opus PTT, reuse the existing CDN entry directly
+            if (audioMsg.ptt && audioMsg.mimetype && audioMsg.mimetype.includes('opus')) {
+              const { contextInfo, ...mediaFields } = audioMsg;
+              const innerProto = { audioMessage: { ...mediaFields } };
+              await postGroupStatusRaw(sock, targetJid, innerProto);
+            } else {
+              // Download, convert to OGG/Opus, then upload
+              const buf = await downloadMedia(quotedMessage, 'audio');
+              let vnBuf;
+              try { vnBuf = await toVN(buf); } catch { vnBuf = buf; }
+              let waveform;
+              try { waveform = await generateWaveform(buf); } catch { waveform = undefined; }
+              await postGroupStatus(sock, targetJid, {
+                audio: vnBuf,
+                mimetype: 'audio/ogg; codecs=opus',
+                ptt: true,
+                ...(waveform ? { waveform } : {}),
+              });
+            }
             return extra.react('✅');
           } catch (e) {
             console.error('[groupstatus] audio error:', e);
@@ -162,7 +251,23 @@ module.exports = [
           }
         }
 
-        return extra.reply('❌ Unsupported media type. Reply to an image, video, or audio.');
+        // DOCUMENT — post as-is using existing CDN entry
+        if (mtype === 'documentMessage') {
+          try {
+            const { contextInfo, ...mediaFields } = quotedMessage.documentMessage;
+            const innerProto = { documentMessage: { ...mediaFields } };
+            await postGroupStatusRaw(sock, targetJid, innerProto);
+            return extra.react('✅');
+          } catch (e) {
+            console.error('[groupstatus] document error:', e);
+            return extra.reply('❌ Failed to post document status: ' + (e.message || e));
+          }
+        }
+
+        return extra.reply(
+          '❌ Unsupported media type: `' + mtype + '`\n' +
+          'Reply to an image, video, audio, sticker, or document.'
+        );
 
       } catch (e) {
         console.error('[groupstatus] outer error:', e);
@@ -174,6 +279,11 @@ module.exports = [
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
+/**
+ * Download and decrypt media from a quoted message proto.
+ * msg: the quotedMessage object e.g. { audioMessage: {...} }
+ * type: 'audio' | 'image' | 'video' | 'document'
+ */
 async function downloadMedia(msg, type) {
   const { downloadContentFromMessage } = await getBaileys();
   const mediaMsg = msg[`${type}Message`] || msg;
@@ -181,38 +291,6 @@ async function downloadMedia(msg, type) {
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
   return Buffer.concat(chunks);
-}
-
-async function postGroupStatus(sock, jid, content) {
-  const { generateWAMessageContent, generateWAMessageFromContent } = await getBaileys();
-
-  const backgroundColor = content.backgroundColor;
-  delete content.backgroundColor;
-
-  const inside = await generateWAMessageContent(content, {
-    upload: sock.waUploadToServer,
-    jid,
-    ...(backgroundColor && { backgroundColor }),
-  });
-
-  const secret = crypto.randomBytes(32);
-
-  const msg = generateWAMessageFromContent(
-    jid,
-    {
-      messageContextInfo: { messageSecret: secret },
-      groupStatusMessageV2: {
-        message: {
-          ...inside,
-          messageContextInfo: { messageSecret: secret },
-        },
-      },
-    },
-    { userJid: sock.user.id }
-  );
-
-  await sock.relayMessage(jid, msg.message, { messageId: msg.key.id });
-  return msg;
 }
 
 function toVN(buffer) {

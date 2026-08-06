@@ -1,13 +1,10 @@
 /**
  * SetMenu Command - Owner only
  * Change the menu display style (1-6)
+ * Settings stored in SQLite via utils/settings (bot_settings table).
  */
 
-const fs       = require('fs');
-const path     = require('path');
 const settings = require('../../utils/settings');
-
-const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
 const MENU_STYLES = {
   '1': '  Document with thumbnail ad reply',
@@ -17,25 +14,6 @@ const MENU_STYLES = {
   '5': '  Interactive native flow message',
   '6': '  Payment request style'
 };
-
-function getSettings() {
-  try {
-    if (!fs.existsSync(MENU_SETTINGS_FILE)) {
-      const defaults = { menuStyle: '2', showMemory: true, showUptime: true, showPluginCount: true, showProgressBar: true };
-      fs.mkdirSync(path.dirname(MENU_SETTINGS_FILE), { recursive: true });
-      fs.writeFileSync(MENU_SETTINGS_FILE, JSON.stringify(defaults, null, 2));
-      return defaults;
-    }
-    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8'));
-  } catch {
-    return { menuStyle: '2' };
-  }
-}
-
-function saveSettings(data) {
-  fs.mkdirSync(path.dirname(MENU_SETTINGS_FILE), { recursive: true });
-  fs.writeFileSync(MENU_SETTINGS_FILE, JSON.stringify(data, null, 2));
-}
 
 function box(lines) {
   let text = `╭━━『 *Menu Style Settings* 』━━╮\n\n`;
@@ -60,7 +38,7 @@ module.exports = {
       const style = args[0];
 
       if (!style) {
-        const current = getSettings().menuStyle || '1';
+        const current = settings.get('menuStyle') || '1';
         const lines = [`📌 *Current Style:* ${current} — ${MENU_STYLES[current]}`, '', `*Available Styles:*`];
         for (const [num, desc] of Object.entries(MENU_STYLES)) {
           lines.push(`  *${num}.* ${desc}${num === current ? ' ✅' : ''}`);
@@ -78,9 +56,6 @@ module.exports = {
         ]));
       }
 
-      const menuSettings = getSettings();
-      menuSettings.menuStyle = style;
-      saveSettings(menuSettings);
       settings.set('menuStyle', style);
 
       await extra.reply(box([
