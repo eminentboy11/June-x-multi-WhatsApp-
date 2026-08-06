@@ -301,7 +301,7 @@ const BOT_SETTINGS_DEFAULTS = {
   prefix: '.',
   botName: 'JuneX-Ultra',
   timezone: 'Africa/Nairobi',
-  menuStyle: '1',
+  menuStyle: '2',
   fontStyle: 'normal',
   presenceMode: 'off',          // off | typing | recording | recordtype
   autoReadMode: 'off',          // off | pm | group | on
