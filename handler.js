@@ -670,14 +670,12 @@ const handleMessage = async (sock, msg) => {
     // ── Presence on ANY incoming message (DM or group, never bot's own) ──────
     if (!msg.key.fromMe) {
       try {
-        const { getMode, shouldSendPresence } = require('./utils/presenceSettings');
-        if (shouldSendPresence(isGroup)) {
-          const _pm = getMode();
-          if (_pm === 'recording' || _pm === 'recordtype') {
-            sock.sendPresenceUpdate('recording', from).catch(() => {});
-          } else if (_pm === 'typing') {
-            sock.sendPresenceUpdate('composing', from).catch(() => {});
-          }
+        const { getMode } = require('./utils/presenceSettings');
+        const _pm = getMode();
+        if (_pm === 'recording' || _pm === 'recordtype') {
+          sock.sendPresenceUpdate('recording', from).catch(() => {});
+        } else if (_pm === 'typing') {
+          sock.sendPresenceUpdate('composing', from).catch(() => {});
         }
       } catch (_pErr) {}
     }
@@ -1276,25 +1274,23 @@ const handleMessage = async (sock, msg) => {
       }
     }
 
-    // Auto presence indicators — read from database via presenceSettings
+    // Auto presence indicators — read from database/bot-settings.json via presenceSettings
     try {
-      const { getMode, shouldSendPresence } = require('./utils/presenceSettings');
+      const { getMode } = require('./utils/presenceSettings');
       const presenceMode = getMode();
-      if (shouldSendPresence(isGroup)) {
-        if (presenceMode === 'recordtype') {
-          await sock.sendPresenceUpdate('recording', from);
-          await new Promise(r => setTimeout(r, 1500));
-          await sock.sendPresenceUpdate('composing', from);
-          await new Promise(r => setTimeout(r, 800));
-        } else if (presenceMode === 'recording') {
-          await sock.sendPresenceUpdate('recording', from);
-          await new Promise(r => setTimeout(r, 1000));
-        } else if (presenceMode === 'typing') {
-          await sock.sendPresenceUpdate('composing', from);
-          await new Promise(r => setTimeout(r, 800));
-        }
-      } else if (presenceMode === 'off' && config.autoTyping) {
-        // legacy config.js flag fallback (only when no presence mode is active)
+      if (presenceMode === 'recordtype') {
+        await sock.sendPresenceUpdate('recording', from);
+        await new Promise(r => setTimeout(r, 1500));
+        await sock.sendPresenceUpdate('composing', from);
+        await new Promise(r => setTimeout(r, 800));
+      } else if (presenceMode === 'recording') {
+        await sock.sendPresenceUpdate('recording', from);
+        await new Promise(r => setTimeout(r, 1000));
+      } else if (presenceMode === 'typing') {
+        await sock.sendPresenceUpdate('composing', from);
+        await new Promise(r => setTimeout(r, 800));
+      } else if (config.autoTyping) {
+        // legacy config.js flag fallback
         await sock.sendPresenceUpdate('composing', from);
         await new Promise(r => setTimeout(r, 800));
       }
