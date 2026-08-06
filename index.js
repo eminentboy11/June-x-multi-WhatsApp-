@@ -1,4 +1,3 @@
-
 /**
  * A WhatsApp Bot
  * Built on Baileys | Inspired by JUNE-X structure

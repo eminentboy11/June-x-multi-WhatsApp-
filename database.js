@@ -1,448 +1,417 @@
 /**
- * Simple JSON-based Database for Group Settings
+ * SQLite-backed Database for June X Ultra
+ * Drop-in replacement for the previous JSON-file implementation.
+ * Uses better-sqlite3 (synchronous API — no change to callers).
  */
 
-const fs = require('fs');
-const path = require('path');
-const config = require('./config');
+'use strict';
 
-const DB_PATH = path.join(__dirname, 'database');
-const CHAT_MEMORY_BASE = path.join(process.cwd(), 'data', 'chatbot', 'profiles');
-const CHAT_MEMORY_MAX = 25;
-const GROUPS_DB = path.join(DB_PATH, 'groups.json');
-const USERS_DB = path.join(DB_PATH, 'users.json');
-const WARNINGS_DB = path.join(DB_PATH, 'warnings.json');
-const MODS_DB = path.join(DB_PATH, 'mods.json');
-const MUTED_DB = path.join(DB_PATH, 'muted.json');
-const BOTMODE_DB = path.join(DB_PATH, 'botmode.json');
-const BOT_SETTINGS_DB = path.join(DB_PATH, 'bot-settings.json');
-const SESSION_DB = path.join(DB_PATH, 'session.json');
+const path     = require('path');
+const fs       = require('fs');
+const Database = require('better-sqlite3');
+const config   = require('./config');
 
-// Initialize database directory
-if (!fs.existsSync(DB_PATH)) {
-  fs.mkdirSync(DB_PATH, { recursive: true });
-}
+const DB_DIR  = path.join(__dirname, 'database');
+const DB_FILE = path.join(DB_DIR, 'june-ultra.db');
 
-// Initialize database files
-const initDB = (filePath, defaultData = {}) => {
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2));
-  }
+if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+
+const db = new Database(DB_FILE);
+
+// Performance tuning
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous  = NORMAL');
+db.pragma('cache_size   = -16000');   // 16 MB page cache
+db.pragma('foreign_keys = ON');
+
+// ── Schema ────────────────────────────────────────────────────────────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS groups (
+    group_id TEXT PRIMARY KEY,
+    settings TEXT NOT NULL DEFAULT '{}'
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    data    TEXT NOT NULL DEFAULT '{}'
+  );
+
+  CREATE TABLE IF NOT EXISTS warnings (
+    group_id TEXT NOT NULL,
+    user_id  TEXT NOT NULL,
+    count    INTEGER NOT NULL DEFAULT 0,
+    entries  TEXT    NOT NULL DEFAULT '[]',
+    PRIMARY KEY (group_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS moderators (
+    user_id TEXT PRIMARY KEY
+  );
+
+  CREATE TABLE IF NOT EXISTS muted_users (
+    group_id TEXT NOT NULL,
+    user_id  TEXT NOT NULL,
+    PRIMARY KEY (group_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS bot_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS session (
+    id       INTEGER PRIMARY KEY DEFAULT 1,
+    creds    TEXT,
+    saved_at INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS group_stats (
+    group_id TEXT NOT NULL,
+    date     TEXT NOT NULL,
+    data     TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (group_id, date)
+  );
+
+  CREATE TABLE IF NOT EXISTS chat_profiles (
+    bot_id  TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    profile TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (bot_id, user_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS kv_store (
+    namespace TEXT NOT NULL,
+    key       TEXT NOT NULL,
+    value     TEXT NOT NULL,
+    PRIMARY KEY (namespace, key)
+  );
+`);
+
+// ── Prepared statements ───────────────────────────────────────────────────────
+const stmts = {
+  // groups
+  getGroup:    db.prepare('SELECT settings FROM groups WHERE group_id = ?'),
+  upsertGroup: db.prepare('INSERT INTO groups (group_id, settings) VALUES (?, ?) ON CONFLICT(group_id) DO UPDATE SET settings = excluded.settings'),
+
+  // users
+  getUser:     db.prepare('SELECT data FROM users WHERE user_id = ?'),
+  upsertUser:  db.prepare('INSERT INTO users (user_id, data) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data'),
+
+  // warnings
+  getWarnings: db.prepare('SELECT count, entries FROM warnings WHERE group_id = ? AND user_id = ?'),
+  upsertWarn:  db.prepare('INSERT INTO warnings (group_id, user_id, count, entries) VALUES (?, ?, ?, ?) ON CONFLICT(group_id, user_id) DO UPDATE SET count = excluded.count, entries = excluded.entries'),
+  delWarnings: db.prepare('DELETE FROM warnings WHERE group_id = ? AND user_id = ?'),
+
+  // moderators
+  getMods:   db.prepare('SELECT user_id FROM moderators'),
+  addMod:    db.prepare('INSERT OR IGNORE INTO moderators (user_id) VALUES (?)'),
+  delMod:    db.prepare('DELETE FROM moderators WHERE user_id = ?'),
+  isMod:     db.prepare('SELECT 1 FROM moderators WHERE user_id = ?'),
+
+  // muted
+  muteUser:    db.prepare('INSERT OR IGNORE INTO muted_users (group_id, user_id) VALUES (?, ?)'),
+  unmuteUser:  db.prepare('DELETE FROM muted_users WHERE group_id = ? AND user_id = ?'),
+  isMuted:     db.prepare('SELECT 1 FROM muted_users WHERE group_id = ? AND user_id = ?'),
+  getMuted:    db.prepare('SELECT user_id FROM muted_users WHERE group_id = ?'),
+
+  // bot_settings
+  getSetting:    db.prepare('SELECT value FROM bot_settings WHERE key = ?'),
+  setSetting:    db.prepare('INSERT INTO bot_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
+  getAllSettings: db.prepare('SELECT key, value FROM bot_settings'),
+
+  // session
+  getSession:   db.prepare('SELECT creds FROM session WHERE id = 1'),
+  upsertSession: db.prepare('INSERT INTO session (id, creds, saved_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET creds = excluded.creds, saved_at = excluded.saved_at'),
+  clearSession:  db.prepare('DELETE FROM session WHERE id = 1'),
+
+  // kv_store
+  getKV:  db.prepare('SELECT value FROM kv_store WHERE namespace = ? AND key = ?'),
+  setKV:  db.prepare('INSERT INTO kv_store (namespace, key, value) VALUES (?, ?, ?) ON CONFLICT(namespace, key) DO UPDATE SET value = excluded.value'),
+  delKV:  db.prepare('DELETE FROM kv_store WHERE namespace = ? AND key = ?'),
+  allKV:  db.prepare('SELECT key, value FROM kv_store WHERE namespace = ?'),
 };
 
-initDB(GROUPS_DB, {});
-initDB(USERS_DB, {});
-initDB(WARNINGS_DB, {});
-initDB(MODS_DB, { moderators: [] });
-initDB(MUTED_DB, {});
-initDB(BOTMODE_DB, { mode: 'public' });
-initDB(BOT_SETTINGS_DB, {});
-initDB(SESSION_DB, {});
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const parse  = (str, fallback = {}) => { try { return JSON.parse(str); } catch { return fallback; } };
+const serial = (val) => JSON.stringify(val);
 
-// ── In-memory DB cache — eliminates repeated disk reads ─────────────────────
-// Key: file path → parsed JSON object.  Populated on first read, invalidated
-// (replaced) on every write.  Safe for a single-process Node.js app.
-const _dbCache = {};
-
-// Read database — serve from memory cache; only hit disk on first access or
-// after a process restart (with automatic backup recovery if file is corrupt).
-const readDB = (filePath) => {
-  if (_dbCache[filePath] !== undefined) return _dbCache[filePath];
-
-  let result;
-  // Try primary file
-  try {
-    const data = fs.readFileSync(filePath, 'utf-8');
-    if (data.trim()) result = JSON.parse(data);
-  } catch (primaryErr) {
-    console.error(`[DB] Primary read failed for ${path.basename(filePath)}: ${primaryErr.message}`);
-  }
-
-  // Try .bak backup written by the previous successful write
-  if (result === undefined) {
-    const bakPath = filePath + '.bak';
-    try {
-      if (fs.existsSync(bakPath)) {
-        const bak = fs.readFileSync(bakPath, 'utf-8');
-        if (bak.trim()) {
-          result = JSON.parse(bak);
-          console.error(`[DB] Recovered ${path.basename(filePath)} from backup.`);
-          fs.writeFileSync(filePath, bak, 'utf-8');
-        }
-      }
-    } catch (bakErr) {
-      console.error(`[DB] Backup read also failed for ${path.basename(filePath)}: ${bakErr.message}`);
-    }
-  }
-
-  result = result || {};
-  _dbCache[filePath] = result;
-  return result;
-};
-
-// Write database — update memory cache immediately (synchronous), then flush
-// to disk asynchronously so callers are never blocked by disk I/O.
-const writeDB = (filePath, data) => {
-  // 1. Update in-memory cache right away so subsequent reads see the new data
-  _dbCache[filePath] = data;
-
-  // 2. Persist to disk in the background (atomic: tmp → rename)
-  setImmediate(() => {
-    try {
-      const json = JSON.stringify(data, null, 2);
-      const tmpPath = filePath + '.tmp';
-      fs.writeFileSync(tmpPath, json, 'utf-8');
-      try {
-        if (fs.existsSync(filePath)) fs.copyFileSync(filePath, filePath + '.bak');
-      } catch (_) {}
-      fs.renameSync(tmpPath, filePath);
-    } catch (error) {
-      console.error(`[DB] Write failed for ${path.basename(filePath)}: ${error.message}`);
-    }
-  });
-
-  return true;
-};
-
-// Group Settings
+// ── Group Settings ────────────────────────────────────────────────────────────
 const getGroupSettings = (groupId) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId]) {
-    groups[groupId] = { ...config.defaultGroupSettings };
-    writeDB(GROUPS_DB, groups);
-  }
-  return groups[groupId];
+  const row = stmts.getGroup.get(groupId);
+  if (row) return parse(row.settings, { ...config.defaultGroupSettings });
+  const defaults = { ...config.defaultGroupSettings };
+  stmts.upsertGroup.run(groupId, serial(defaults));
+  return defaults;
 };
 
 const updateGroupSettings = (groupId, settings) => {
-  const groups = readDB(GROUPS_DB);
-  groups[groupId] = { ...groups[groupId], ...settings };
-  return writeDB(GROUPS_DB, groups);
+  const current = getGroupSettings(groupId);
+  const updated  = { ...current, ...settings };
+  stmts.upsertGroup.run(groupId, serial(updated));
+  return true;
 };
 
-// User Data
+// ── User Data ─────────────────────────────────────────────────────────────────
 const getUser = (userId) => {
-  const users = readDB(USERS_DB);
-  if (!users[userId]) {
-    users[userId] = {
-      registered: Date.now(),
-      premium: false,
-      banned: false
-    };
-    writeDB(USERS_DB, users);
-  }
-  return users[userId];
+  const row = stmts.getUser.get(userId);
+  if (row) return parse(row.data);
+  const defaults = { registered: Date.now(), premium: false, banned: false };
+  stmts.upsertUser.run(userId, serial(defaults));
+  return defaults;
 };
 
 const updateUser = (userId, data) => {
-  const users = readDB(USERS_DB);
-  users[userId] = { ...users[userId], ...data };
-  return writeDB(USERS_DB, users);
+  const current = getUser(userId);
+  stmts.upsertUser.run(userId, serial({ ...current, ...data }));
+  return true;
 };
 
-// Warnings System
+// ── Warnings ──────────────────────────────────────────────────────────────────
 const getWarnings = (groupId, userId) => {
-  const warnings = readDB(WARNINGS_DB);
-  const key = `${groupId}_${userId}`;
-  return warnings[key] || { count: 0, warnings: [] };
+  const row = stmts.getWarnings.get(groupId, userId);
+  if (!row) return { count: 0, warnings: [] };
+  return { count: row.count, warnings: parse(row.entries, []) };
 };
 
 const addWarning = (groupId, userId, reason) => {
-  const warnings = readDB(WARNINGS_DB);
-  const key = `${groupId}_${userId}`;
-
-  if (!warnings[key]) {
-    warnings[key] = { count: 0, warnings: [] };
-  }
-
-  warnings[key].count++;
-  warnings[key].warnings.push({
-    reason,
-    date: Date.now()
-  });
-
-  writeDB(WARNINGS_DB, warnings);
-  return warnings[key];
+  const current  = getWarnings(groupId, userId);
+  current.count++;
+  current.warnings.push({ reason, date: Date.now() });
+  stmts.upsertWarn.run(groupId, userId, current.count, serial(current.warnings));
+  return current;
 };
 
 const removeWarning = (groupId, userId) => {
-  const warnings = readDB(WARNINGS_DB);
-  const key = `${groupId}_${userId}`;
-
-  if (warnings[key] && warnings[key].count > 0) {
-    warnings[key].count--;
-    warnings[key].warnings.pop();
-    writeDB(WARNINGS_DB, warnings);
-    return true;
-  }
-  return false;
+  const current = getWarnings(groupId, userId);
+  if (current.count <= 0) return false;
+  current.count--;
+  current.warnings.pop();
+  stmts.upsertWarn.run(groupId, userId, current.count, serial(current.warnings));
+  return true;
 };
 
 const clearWarnings = (groupId, userId) => {
-  const warnings = readDB(WARNINGS_DB);
-  const key = `${groupId}_${userId}`;
-  delete warnings[key];
-  return writeDB(WARNINGS_DB, warnings);
+  stmts.delWarnings.run(groupId, userId);
+  return true;
 };
 
-// Moderators System
-const getModerators = () => {
-  const mods = readDB(MODS_DB);
-  return mods.moderators || [];
-};
+// ── Moderators ────────────────────────────────────────────────────────────────
+const getModerators = () => stmts.getMods.all().map(r => r.user_id);
 
 const addModerator = (userId) => {
-  const mods = readDB(MODS_DB);
-  if (!mods.moderators) mods.moderators = [];
-  if (!mods.moderators.includes(userId)) {
-    mods.moderators.push(userId);
-    return writeDB(MODS_DB, mods);
-  }
-  return false;
+  if (!userId) return false;
+  stmts.addMod.run(userId);
+  return true;
 };
 
 const removeModerator = (userId) => {
-  const mods = readDB(MODS_DB);
-  if (mods.moderators) {
-    mods.moderators = mods.moderators.filter(id => id !== userId);
-    return writeDB(MODS_DB, mods);
-  }
-  return false;
+  stmts.delMod.run(userId);
+  return true;
 };
 
 const isModerator = (userId) => {
-  const mods = getModerators();
-  if (mods.includes(userId)) return true;
-  const config = require('./config');
-  const sessionPath = require('path').join(__dirname, config.sessionName || 'session');
-  const revFile = require('path').join(sessionPath, `lid-mapping-${userId}_reverse.json`);
+  if (stmts.isMod.get(userId)) return true;
+  // LID reverse-mapping fallback
+  const cfg         = require('./config');
+  const sessionPath = path.join(__dirname, cfg.sessionName || 'session');
+  const revFile     = path.join(sessionPath, `lid-mapping-${userId}_reverse.json`);
   try {
-    if (require('fs').existsSync(revFile)) {
-      const pn = JSON.parse(require('fs').readFileSync(revFile, 'utf8').trim());
-      if (pn && mods.includes(String(pn))) return true;
+    if (fs.existsSync(revFile)) {
+      const pn = JSON.parse(fs.readFileSync(revFile, 'utf8').trim());
+      if (pn && stmts.isMod.get(String(pn))) return true;
     }
   } catch (_) {}
   return false;
 };
 
-// Bad Words per group
+// ── Bad Words ─────────────────────────────────────────────────────────────────
 const getBadWords = (groupId) => {
-  const groups = readDB(GROUPS_DB);
-  const settings = groups[groupId] || {};
-  return Array.isArray(settings.badwords) ? settings.badwords : [];
+  const s = getGroupSettings(groupId);
+  return Array.isArray(s.badwords) ? s.badwords : [];
 };
 
 const addBadWord = (groupId, word) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
-  if (!Array.isArray(groups[groupId].badwords)) groups[groupId].badwords = [];
+  const settings = getGroupSettings(groupId);
+  if (!Array.isArray(settings.badwords)) settings.badwords = [];
   const normalized = word.toLowerCase().trim();
-  if (!groups[groupId].badwords.includes(normalized)) {
-    groups[groupId].badwords.push(normalized);
-    writeDB(GROUPS_DB, groups);
-    return true;
-  }
-  return false;
+  if (settings.badwords.includes(normalized)) return false;
+  settings.badwords.push(normalized);
+  stmts.upsertGroup.run(groupId, serial(settings));
+  return true;
 };
 
 const removeBadWord = (groupId, word) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId] || !Array.isArray(groups[groupId].badwords)) return false;
+  const settings = getGroupSettings(groupId);
+  if (!Array.isArray(settings.badwords)) return false;
   const normalized = word.toLowerCase().trim();
-  const before = groups[groupId].badwords.length;
-  groups[groupId].badwords = groups[groupId].badwords.filter(w => w !== normalized);
-  if (groups[groupId].badwords.length < before) {
-    writeDB(GROUPS_DB, groups);
-    return true;
-  }
-  return false;
+  const before = settings.badwords.length;
+  settings.badwords = settings.badwords.filter(w => w !== normalized);
+  if (settings.badwords.length === before) return false;
+  stmts.upsertGroup.run(groupId, serial(settings));
+  return true;
 };
 
-// ── Muted Users Per Group ─────────────────────────────────────────────────────
+// ── Muted Users ───────────────────────────────────────────────────────────────
+const norm = (userId) => userId.split('@')[0] + '@s.whatsapp.net';
+
 const muteUser = (groupId, userId) => {
-  const data = readDB(MUTED_DB);
-  if (!data[groupId]) data[groupId] = [];
-  const norm = userId.split('@')[0] + '@s.whatsapp.net';
-  if (!data[groupId].includes(norm)) {
-    data[groupId].push(norm);
-    writeDB(MUTED_DB, data);
-  }
+  stmts.muteUser.run(groupId, norm(userId));
   return true;
 };
 
 const unmuteUser = (groupId, userId) => {
-  const data = readDB(MUTED_DB);
-  if (!data[groupId]) return false;
-  const norm = userId.split('@')[0] + '@s.whatsapp.net';
-  const before = data[groupId].length;
-  data[groupId] = data[groupId].filter(u => u !== norm);
-  if (data[groupId].length < before) {
-    writeDB(MUTED_DB, data);
-    return true;
-  }
-  return false;
+  const info = db.prepare('DELETE FROM muted_users WHERE group_id = ? AND user_id = ?').run(groupId, norm(userId));
+  return info.changes > 0;
 };
 
-const isUserMuted = (groupId, userId) => {
-  const data = readDB(MUTED_DB);
-  if (!data[groupId]) return false;
-  const norm = userId.split('@')[0] + '@s.whatsapp.net';
-  return data[groupId].includes(norm);
-};
+const isUserMuted = (groupId, userId) => !!stmts.isMuted.get(groupId, norm(userId));
 
-const getMutedUsers = (groupId) => {
-  const data = readDB(MUTED_DB);
-  return data[groupId] || [];
-};
+const getMutedUsers = (groupId) => stmts.getMuted.all(groupId).map(r => r.user_id);
 
-// ── Bot Settings (general key-value store for all bot-wide settings) ──────────
-
+// ── Bot Settings ──────────────────────────────────────────────────────────────
 const BOT_SETTINGS_DEFAULTS = {
-  prefix: '.',
-  botName: 'JuneX-Ultra',
-  timezone: 'Africa/Nairobi',
-  menuStyle: '1',
-  fontStyle: 'normal',
-  presenceMode: 'off',          // off | typing | recording | recordtype
-  autoReadMode: 'off',          // off | pm | group | on
-  autoReact: false,
-  autoReactMode: 'bot',
-  alwaysOnline: false,
-  autoStatusView: false,
-  autoStatusReact: false,
-  autoStatusEmoji: '💙',
+  prefix:             '.',
+  botName:            'JuneX-Ultra',
+  timezone:           'Africa/Nairobi',
+  menuStyle:          '1',
+  fontStyle:          'normal',
+  presenceMode:       'off',
+  autoReadMode:       'off',
+  autoReact:          false,
+  autoReactMode:      'bot',
+  alwaysOnline:       false,
+  autoStatusView:     false,
+  autoStatusReact:    false,
+  autoStatusEmoji:    '💙',
   autoStatusEmojiPool: [],
   autoStatusRandomEmoji: false,
-  readReceipts: 'off',
-  menuImageCustom: false,
-  selfMode: false,
-  autoSticker: false,
-  autoDownload: false,
-  autoBio: false,
+  readReceipts:       'off',
+  menuImageCustom:    false,
+  selfMode:           false,
+  autoSticker:        false,
+  autoDownload:       false,
+  autoBio:            false,
 };
 
 const getBotSetting = (key) => {
-  const data = readDB(BOT_SETTINGS_DB);
-  return key in data ? data[key] : BOT_SETTINGS_DEFAULTS[key];
+  const row = stmts.getSetting.get(key);
+  if (!row) return BOT_SETTINGS_DEFAULTS[key];
+  return parse(row.value, row.value);
 };
 
 const setBotSetting = (key, value) => {
-  const data = readDB(BOT_SETTINGS_DB);
-  data[key] = value;
-  return writeDB(BOT_SETTINGS_DB, data);
+  if (value === undefined || value === null) {
+    db.prepare('DELETE FROM bot_settings WHERE key = ?').run(key);
+  } else {
+    stmts.setSetting.run(key, serial(value));
+  }
+  return true;
 };
 
 const getAllBotSettings = () => {
-  const data = readDB(BOT_SETTINGS_DB);
-  return { ...BOT_SETTINGS_DEFAULTS, ...data };
+  const out = { ...BOT_SETTINGS_DEFAULTS };
+  for (const { key, value } of stmts.getAllSettings.all()) {
+    out[key] = parse(value, value);
+  }
+  return out;
 };
 
 const updateBotSettings = (updates) => {
-  const data = readDB(BOT_SETTINGS_DB);
-  Object.assign(data, updates);
-  return writeDB(BOT_SETTINGS_DB, data);
+  const txn = db.transaction((obj) => {
+    for (const [k, v] of Object.entries(obj)) stmts.setSetting.run(k, serial(v));
+  });
+  txn(updates);
+  return true;
 };
 
-// Bot Mode
+// ── Bot Mode ──────────────────────────────────────────────────────────────────
 const VALID_BOT_MODES = ['public', 'private', 'group', 'pm'];
 
 const getBotMode = () => {
-  const data = readDB(BOTMODE_DB);
-  return data.mode || 'public';
+  const row = stmts.getSetting.get('__botMode');
+  return row ? parse(row.value, 'public') : 'public';
 };
 
 const setBotMode = (mode) => {
   if (!VALID_BOT_MODES.includes(mode)) throw new Error(`Invalid mode: ${mode}`);
-  return writeDB(BOTMODE_DB, { mode });
+  stmts.setSetting.run('__botMode', serial(mode));
+  return true;
 };
 
-// ── AntiForward Settings ───────────────────────────────────────────────────
+// ── AntiForward Settings ──────────────────────────────────────────────────────
 const getAntiforwardSettings = (groupId) => {
-  const groups = readDB(GROUPS_DB);
-  const settings = groups[groupId] || {};
+  const s = getGroupSettings(groupId);
   return {
-    antiforward: settings.antiforward === true,  // default: true (on)
-    antiforwardAction: settings.antiforwardAction || 'delete',  // delete | warn | kick
-    antiforwardWarnings: settings.antiforwardWarnings || {},    // { userId: count }
-    antiforwardMaxWarnings: settings.antiforwardMaxWarnings || 3
+    antiforward:            s.antiforward === true,
+    antiforwardAction:      s.antiforwardAction      || 'delete',
+    antiforwardWarnings:    s.antiforwardWarnings     || {},
+    antiforwardMaxWarnings: s.antiforwardMaxWarnings  || 3,
   };
 };
 
 const updateAntiforwardSettings = (groupId, antiforwardEnabled, action = 'delete', maxWarnings = 3) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
-  groups[groupId].antiforward = antiforwardEnabled;
-  groups[groupId].antiforwardAction = action;
-  groups[groupId].antiforwardMaxWarnings = maxWarnings;
-  return writeDB(GROUPS_DB, groups);
+  updateGroupSettings(groupId, { antiforward: antiforwardEnabled, antiforwardAction: action, antiforwardMaxWarnings: maxWarnings });
+  return true;
 };
 
-// Add warning for forwarded message
 const addAntiforwardWarning = (groupId, userId) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId]) groups[groupId] = { ...config.defaultGroupSettings };
-  if (!groups[groupId].antiforwardWarnings) groups[groupId].antiforwardWarnings = {};
-
-  groups[groupId].antiforwardWarnings[userId] = (groups[groupId].antiforwardWarnings[userId] || 0) + 1;
-  writeDB(GROUPS_DB, groups);
-
-  return groups[groupId].antiforwardWarnings[userId];
+  const s = getGroupSettings(groupId);
+  if (!s.antiforwardWarnings) s.antiforwardWarnings = {};
+  s.antiforwardWarnings[userId] = (s.antiforwardWarnings[userId] || 0) + 1;
+  stmts.upsertGroup.run(groupId, serial(s));
+  return s.antiforwardWarnings[userId];
 };
 
-// Get warning count for user
 const getAntiforwardWarningCount = (groupId, userId) => {
-  const groups = readDB(GROUPS_DB);
-  const settings = groups[groupId] || {};
-  return (settings.antiforwardWarnings && settings.antiforwardWarnings[userId]) || 0;
+  const s = getGroupSettings(groupId);
+  return (s.antiforwardWarnings && s.antiforwardWarnings[userId]) || 0;
 };
 
-// Clear warning for user
 const clearAntiforwardWarning = (groupId, userId) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId] || !groups[groupId].antiforwardWarnings) return false;
-  delete groups[groupId].antiforwardWarnings[userId];
-  return writeDB(GROUPS_DB, groups);
+  const s = getGroupSettings(groupId);
+  if (!s.antiforwardWarnings) return false;
+  delete s.antiforwardWarnings[userId];
+  stmts.upsertGroup.run(groupId, serial(s));
+  return true;
 };
 
-// Clear all warnings for user in group
 const clearAllAntiforwardWarnings = (groupId, userId) => {
-  const groups = readDB(GROUPS_DB);
-  if (!groups[groupId] || !groups[groupId].antiforwardWarnings) return false;
-  groups[groupId].antiforwardWarnings[userId] = 0;
-  return writeDB(GROUPS_DB, groups);
+  const s = getGroupSettings(groupId);
+  if (!s.antiforwardWarnings) return false;
+  s.antiforwardWarnings[userId] = 0;
+  stmts.upsertGroup.run(groupId, serial(s));
+  return true;
 };
 
-// ── Session Persistence ────────────────────────────────────────────────────
+// ── Session ───────────────────────────────────────────────────────────────────
 const saveSession = (credsPath) => {
   try {
     if (!fs.existsSync(credsPath)) return false;
-    const data = fs.readFileSync(credsPath);
-    const db = readDB(SESSION_DB);
-    db.creds = data.toString('base64');
-    db.savedAt = Date.now();
-    return writeDB(SESSION_DB, db);
-  } catch (error) {
-    console.error('[SESSION-DB] saveSession error:', error.message);
+    const creds = fs.readFileSync(credsPath).toString('base64');
+    stmts.upsertSession.run(creds, Date.now());
+    return true;
+  } catch (e) {
+    console.error('[SESSION-DB] saveSession error:', e.message);
     return false;
   }
 };
 
 const getSession = () => {
   try {
-    const db = readDB(SESSION_DB);
-    return db.creds || null;
-  } catch (error) {
-    console.error('[SESSION-DB] getSession error:', error.message);
+    const row = stmts.getSession.get();
+    return row ? row.creds : null;
+  } catch (e) {
+    console.error('[SESSION-DB] getSession error:', e.message);
     return null;
   }
 };
 
 const clearSession = () => {
-  return writeDB(SESSION_DB, {});
+  stmts.clearSession.run();
+  return true;
 };
 
-// ── Status Settings helpers (loadSettings / saveSettings / cleanEmoji / pickEmoji) ──
-
+// ── Status Settings helpers ───────────────────────────────────────────────────
 function loadSettings() {
   return {
     enabled:     getBotSetting('autoStatusView')        || false,
@@ -457,8 +426,8 @@ function saveSettings(settings) {
   updateBotSettings({
     autoStatusView:        !!settings.enabled,
     autoStatusReact:       !!settings.react,
-    autoStatusEmoji:       settings.emoji       || '',
-    autoStatusEmojiPool:   settings.emojiPool   || [],
+    autoStatusEmoji:       settings.emoji      || '',
+    autoStatusEmojiPool:   settings.emojiPool  || [],
     autoStatusRandomEmoji: !!settings.randomEmoji,
   });
 }
@@ -474,36 +443,63 @@ function pickEmoji(settings) {
   return settings.emoji;
 }
 
-// ── Chatbot Memory (per-user learned profile, one JSON file per user) ─────
+// ── KV Store (used by antibot, antidelete, antiedit, antideletestatus, etc.) ──
+const getKV = (namespace, key, fallback = null) => {
+  const row = stmts.getKV.get(namespace, key);
+  if (!row) return fallback;
+  return parse(row.value, fallback);
+};
+
+const setKV = (namespace, key, value) => {
+  stmts.setKV.run(namespace, key, serial(value));
+  return true;
+};
+
+const delKV = (namespace, key) => {
+  stmts.delKV.run(namespace, key);
+  return true;
+};
+
+const getAllKV = (namespace) => {
+  const rows = stmts.allKV.all(namespace);
+  const out = {};
+  for (const { key, value } of rows) out[key] = parse(value);
+  return out;
+};
+
+// ── Chatbot Memory ────────────────────────────────────────────────────────────
+const CHAT_MEMORY_MAX  = 25;
 const CHAT_MEMORY_FACTS = [
-  [/my name is ([A-Za-z][\w-]*)/i, 'name'],
-  [/(?:i'm|i am) ([A-Za-z][\w-]*)(?:\s|$|,)/i, 'name'],
-  [/call me ([A-Za-z][\w-]*)/i, 'name'],
-  [/(?:i'm|i am) (\d{1,3})(?: years? old)?/i, 'age'],
-  [/i work (?:as |at )([\w\s-]{3,40})/i, 'job'],
-  [/i(?:'m| am) from ([A-Za-z\s]{3,30})/i, 'location'],
-  [/i live in ([A-Za-z\s]{3,30})/i, 'location'],
+  [/my name is ([A-Za-z][\w-]*)/i,                    'name'],
+  [/(?:i'm|i am) ([A-Za-z][\w-]*)(?:\s|$|,)/i,       'name'],
+  [/call me ([A-Za-z][\w-]*)/i,                       'name'],
+  [/(?:i'm|i am) (\d{1,3})(?: years? old)?/i,         'age'],
+  [/i work (?:as |at )([\w\s-]{3,40})/i,              'job'],
+  [/i(?:'m| am) from ([A-Za-z\s]{3,30})/i,            'location'],
+  [/i live in ([A-Za-z\s]{3,30})/i,                   'location'],
   [/i (?:love|really like|like|enjoy) ([\w\s-]{3,40})/i, 'interest'],
-  [/i (?:hate|dislike|can't stand) ([\w\s-]{3,40})/i, 'dislike']
+  [/i (?:hate|dislike|can't stand) ([\w\s-]{3,40})/i,    'dislike'],
 ];
 const CHAT_MEMORY_SKIP = new Set(['a', 'an', 'the', 'not', 'so', 'here', 'just', 'good', 'bad', 'fine', 'going', 'trying', 'using', 'happy', 'sad', 'tired', 'busy']);
 
-function chatMemoryProfilePath(botId, userId) {
-  const dir = path.join(CHAT_MEMORY_BASE, String(botId || 'default').replace(/[^\w-]/g, '_'));
-  fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, `${String(userId).replace(/[^\w]/g, '_')}.json`);
-}
+const stmtGetProfile  = db.prepare('SELECT profile FROM chat_profiles WHERE bot_id = ? AND user_id = ?');
+const stmtSaveProfile = db.prepare('INSERT INTO chat_profiles (bot_id, user_id, profile) VALUES (?, ?, ?) ON CONFLICT(bot_id, user_id) DO UPDATE SET profile = excluded.profile');
 
 function loadProfile(botId, userId) {
-  try { return JSON.parse(fs.readFileSync(chatMemoryProfilePath(botId, userId), 'utf8')); } catch (_) {}
+  const bId = String(botId || 'default').replace(/[^\w-]/g, '_');
+  const uId = String(userId).replace(/[^\w]/g, '_');
+  const row  = stmtGetProfile.get(bId, uId);
+  if (row) return parse(row.profile);
   const now = new Date().toISOString();
   return { userId, name: null, age: null, location: null, job: null, interests: [], dislikes: [], memories: [], messageCount: 0, firstSeen: now, lastSeen: now };
 }
 
 function saveProfile(botId, userId, profile) {
-  profile.lastSeen = new Date().toISOString();
+  const bId = String(botId || 'default').replace(/[^\w-]/g, '_');
+  const uId = String(userId).replace(/[^\w]/g, '_');
+  profile.lastSeen     = new Date().toISOString();
   profile.messageCount = (profile.messageCount || 0) + 1;
-  try { fs.writeFileSync(chatMemoryProfilePath(botId, userId), JSON.stringify(profile, null, 2)); } catch (_) {}
+  stmtSaveProfile.run(bId, uId, serial(profile));
 }
 
 function learnFromMessage(text, profile) {
@@ -516,7 +512,7 @@ function learnFromMessage(text, profile) {
     const value = raw.charAt(0).toUpperCase() + raw.slice(1);
     if (['name', 'age', 'location', 'job'].includes(tag) && !result[tag]) result[tag] = tag === 'age' ? `${value} years old` : value;
     if (tag === 'interest' && !result.interests.includes(value)) result.interests = [...result.interests, value].slice(-10);
-    if (tag === 'dislike' && !result.dislikes.includes(value)) result.dislikes = [...result.dislikes, value].slice(-10);
+    if (tag === 'dislike'  && !result.dislikes.includes(value))  result.dislikes  = [...result.dislikes, value].slice(-10);
     const memory = `User's ${tag}: ${value}`;
     if (!result.memories.some(item => item.toLowerCase() === memory.toLowerCase())) result.memories.unshift(memory);
   }
@@ -529,8 +525,8 @@ function buildProfileContext(profile) {
   const lines = [];
   for (const field of ['name', 'age', 'location', 'job']) if (profile[field]) lines.push(`- ${field}: ${profile[field]}`);
   if (profile.interests?.length) lines.push(`- interests: ${profile.interests.slice(0, 5).join(', ')}`);
-  if (profile.dislikes?.length) lines.push(`- dislikes: ${profile.dislikes.slice(0, 5).join(', ')}`);
-  if (profile.messageCount > 1) lines.push('- This is a returning user.');
+  if (profile.dislikes?.length)  lines.push(`- dislikes: ${profile.dislikes.slice(0, 5).join(', ')}`);
+  if (profile.messageCount > 1)  lines.push('- This is a returning user.');
   return lines.length ? `\nWhat you know about the user:\n${lines.join('\n')}\n` : '';
 }
 
@@ -538,50 +534,72 @@ function getPersonalizedGreeting(profile) {
   return profile?.name ? `Hey ${profile.name}!` : null;
 }
 
+// ── Graceful shutdown ─────────────────────────────────────────────────────────
+process.on('exit', () => { try { db.close(); } catch (_) {} });
+
 module.exports = {
+  // Group
   getGroupSettings,
   updateGroupSettings,
+  // User
   getUser,
   updateUser,
+  // Warnings
   getWarnings,
   addWarning,
   removeWarning,
   clearWarnings,
+  // Mods
   getModerators,
   addModerator,
   removeModerator,
   isModerator,
+  // Bad words
   getBadWords,
   addBadWord,
   removeBadWord,
+  // Muted
   muteUser,
   unmuteUser,
   isUserMuted,
   getMutedUsers,
-  getBotMode,
-  setBotMode,
-  VALID_BOT_MODES,
+  // Bot settings
   getBotSetting,
   setBotSetting,
   getAllBotSettings,
   updateBotSettings,
   BOT_SETTINGS_DEFAULTS,
+  // Bot mode
+  getBotMode,
+  setBotMode,
+  VALID_BOT_MODES,
+  // Antiforward
   getAntiforwardSettings,
   updateAntiforwardSettings,
   addAntiforwardWarning,
   getAntiforwardWarningCount,
   clearAntiforwardWarning,
   clearAllAntiforwardWarnings,
+  // Session
   saveSession,
   getSession,
   clearSession,
+  // Status settings
   loadSettings,
   saveSettings,
   cleanEmoji,
   pickEmoji,
+  // KV store
+  getKV,
+  setKV,
+  delKV,
+  getAllKV,
+  // Chat profiles
   loadProfile,
   saveProfile,
   learnFromMessage,
   buildProfileContext,
   getPersonalizedGreeting,
+  // Raw db (for groupstats etc.)
+  _db: db,
 };
