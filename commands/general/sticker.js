@@ -177,7 +177,7 @@ module.exports = {
       // Create metadata
       const json = {
         'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-        'sticker-pack-name': packArg || config.packname || 'Made by',
+        'sticker-pack-name': packArg || config.packname || 'supreme',
         'sticker-pack-publisher': authorArg || config.author || '',
         'emojis': ['🖼️']
       };
