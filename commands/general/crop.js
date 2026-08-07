@@ -172,7 +172,7 @@ module.exports = {
       // Create metadata
       const json = {
         'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-        'sticker-pack-name': config.packname || 'Made by',
+        'sticker-pack-name': config.packname || 'June-X',
         'emojis': ['✂️']
       };
 
