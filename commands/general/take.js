@@ -1,7 +1,7 @@
 /**
  * Take Command
- * Retake/repack an image, short video, or sticker as a JuneX sticker
- * with a custom or user-supplied packname.
+ * Retake/repack an image, short video, or sticker as a JuneX sticker.
+ * Sticker pack name is always the sender's WhatsApp display name (pushName).
  */
 
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
@@ -16,9 +16,7 @@ const config = require('../../config');
 let ffmpegPath;
 try { ffmpegPath = require('ffmpeg-static'); } catch { ffmpegPath = 'ffmpeg'; }
 
-const BOT_NAME = config.botName || config.name || 'JuneX';
-const STICKER_AUTHOR = config.stickerAuthor || config.author || BOT_NAME;
-const STICKER_PACK = config.stickerPack || BOT_NAME;
+const STICKER_AUTHOR = config.stickerAuthor || config.author || config.botName || 'JuneX';
 
 async function injectExif(webpBuffer, packname, author) {
   const img = new webp.Image();
@@ -70,7 +68,7 @@ module.exports = [
     name: 'take',
     aliases: ['steal'],
     description: 'Retake/repack an image, short video, or sticker as a JuneX sticker.',
-    usage: '.take [packname] (reply to image/video/sticker)',
+    usage: '.take (reply to image/video/sticker)',
     category: 'general',
 
     async execute(sock, msg, args, extra) {
@@ -101,8 +99,7 @@ module.exports = [
         message: quoted,
       };
 
-      const userName = msg.pushName || extra.sender.split('@')[0];
-      const packname = args.length ? args.join(' ') : (STICKER_PACK || userName);
+      const packname = msg.pushName || extra.sender.split('@')[0];
       const author = STICKER_AUTHOR;
 
       let inputPath;
