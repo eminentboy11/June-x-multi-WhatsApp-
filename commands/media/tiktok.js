@@ -1,43 +1,11 @@
 // commands/tiktok.js
 
 const axios = require('axios');
-const { sendButtons } = require('gifted-btns');
 const config = require('../../config');
 
 const processedMessages = new Set();
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function extractButtonResponseId(msg) {
-    return (
-        msg.message?.buttonsResponseMessage?.selectedButtonId ||
-        msg.message?.templateButtonReplyMessage?.selectedId ||
-        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
-        null
-    );
-}
-
-function getResponseSender(msg) {
-    return msg.key?.participant || msg.key?.remoteJid;
-}
-
-function getTikTokButtons(videoId, dateNow, tiktokUrl) {
-    const prefix = config.prefix || '.';
-    return [
-        { id: `${prefix}ttvideo_${videoId}_${dateNow}`, text: '🎬 Video (No Watermark)' },
-        {
-            name: 'cta_url',
-            buttonParamsJson: JSON.stringify({
-                display_text: '🔗 Open on TikTok',
-                url: tiktokUrl,
-            }),
-        },
-    ];
-}
-
 const tiktokPattern = /https?:\/\/(?:(?:www|vm|vt|m)\.)?tiktok\.com\/\S+/i;
-
-// ── Module ────────────────────────────────────────────────────────────────────
 
 module.exports = {
     name: 'tiktok2',
@@ -80,77 +48,31 @@ module.exports = {
 
             if (code !== 0 || !data) {
                 console.error('[tiktok] API error:', apiMsg);
+                await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
                 return await sock.sendMessage(from, {
                     text: `❌ Failed to fetch video: ${apiMsg || 'Unknown error'}. Try again later.`
                 }, { quoted: msg });
             }
 
-            const dateNow        = Date.now();
-            const videoId        = data.id || dateNow.toString();
-            const originalSender = msg.key?.participant || msg.key?.remoteJid;
+            const videoUrl = data.hdplay || data.play || data.wmplay;
+            if (!videoUrl) {
+                await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
+                return await sock.sendMessage(from, {
+                    text: '❌ No download URL found for this video.'
+                }, { quoted: msg });
+            }
 
-            await sendButtons(sock, from, {
-                title: '📥 TIKTOK DOWNLOADER',
-                text:
-                    `⿻ *Author:* @${data.author?.unique_id || 'unknown'}\n` +
-                    `⿻ *Caption:* ${(data.title || 'N/A').substring(0, 80)}\n` +
-                    `⿻ *Duration:* ${data.duration ?? 'N/A'}s\n` +
-                    `⿻ *Likes:* ${(data.digg_count ?? 0).toLocaleString()}\n` +
-                    `⿻ *Comments:* ${(data.comment_count ?? 0).toLocaleString()}\n` +
-                    `⿻ *Shares:* ${(data.share_count ?? 0).toLocaleString()}\n\n` +
-                    `*Select download format:*`,
-                footer: `Made by ${config.botName}`,
-                buttons: getTikTokButtons(videoId, dateNow, url),
+            await sock.sendMessage(from, {
+                video: { url: videoUrl },
+                mimetype: 'video/mp4',
+                caption: config.botName,
             }, { quoted: msg });
 
             await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
 
-            // cta_url button opens TikTok natively — no listener needed for it.
-            // Listener only handles the Video download button.
-            const handleResponse = async (event) => {
-                const messageData = event.messages[0];
-                if (!messageData?.message) return;
-
-                const selectedButtonId = extractButtonResponseId(messageData);
-                if (!selectedButtonId) return;
-
-                if (!selectedButtonId.includes(`_${dateNow}`)) return;
-                if (messageData.key?.remoteJid !== from) return;
-
-                const responseSender = getResponseSender(messageData);
-                if (from.endsWith('@g.us') && responseSender !== originalSender) return;
-
-                sock.ev.off('messages.upsert', handleResponse);
-
-                await sock.sendMessage(from, { react: { text: '⬇️', key: msg.key } });
-
-                try {
-                    const videoUrl = data.hdplay || data.play || data.wmplay;
-                    if (!videoUrl) throw new Error('No download URL found in API response.');
-
-                    await sock.sendMessage(from, {
-                        video: { url: videoUrl },
-                        mimetype: 'video/mp4',
-                    }, { quoted: messageData });
-
-                    await sock.sendMessage(from, { react: { text: '✅', key: msg.key } });
-
-                } catch (err) {
-                    console.error('[tiktok] download error:', err.message);
-                    await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
-                    await sock.sendMessage(from, {
-                        text: `🚫 Error: ${err.message}\n\n_Try again later._`
-                    }, { quoted: messageData });
-                }
-            };
-
-            sock.ev.on('messages.upsert', handleResponse);
-
-            // Auto cleanup after 5 minutes
-            setTimeout(() => sock.ev.off('messages.upsert', handleResponse), 5 * 60 * 1000);
-
         } catch (error) {
             console.error('[tiktok] command error:', error.message || error);
+            await sock.sendMessage(from, { react: { text: '❌', key: msg.key } });
             await sock.sendMessage(from, {
                 text: '❌ An unexpected error occurred. Please try again.'
             }, { quoted: msg });
