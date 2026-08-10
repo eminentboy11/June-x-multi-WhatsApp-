@@ -34,7 +34,7 @@ module.exports = {
             const { title, url: videoUrl } = video;
 
             // ── Step 2: fetch download URL from API ──────────────────────
-            const apiUrl = `https://apiskeith2-production-ec66.up.railway.app/download/video?url=${encodeURIComponent(videoUrl)}&quality=best`;
+            const apiUrl = `https://apiskeith2-production-3020.up.railway.app/download/video?url=${encodeURIComponent(videoUrl)}&quality=best`;
 
             const { data: apiRes } = await axios.get(apiUrl, { timeout: 30_000 });
 
