@@ -1058,10 +1058,11 @@ async function sendWelcomeMessage(sock) {
 ┃✧ Prefix: [ ${prefix} ]
 ┃✧ Owner: ${ownerName}
 ┃✧ Platform: ${platform}
-┃✧ Status: 🟢 Online 
+┃✧ Status: online 
 ┃✧ Time: ${new Date().toLocaleString()}
 ┃✧ T.Group: t.me/juneOff
 ┃✧ Telegram: t.me/supremlord
+┃✧ Repo: https://github.com/Vinpink2
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━`
         )
 
