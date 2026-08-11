@@ -9,6 +9,25 @@ const os = require('os');
 
 const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
+// Create fake contact for enhanced replies
+function createFakeContact(msg) {
+    const jid = msg.key.participant?.split('@')[0] || msg.key.remoteJid?.split('@')[0] || '0';
+    return {
+        key: {
+            participants: "0@s.whatsapp.net",
+            remoteJid: "",
+            fromMe: false,
+            id: "JUNE-X-MENU"
+        },
+        message: {
+            contactMessage: {
+                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN:JUNE X\nitem1.TEL;waid=${jid}:${jid}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`
+            }
+        },
+        participant: "0@s.whatsapp.net"
+    };
+}
+
 const detectPlatform = () => {
   if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID) return "🚉 Railway";
   if (process.env.DYNO) return "☁️ Heroku";
@@ -30,11 +49,11 @@ function getMenuStyle() {
   try {
     const runtimeSettings = require('../../utils/settings');
     const fromStore = runtimeSettings.get('menuStyle');
-    if (fromStore) return fromStore;
-    if (!fs.existsSync(MENU_SETTINGS_FILE)) return '2';
-    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || '2';
+    if (fromStore && fromStore !== '1') return fromStore;
+    if (!fs.existsSync(MENU_SETTINGS_FILE)) return fromStore || '1';
+    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || fromStore || '1';
   } catch {
-    return '2';
+    return '1';
   }
 }
 
@@ -82,7 +101,7 @@ const CATEGORY_LABELS = {
   textmaker: 'TEXTMAKER-CMD',
 };
 
-function buildMenuText(categories, extra, totalCount, speed, narrow = false) {
+function buildMenuText(categories, extra, totalCount, speed) {
   const prefix = config.prefix;
   const bot = config.botName || 'JuneX Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
@@ -96,29 +115,18 @@ function buildMenuText(categories, extra, totalCount, speed, narrow = false) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu = '';
-
-  if (narrow) {
-    menu += `*${bot}*\n`;
-    menu += `ᴘʀᴇꜰɪx: ${prefix} | ᴏᴡɴᴇʀ: ${ownerName}\n`;
-    menu += `ᴍᴏᴅᴇ: ${currentMode} | ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
-    menu += `ꜱᴘᴇᴇᴅ: ${ping}ms | ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
-    menu += `Vᴇʀꜱɪᴏɴ: v${config.version} | Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
-    menu += `${readmore}\n`;
-  } else {
-    menu += `┏━━❐✧ ${bot} ✧❐\n`;
-    menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
-    menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
-    menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
-    menu += `┃ *ᴘʟᴀᴛꜰᴏʀᴍ:* ${hostName}\n`;
-    menu += `┃ *ꜱᴘᴇᴇᴅ:* ${ping} ms\n`;
-    menu += `┃ *ᴜᴘᴛɪᴍᴇ:* ${uptimeFormatted}\n`;
-    menu += `┃ *Vᴇʀꜱɪᴏɴ:* v${config.version}\n`;
-    menu += `┃ *ᴜꜱᴀɢᴇ:* ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-    menu += `┃ *ʀᴀᴍ:* ${progressBar(systemUsedMemory, totalMemory)}\n`;
-    menu += `┃ *Cᴏᴍᴍᴀɴᴅꜱ:* ${totalCount}\n`;
-    menu += `┗❐\n${readmore}\n`;
-  }
+  let menu =  `┏━━❐✧ ${bot} ✧❐\n`;
+  menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
+  menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
+  menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
+  menu += `┃ *ᴘʟᴀᴛꜰᴏʀᴍ:* ${hostName}\n`;
+  menu += `┃ *ꜱᴘᴇᴇᴅ:* ${ping} ms\n`;
+  menu += `┃ *ᴜᴘᴛɪᴍᴇ:* ${uptimeFormatted}\n`;
+  menu += `┃ *Vᴇʀꜱɪᴏɴ:* v${config.version}\n`;
+  menu += `┃ *ᴜꜱᴀɢᴇ:* ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃ *ʀᴀᴍ:* ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃ *Cᴏᴍᴍᴀɴᴅꜱ:* ${totalCount}\n`;
+  menu += `┗❐\n${readmore}\n`;
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
   const ordered = [
@@ -131,25 +139,16 @@ function buildMenuText(categories, extra, totalCount, speed, narrow = false) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
-
-    if (narrow) {
-      menu += `*${label}*\n`;
-      for (const cmd of cmds) {
-        menu += `${cmd.name}\n`;
-      }
-      menu += `\n`;
+    menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
+    for (const cmd of cmds) {
+      menu += `┃➧ ${cmd.name}\n`;
+    }
+    menu += `┗❐\n`;
+    sectionIndex++;
+    if (sectionIndex % 3 === 0) {
+      menu += `${readmore}\n`;
     } else {
-      menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
-      for (const cmd of cmds) {
-        menu += `┃➧ ${cmd.name}\n`;
-      }
-      menu += `┗❐\n`;
-      sectionIndex++;
-      if (sectionIndex % 3 === 0) {
-        menu += `${readmore}\n`;
-      } else {
-        menu += `\n`;
-      }
+      menu += `\n`;
     }
   }
 
@@ -197,11 +196,12 @@ module.exports = {
       });
 
       const menustyle = getMenuStyle();
+      const fakeQuoted = createFakeContact(msg);
 
       // ── Loading message ─────────────────────────────────────────────────
       const loadingMsg = await sock.sendMessage(extra.from, {
         text: applyFont('⏳ Loading....')
-      }, { quoted: msg });
+      }, { quoted: fakeQuoted });
 
       const markDone = () => sock.sendMessage(extra.from, {
         text: applyFont(`_${config.botName} Loaded.._`),
@@ -214,14 +214,12 @@ module.exports = {
       const speedMs = Date.now() - msgTimestamp;
 
       const menulist = buildMenuText(categories, extra, uniqueCount, speedMs);
-      const narrowMenulist = buildMenuText(categories, extra, uniqueCount, speedMs, true);
       const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
       const fullMenu = applyFont(menulist + `\n> ${config.botName}`);
-      const narrowMenu = applyFont(narrowMenulist + `\n> ${config.botName}`);
       const supreme = `Powered by ${ownername}`;
 
       if (menustyle === '1') {
@@ -243,16 +241,16 @@ module.exports = {
               renderLargerThumbnail: true,
             },
           },
-        }, { quoted: msg });
+        }, { quoted: fakeQuoted });
         await markDone();
 
       } else if (menustyle === '2') {
-        // ── Narrow: same data/order, no box-drawing border ──────────────
+        // ── Text only, no buttons ──────────────────────────────────────
         await sock.sendMessage(chatId, {
-          text: narrowMenu,
+          text: fullMenu,
           footer: supreme,
           mentions: [extra.sender],
-        }, { quoted: msg });
+        }, { quoted: fakeQuoted });
         await markDone();
 
       } else if (menustyle === '3') {
@@ -289,7 +287,7 @@ module.exports = {
               text: '📍 𝙿𝙸𝙽𝙶',
             },
           ],
-        }, { quoted: msg });
+        }, { quoted: fakeQuoted });
         await markDone();
 
       } else if (menustyle === '4') {
@@ -297,7 +295,7 @@ module.exports = {
           image: tylorkids || { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
           caption: fullMenu,
           mentions: [extra.sender],
-        }, { quoted: msg });
+        }, { quoted: fakeQuoted });
         await markDone();
 
       } else if (menustyle === '5') {
@@ -312,11 +310,11 @@ module.exports = {
                 },
               },
             },
-          }, { quoted: msg, userJid: sock.user?.id });
+          }, { quoted: fakeQuoted, userJid: sock.user?.id });
           await sock.relayMessage(chatId, massage.message, { messageId: massage.key.id });
           await markDone();
         } catch {
-          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: fakeQuoted });
           await markDone();
         }
 
@@ -337,20 +335,20 @@ module.exports = {
                 },
               },
             },
-          }, { quoted: msg, userJid: sock.user?.id });
+          }, { quoted: fakeQuoted, userJid: sock.user?.id });
 
           await sock.relayMessage(chatId, message.message, { messageId: message.key.id });
           await markDone();
         } catch {
-          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
+          await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: fakeQuoted });
           await markDone();
         }
 
       } else {
         await sock.sendMessage(chatId, {
-          text: narrowMenu,
+          text: fullMenu,
           mentions: [extra.sender],
-        }, { quoted: msg });
+        }, { quoted: fakeQuoted });
         await markDone();
       }
 
