@@ -93,18 +93,16 @@ module.exports = {
             const finalTitle = audioData.title || title;
             const safeTitle = finalTitle.replace(/[^\w\s\-()]/g, '').trim() || 'audio';
 
-            // --- Send as DOCUMENT ---
+            // --- Send "Downloading" status first ---
+            await sock.sendMessage(chatId, {
+                text: `_Downloading *${finalTitle}*..._`
+            }, { quoted: msg });
+
+            // --- Send as DOCUMENT only ---
             await sock.sendMessage(chatId, {
                 document: { url: audioData.download },
                 mimetype: 'audio/mpeg',
                 fileName: `${safeTitle}.mp3`
-            }, { quoted: msg });
-
-            // --- Send as playable AUDIO ---
-            await sock.sendMessage(chatId, {
-                audio: { url: audioData.download },
-                mimetype: 'audio/mpeg',
-                ptt: false
             }, { quoted: msg });
 
         } catch (error) {
