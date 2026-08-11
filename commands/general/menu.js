@@ -15,8 +15,8 @@ function createFakeContact(msg) {
     return {
         key: {
             participants: "0@s.whatsapp.net",
-            remoteJid: `${jid}`,
-            fromMe: true,
+            remoteJid: "0@s.whatsapp.net",
+            fromMe: false,
             id: "JUNE-X"
         },
         message: {
@@ -116,16 +116,16 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
   let menu =  `┏◈ ${bot} ◈\n`;
-  menu += `┃ᴘʀᴇꜰɪx: [ ${prefix} ]\n`;
-  menu += `┃ᴏᴡɴᴇʀ: ${ownerName}\n`;
-  menu += `┃ᴍᴏᴅᴇ: ${currentMode}\n`;
-  menu += `┃ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
-  menu += `┃ꜱᴘᴇᴇᴅ: ${ping} ms\n`;
-  menu += `┃ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
-  menu += `┃Vᴇʀꜱɪᴏɴ: v${config.version}\n`;
-  menu += `┃ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  menu += `┃ʀᴀᴍ: ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  menu += `┃Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
+  menu += `┃ ᴘʀᴇꜰɪx: [ ${prefix} ]\n`;
+  menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
+  menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
+  menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
+  menu += `┃ ꜱᴘᴇᴇᴅ: ${ping} ms\n`;
+  menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
+  menu += `┃ Vᴇʀꜱɪᴏɴ: v${config.version}\n`;
+  menu += `┃ ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃ ʀᴀᴍ: ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃ Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
   menu += `┗◈\n${readmore}\n`;
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
