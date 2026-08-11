@@ -94,8 +94,8 @@ module.exports = {
 
             // --- Send "Downloading" status first ---
             await sock.sendMessage(chatId, {
-                text: `_Downloading *${finalTitle}*..._`
-            }, { quoted: msg });
+                text: `_${finalTitle}_`
+            });
 
             // --- Send as playable AUDIO only ---
             await sock.sendMessage(chatId, {
