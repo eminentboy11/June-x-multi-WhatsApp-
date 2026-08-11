@@ -206,8 +206,8 @@ module.exports = {
         await sock.sendMessage(chatId, {
           document: { url: "https://i.ibb.co/2W0H9Jq/avatar-contact.png" },
           caption: fullMenu,
-          mimetype: "application/pdf",
-          fileName: `${botname}.pdf`,
+          mimetype: "application/zip",
+          fileName: `${botname}.zip`,
           fileLength: "9999999",
           contextInfo: {
             mentionedJid: [extra.sender],
@@ -225,22 +225,11 @@ module.exports = {
         await markDone();
 
       } else if (menustyle === '2') {
-        // ── Text + cta_url (Open Repo) button ──────────────────────────
-        const repoUrl = config.social?.github || 'https://github.com';
-
-        await sendButtons(sock, chatId, {
+        // ── Text only, no buttons ──────────────────────────────────────
+        await sock.sendMessage(chatId, {
           text: fullMenu,
           footer: supreme,
           mentions: [extra.sender],
-          buttons: [
-            {
-              name: 'cta_url',
-              buttonParamsJson: JSON.stringify({
-                display_text: '🔗 𝙾𝙿𝙴𝙽 𝚁𝙴𝙿𝙾',
-                url: repoUrl,
-              }),
-            },
-          ],
         }, { quoted: msg });
         await markDone();
 
@@ -311,7 +300,7 @@ module.exports = {
 
       } else if (menustyle === '6') {
         try {
-          await sock.relayMessage(chatId, {
+          const message = generateWAMessageFromContent(chatId, {
             requestPaymentMessage: {
               currencyCodeIso4217: 'USD',
               requestFrom: '0@s.whatsapp.net',
@@ -320,13 +309,15 @@ module.exports = {
                 extendedTextMessage: {
                   text: fullMenu,
                   contextInfo: {
-                    mentionedJid: [msg.key.participant || msg.key.remoteJid],
+                    mentionedJid: [extra.sender],
                     externalAdReply: { showAdAttribution: false },
                   },
                 },
               },
             },
-          }, {});
+          }, { quoted: msg, userJid: sock.user?.id });
+
+          await sock.relayMessage(chatId, message.message, { messageId: message.key.id });
           await markDone();
         } catch {
           await sock.sendMessage(chatId, { text: fullMenu, mentions: [extra.sender] }, { quoted: msg });
