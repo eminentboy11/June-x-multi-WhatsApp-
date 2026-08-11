@@ -22,8 +22,6 @@ const BOT_ADMIN_TTL = 120000; // 2 minutes
 // Settings caches — avoids disk reads on every message
 let _arSettingsCache   = null;
 let _arSettingsExpiry  = 0;
-let _autoReadCache     = null;
-let _autoReadExpiry    = 0;
 const SETTINGS_CACHE_TTL = 8000; // 8 seconds
 
 function getCachedArSettings() {
@@ -35,20 +33,9 @@ function getCachedArSettings() {
   return _arSettingsCache;
 }
 
-function getCachedAutoRead() {
-  if (_autoReadCache && Date.now() < _autoReadExpiry) return _autoReadCache;
-  try {
-    const db = require('./database');
-    _autoReadCache = { mode: db.getBotSetting('autoReadMode') || 'off' };
-  } catch { _autoReadCache = { mode: 'off' }; }
-  _autoReadExpiry = Date.now() + SETTINGS_CACHE_TTL;
-  return _autoReadCache;
-}
-
 // Invalidate settings caches when commands change them (called by set commands)
 global.invalidateSettingsCache = () => {
   _arSettingsCache  = null;
-  _autoReadCache    = null;
   botAdminCache.clear();
 };
 
@@ -678,22 +665,6 @@ const handleMessage = async (sock, msg) => {
           sock.sendPresenceUpdate('composing', from).catch(() => {});
         }
       } catch (_pErr) {}
-    }
-    // ─────────────────────────────────────────────────────────────────────────
-
-    // ── Auto Read (blue-tick) on ANY incoming message ─────────────────────────
-    if (!msg.key.fromMe) {
-      try {
-        const arData = getCachedAutoRead();
-        const arMode = arData.mode || 'off';
-        if (
-          arMode === 'on' ||
-          (arMode === 'pm'    && !isGroup) ||
-          (arMode === 'group' &&  isGroup)
-        ) {
-          await sock.readMessages([msg.key]);
-        }
-      } catch (_arErr) {}
     }
     // ─────────────────────────────────────────────────────────────────────────
 

@@ -2,36 +2,98 @@
  * A WhatsApp Bot
  * Built on Baileys | Inspired by JUNE-X structure
  */
+// ─── Suppress pg SSL compatibility warning ──────────────────────────
+process.on('warning', (warning) => {
+    const message = String(warning?.message || '');
 
+    if (
+        warning?.code === 'SECURITY WARNING' ||
+        message.includes('The SSL modes') &&
+        message.includes('pg-connection-string')
+    ) {
+        return;
+    }
+
+    // Keep all other warnings visible
+    console.warn(warning);
+});
 // --- Environment Setup ---
 require('dotenv').config();
 
 /*************************************
  * Raw Output Suppression
+ *
+ * Baileys/libsignal may print recoverable old-session decrypt noise directly
+ * to stdout/stderr, bypassing the configured Pino logger. Filter only the
+ * known Bad MAC / SessionEntry chatter at stream level; ordinary errors remain.
  *************************************/
 const originalWrite = process.stdout.write;
+const originalWriteError = process.stderr.write;
+const originalLog = console.log;
+let suppressSignalStackUntil = 0;
+
+const SIGNAL_NOISE_PATTERNS = [
+    'closing session: sessionentry',
+    'sessionentry {',
+    'failed to decrypt message with any known session',
+    'session error: error: bad mac',
+    'bad mac error: bad mac',
+    'decrypted message with closed session',
+    'incoming prekey bundle',
+];
+
+function outputText(chunk) {
+    if (typeof chunk === 'string') return chunk;
+    if (Buffer.isBuffer(chunk)) return chunk.toString('utf8');
+    try { return String(chunk); } catch (_) { return ''; }
+}
+
+function shouldSuppressSignalNoise(chunk) {
+    const message = outputText(chunk);
+    const lower = message.toLowerCase();
+    const isKnownNoise = SIGNAL_NOISE_PATTERNS.some((pattern) => lower.includes(pattern));
+
+    if (isKnownNoise) {
+        // libsignal often prints the error header and stack trace as separate
+        // writes. Suppress only its immediately following frames as well.
+        suppressSignalStackUntil = Date.now() + 2500;
+        return true;
+    }
+
+    const isLibsignalFrame =
+        lower.includes('/libsignal/') ||
+        lower.includes('session_cipher.js') ||
+        lower.includes('queue_job.js') ||
+        /^\s*at\s/.test(message) ||
+        lower.trim() === '...';
+
+    return Date.now() < suppressSignalStackUntil && isLibsignalFrame;
+}
+
+function acknowledgeSuppressedWrite(encoding, callback) {
+    const done = typeof encoding === 'function' ? encoding : callback;
+    if (typeof done === 'function') {
+        try { done(); } catch (_) {}
+    }
+    return true;
+}
+
 process.stdout.write = function (chunk, encoding, callback) {
-    const message = chunk.toString();
-    if (message.includes('Closing session: SessionEntry') || message.includes('SessionEntry {')) {
-        return;
+    if (shouldSuppressSignalNoise(chunk)) {
+        return acknowledgeSuppressedWrite(encoding, callback);
     }
     return originalWrite.apply(this, arguments);
 };
 
-const originalWriteError = process.stderr.write;
 process.stderr.write = function (chunk, encoding, callback) {
-    const message = chunk.toString();
-    if (message.includes('Closing session: SessionEntry')) {
-        return;
+    if (shouldSuppressSignalNoise(chunk)) {
+        return acknowledgeSuppressedWrite(encoding, callback);
     }
     return originalWriteError.apply(this, arguments);
 };
 
-const originalLog = console.log;
 console.log = function (message, ...optionalParams) {
-    if (typeof message === 'string' && message.startsWith('Closing session: SessionEntry')) {
-        return;
-    }
+    if (shouldSuppressSignalNoise(message)) return;
     originalLog.apply(console, [message, ...optionalParams]);
 };
 
@@ -39,6 +101,7 @@ const fs = require('fs')
 const chalk = require('chalk')
 const path = require('path')
 const os = require('os')
+const crypto = require('crypto')
 
 const {
     default: makeWASocket,
@@ -58,6 +121,30 @@ const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
 const { applyFont } = require('./utils/fontConverter')
+const {
+    atomicWriteFile,
+    createDiskManager,
+} = require('./utils/juneDb/runtimeProtection')
+const juneDatabase = require('./database')
+const pgAdapter = require('./utils/juneDb/pgAdapter')
+const mongoAdapter = require('./utils/juneDb/mongoAdapter')
+const settingsRegistry = require('./utils/juneDb/settingsRegistry')
+const replayDrain = require('./utils/juneDb/replayDrain')
+const {
+    useSQLiteAuthState,
+    getSQLiteAuthStats,
+    validateSQLiteAuth,
+    migrateFilesToSQLite,
+    finalizePendingFileMigration,
+    cleanupSessionQuarantines,
+    getSessionIdFingerprint,
+    setSessionIdFingerprint,
+    getSessionIdRevokedFingerprint,
+    setSessionIdRevokedFingerprint,
+    hasVerifiedSQLiteAuth,
+    clearSQLiteAuth,
+    invalidateSQLiteAuth,
+} = require('./utils/juneDb/auth-state')
 
 process.env.PUPPETEER_SKIP_DOWNLOAD = 'true'
 process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
@@ -76,18 +163,256 @@ function log(message, color = 'white', isError = false) {
 }
 global.log = log;
 
+// ─── One-box Startup Report ──────────────────────────────────────────────────
+
+const STARTUP_REPORT_WIDTH = 62
+
+function startupPlain(value) {
+    return String(value ?? '')
+        .replace(/\r?\n/g, ' ')
+        .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+}
+
+function startupFit(value, width) {
+    const text = startupPlain(value)
+    return text.length > width
+        ? `${text.slice(0, Math.max(0, width - 1))}…`
+        : text.padEnd(width)
+}
+
+function startupStatusIcon(status) {
+    const normalized = String(status || '').toLowerCase()
+    if (['ok', 'ready', 'connected', 'active', 'online', 'enabled', 'passed'].includes(normalized)) {
+        return chalk.green('✓')
+    }
+    if (['warn', 'warning', 'degraded', 'fallback', 'connecting'].includes(normalized)) {
+        return chalk.yellow('!')
+    }
+    if (['off', 'disabled', 'not_set', 'unavailable', 'error', 'failed'].includes(normalized)) {
+        return chalk.red('×')
+    }
+    return chalk.cyan('•')
+}
+
+function startupStatusText(status, label) {
+    const normalized = String(status || '').toLowerCase()
+    const text = label || status || 'unknown'
+    if (['ok', 'ready', 'connected', 'active', 'online', 'enabled', 'passed'].includes(normalized)) {
+        return chalk.green(text)
+    }
+    if (['warn', 'warning', 'degraded', 'fallback', 'connecting'].includes(normalized)) {
+        return chalk.yellow(text)
+    }
+    if (['off', 'disabled', 'not_set', 'unavailable', 'error', 'failed'].includes(normalized)) {
+        return chalk.red(text)
+    }
+    return chalk.cyan(text)
+}
+
+function startupRow(label, value, status) {
+    const left = startupFit(label, 18)
+    const right = status
+        ? `${startupStatusIcon(status)} ${startupStatusText(status, value)}`
+        : startupPlain(value)
+    return `│  ${chalk.gray(left)} : ${right}`
+}
+
+function startupHeading(title) {
+    return `│  ${chalk.cyan.bold(`◆ ${title}`)}`
+}
+
+function startupSeparator() {
+    return `│  ${chalk.gray('─'.repeat(STARTUP_REPORT_WIDTH - 4))}`
+}
+
+function startupToggleValue(enabled) {
+    return enabled ? chalk.green('•ON') : chalk.red('•OFF')
+}
+
+function startupTogglePair(leftLabel, leftEnabled, rightLabel, rightEnabled) {
+    const left = `${chalk.gray(startupFit(leftLabel, 12))} ${startupToggleValue(leftEnabled)}`
+    const right = `${chalk.gray(startupFit(rightLabel, 12))} ${startupToggleValue(rightEnabled)}`
+    return `│  ${left} ${chalk.gray('│')} ${right}`
+}
+
+function normalizeStartupPostgres(postgres = {}) {
+    if (postgres.available || postgres.ready) {
+        return { ...postgres, status: 'connected', label: 'connected' }
+    }
+    return { ...postgres, status: 'disabled', label: 'not set' }
+}
+
+function getStartupToggleState() {
+    const db = juneDatabase
+    const statusSettings = db.loadSettings?.() || {}
+    const presenceMode = db.getBotSetting?.('presenceMode') || 'off'
+    const autoReact = (() => {
+        try {
+            return Boolean(require('./utils/autoReact').load().enabled)
+        } catch (_) {
+            return Boolean(db.getBotSetting?.('autoReact') ?? config.autoReact)
+        }
+    })()
+    const autoDownload = (() => {
+        try {
+            return Boolean(require('./commands/owner/autodownloadstatus').manager?.config?.enabled)
+        } catch (_) {
+            return Boolean(db.getBotSetting?.('autoDownload') ?? config.autoDownload)
+        }
+    })()
+    const kv = (() => {
+        try { return require('./utils/kvstore') } catch (_) { return null }
+    })()
+    const antidelete = kv?.get('antidelete', '_global', {}) || {}
+    const antideleteStatus = kv?.get('antideletestatus', '_global', {}) || {}
+
+    return {
+        autoStatusView: Boolean(statusSettings.enabled),
+        autoStatusReact: Boolean(statusSettings.react),
+        autoTyping: presenceMode === 'typing',
+        autoRecording: presenceMode === 'recording',
+        autoRecordType: presenceMode === 'recordtype',
+        autoDownload,
+        alwaysOnline: Boolean(db.getBotSetting?.('alwaysOnline')),
+        readReceipts: (db.getBotSetting?.('readReceipts') || 'off') !== 'off',
+        antideleteStatus: antideleteStatus.enabled === true,
+        autoReact,
+        antiDelete: Boolean(
+            (antidelete._global?.mode || antidelete.mode) &&
+            (antidelete._global?.mode || antidelete.mode) !== 'off'
+        ),
+    }
+}
+
+
+function printStartupReport(data = {}) {
+    const now = data.time || new Date().toLocaleTimeString();
+    const platform = data.platform || os.platform();
+    const mode = String(data.mode || 'public').toUpperCase();
+    const commandCount = data.commandCount ?? '—';
+    
+    // Get database info
+    const dbInfo = data.databaseInfo || getExternalDatabaseStatus();
+    
+    // Build database rows
+    let databaseRows = [
+        startupHeading('DATABASE'),
+        startupRow('SQLite', data.sqliteLabel || 'ready', data.sqliteStatus || 'ready'),
+        startupRow('Driver', data.sqliteDriver || 'sql.js-fallback'),
+        startupRow('Schema', data.schemaVersion ? `v${data.schemaVersion}` : '—'),
+        startupRow('Integrity', data.integrityLabel || 'passed', data.integrityStatus || 'passed'),
+    ];
+    
+    // Show both available remote adapters while none is configured. Once a
+    // remote database is configured, show only the configured adapter(s).
+    const configuredExternal = (dbInfo.databases || []).filter((entry) => entry.configured)
+    databaseRows.push(startupSeparator());
+    databaseRows.push(startupHeading(
+        configuredExternal.length > 0 ? 'EXTERNAL DATABASE' : 'EXTERNAL DATABASES'
+    ));
+
+    if (configuredExternal.length === 0) {
+        for (const entry of dbInfo.databases || []) {
+            databaseRows.push(startupRow(entry.name, 'not configured', 'not_set'));
+        }
+    } else {
+        for (const entry of configuredExternal) {
+            databaseRows.push(startupRow(
+                entry.name,
+                entry.connected ? 'connected' : 'unavailable — SQLite fallback',
+                entry.connected ? 'connected' : 'warning'
+            ));
+        }
+    }
+    
+    const lines = [
+        `┌${'─'.repeat(48- 2)}┐`,
+        `┃${chalk.cyan('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓').padEnd(10 - 1)}┃`,
+        `┃${chalk.white.bold('        🤖 JUNE X (•ˇ_ˇ•) ULTRA STARTING...').padEnd(66 - 1)}┃`,
+        `┃${chalk.cyan('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛').padEnd(10 - 1)}┃`,
+        `├${'─'.repeat(48 - 2)}┤`,
+        startupHeading('SYSTEM'),
+        startupRow('Platform', platform),
+        startupRow('Node.js', data.nodeVersion || process.version),
+        startupRow('Time', now),
+        startupRow('Startup', data.startupTime || '—'),
+        startupSeparator(),
+        startupHeading('CONFIGURATION'),
+        startupRow('Prefix', data.prefix ?? '.'),
+        startupRow('Mode', mode, 'active'),
+        startupRow('Owner', data.owner || 'configured'),
+        startupRow('Commands', `${commandCount} loaded`, 'ready'),
+        startupSeparator(),
+        ...databaseRows,
+        startupSeparator(),
+        startupHeading('TOGGLES'),
+        startupTogglePair('Status View', data.toggles?.autoStatusView, 'Status React', data.toggles?.autoStatusReact),
+        startupTogglePair('Typing', data.toggles?.autoTyping, 'Recording', data.toggles?.autoRecording),
+        startupTogglePair('Record+Type', data.toggles?.autoRecordType, 'Auto-Save', data.toggles?.autoDownload),
+        startupTogglePair('Auto-React', data.toggles?.autoReact, 'Always-On', data.toggles?.alwaysOnline),
+        startupTogglePair('Receipts', data.toggles?.readReceipts, 'Anti-Delete', data.toggles?.antiDelete),
+        startupTogglePair('Anti-Status', data.toggles?.antideleteStatus, '', undefined),
+        startupSeparator(),
+        startupHeading('RUNTIME PROTECTION'),
+        startupRow('Disk manager', data.diskManagerLabel || 'active', data.diskManagerStatus || 'active'),
+        startupRow('Atomic writes', data.atomicWritesLabel || 'enabled', data.atomicWritesStatus || 'enabled'),
+        startupRow('Cache limits', data.cacheLabel || 'enabled', data.cacheStatus || 'enabled'),
+        startupRow('Telemetry', data.telemetryLabel || 'enabled', data.telemetryStatus || 'enabled'),
+        startupRow('Shutdown', data.shutdownLabel || 'protected', data.shutdownStatus || 'active'),
+        startupSeparator(),
+        startupHeading('AUTHENTICATION'),
+        startupRow('Session', data.sessionLabel || 'restored', data.sessionStatus || 'ready'),
+        startupRow('Auth source', data.authSource || 'SQLite'),
+        startupRow('Signal keys', data.signalKeysLabel || 'verified', data.signalKeysStatus || 'ready'),
+        startupSeparator(),
+        startupHeading('CONNECTION'),
+        startupRow('WhatsApp', data.whatsappLabel || 'connecting', data.whatsappStatus || 'connecting'),
+        startupRow('Account', data.accountLabel || 'hidden', data.accountStatus),
+        startupRow('Group join', data.groupJoinLabel || 'not set', data.groupJoinStatus),
+        `│  ${chalk.gray('─'.repeat(49 - 4))}`,
+        `│  ${chalk.gray.bold('(•ˇ_ˇ•)  JUNE SYSTEM REPORT SUMMARY   (•ˇ_ˇ•)')}`,
+  `│  ${chalk.gray('─'.repeat(49- 4))}`,
+        `┗${'━'.repeat(46)}┛`,
+    ];
+    
+    //console.clear();
+    console.log(lines.join('\n'));
+    
+    // Log actual remote adapter state without exposing connection strings.
+    const configuredExternalForLog = (dbInfo.databases || []).filter((entry) => entry.configured)
+    const connectedExternal = configuredExternalForLog.filter((entry) => entry.connected)
+    if (connectedExternal.length > 0) {
+        log(`[ DATABASE ] External database connected: ${connectedExternal.map((entry) => entry.name).join(', ')}`, 'green');
+    }
+    if (configuredExternalForLog.some((entry) => !entry.connected)) {
+        log('[ DATABASE ] A configured external database is unavailable; using SQLite safely.', 'yellow');
+    }
+    if (configuredExternalForLog.length === 0) {
+        log('[ DATABASE ] No external database configured (using SQLite only)', 'cyan');
+    }
+}
+
 // ─── Global Flags ─────────────────────────────────────────────────────────────
 
 global.isBotConnected = false
 global.connectDebounceTimeout = null
 global.errorRetryCount = 0
+    
 global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
 global._consecutive500Count = 0  // Guard: only clear session after 3 real 500s in a row
+global._conflictCount = 0       // Consecutive 409/440 device-conflict reconnects
+global._lastConflictLogTime = 0 // Track when we last logged a conflict
+global._suppressedConflictCount = 0 // Count suppressed messages
+global._conflictSummaryTimer = null // Timer for summary message    
+global._reconnectTimer = null
+global._shutdownRequested = false
+global.startupReportPrinted = false
+global.startupStartedAt = Date.now()
 
 // Track active intervals so we can clear them on reconnect
 global._activeIntervals = []
 
-// ─── Dashboard state ──────────────────────────────────────────────
+// ─── Dashboard state ──────────────────────────────────────────────────
 global.botState   = 'disconnected'
 global.currentSock = null
 global.connectedAt = null
@@ -100,82 +425,84 @@ global.__ROOT__ = __dirname
 const config = require('./config')
 
 // ─── Apply Persisted Runtime Settings ─────────────────────────────────────────
-// Overrides config values with any owner-changed settings saved in database/bot-settings.json
-try {
-    const db = require('./database');
-    const all = db.getAllBotSettings();
-    // Apply ALL stored settings that directly match a config key.
-    // This covers prefix, botName, timezone, autoReact, autoReactMode,
-    // selfMode, autoSticker, autoDownload, autoBio — and any future
-    // additions automatically, without needing to update this list.
-    for (const [key, value] of Object.entries(all)) {
-        if (key in config && value !== null && value !== undefined) {
-            config[key] = value;
-        }
-    }
-    // Restore autoRead from stored mode (autoread command stores 'on'|'group'|'pm'|'off')
-    if (all.autoReadMode && all.autoReadMode !== 'off') {
-        config.autoRead = (all.autoReadMode === 'on' || all.autoReadMode === 'group');
-    }
-    // Restore presence flags so .botstatus/.getsettings reflect the correct state
-    if (all.presenceMode === 'typing')     config.autoTyping     = true;
-    if (all.presenceMode === 'recording')  config.autoRecording  = true;
-    if (all.presenceMode === 'recordtype') { config.autoRecording = true; config.autoRecordType = true; }
-    // Restore custom menu image if one was set before restart
-    if (all.menuImageCustom) {
-        const PERSIST_PATH = path.join(__dirname, 'data/custom_menu.jpg');
-        const IMAGE_PATH   = path.join(__dirname, 'utils/bot_image.jpg');
-        const MENU1_PATH   = path.join(__dirname, 'assets/menu1.jpg');
-
-        let buf = null;
-
-        // 1. Try restoring from the persistent file on disk
-        if (fs.existsSync(PERSIST_PATH)) {
-            try { buf = fs.readFileSync(PERSIST_PATH); } catch {}
-        }
-
-        // 2. If the file is gone, rebuild it from the base64 copy in the database
-        if (!buf && all.menuImageData) {
-            try {
-                const decoded = Buffer.from(all.menuImageData, 'base64');
-                if (!decoded || decoded.length < 100) throw new Error('Decoded image data is empty or too small to be valid.');
-                buf = decoded;
-                // Re-write the persistent file so future restarts use the faster path
-                try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); } catch {}
-                fs.writeFileSync(PERSIST_PATH, buf);
-                log('[ SETTINGS ] Custom menu image rebuilt from database.', 'cyan');
-            } catch (rebuildErr) {
-                log(`[ SETTINGS ] Could not rebuild menu image from database: ${rebuildErr.message}`, 'yellow');
-                buf = null;
+// Database access must happen after juneDatabase.ready resolves. Keeping this
+// at module scope races the async sql.js fallback and leaves stmts undefined.
+async function applyPersistedRuntimeSettings() {
+    try {
+        await juneDatabase.ready;
+        const db = juneDatabase;
+        const all = db.getAllBotSettings();
+        // Apply ALL stored settings that directly match a config key.
+        for (const [key, value] of Object.entries(all)) {
+            if (key in config && value !== null && value !== undefined) {
+                config[key] = value;
             }
         }
+        // Restore presence flags so .botstatus/.getsettings reflect the correct state
+        if (all.presenceMode === 'typing')     config.autoTyping     = true;
+        if (all.presenceMode === 'recording')  config.autoRecording  = true;
+        if (all.presenceMode === 'recordtype') { config.autoRecording = true; config.autoRecordType = true; }
 
-        if (buf) {
-            try {
-                fs.writeFileSync(IMAGE_PATH, buf);
-                try { fs.writeFileSync(MENU1_PATH, buf); } catch {}
-                log('[ SETTINGS ] Custom menu image restored successfully.', 'cyan');
-            } catch (imgErr) {
-                log(`[ SETTINGS ] Could not restore custom menu image: ${imgErr.message}`, 'yellow');
+        // Restore custom menu image if one was set before restart.
+        if (all.menuImageCustom) {
+            const PERSIST_PATH = path.join(__dirname, 'data/custom_menu.jpg');
+            const IMAGE_PATH   = path.join(__dirname, 'utils/bot_image.jpg');
+            const MENU1_PATH   = path.join(__dirname, 'assets/menu1.jpg');
+            let buf = null;
+
+            if (fs.existsSync(PERSIST_PATH)) {
+                try { buf = fs.readFileSync(PERSIST_PATH); } catch {}
             }
-        } else {
-            // Neither file nor DB data available — clear the stale flag
-            db.setBotSetting('menuImageCustom', false);
-            db.setBotSetting('menuImageData', null);
-            log('[ SETTINGS ] Custom menu image missing from both disk and database.', 'yellow');
+
+            if (!buf && all.menuImageData) {
+                try {
+                    const decoded = Buffer.from(all.menuImageData, 'base64');
+                    if (!decoded || decoded.length < 100) {
+                        throw new Error('Decoded image data is empty or too small to be valid.');
+                    }
+                    buf = decoded;
+                    try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); } catch {}
+                    atomicWriteFile(PERSIST_PATH, buf);
+                    log('[ SETTINGS ] Custom menu image rebuilt from database.', 'cyan');
+                } catch (rebuildErr) {
+                    log(`[ SETTINGS ] Could not rebuild menu image from database: ${rebuildErr.message}`, 'yellow');
+                    buf = null;
+                }
+            }
+
+            if (buf) {
+                try {
+                    atomicWriteFile(IMAGE_PATH, buf);
+                    try { atomicWriteFile(MENU1_PATH, buf); } catch {}
+                    log('[ SETTINGS ] Custom menu image restored successfully.', 'cyan');
+                } catch (imgErr) {
+                    log(`[ SETTINGS ] Could not restore custom menu image: ${imgErr.message}`, 'yellow');
+                }
+            } else {
+                db.setBotSetting('menuImageCustom', false);
+                db.setBotSetting('menuImageData', null);
+                log('[ SETTINGS ] Custom menu image missing from both disk and database.', 'yellow');
+            }
         }
+    } catch (e) {
+        log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
     }
-} catch (e) {
-    log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
 }
 
-const handler = require('./handler')
-const { saveSession, getSession, clearSession } = require('./database')
+// Loaded only after database.ready in main(), because command modules may read
+// database-backed settings during require-time.
+let handler = null
+const { saveSession, getSession, clearSession } = juneDatabase
 
 const sessionDir = path.join(__dirname, config.sessionName || 'session')
 const credsPath = path.join(sessionDir, 'creds.json')
 const loginFile = path.join(__dirname, 'login.json')
 const envPath = path.join(process.cwd(), '.env')
+// Wolf-style local markers. They contain only SHA-256 fingerprints, never
+// the raw SESSION_ID. They are useful on persistent hosts and naturally reset
+// on a fresh ephemeral Heroku dyno.
+const sessionIdHashFile = path.join(__dirname, '.session_id_hash')
+const sessionRevokedFile = path.join(__dirname, '.session_revoked')
 
 // ─── Auto-generate .env if missing ────────────────────────────────────────────
 if (!fs.existsSync(envPath)) {
@@ -187,7 +514,7 @@ if (!fs.existsSync(envPath)) {
         '# Optional: override bot port (default 5000)',
         '# PORT=5000',
     ].join('\n')
-    fs.writeFileSync(envPath, defaultEnv, 'utf8')
+    atomicWriteFile(envPath, defaultEnv, 'utf8')
     log('[ .env ] No .env file found — created with default template.', 'green')
 }
 
@@ -211,6 +538,8 @@ function readSessionIDFromEnv() {
 
 // Inject the directly-read value into process.env so the rest of the code
 const _rawSessionID = readSessionIDFromEnv()
+// A non-empty local .env value overrides the platform value. An empty local
+// value intentionally leaves Heroku/Replit/Railway environment secrets intact.
 if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
 // ─── Message Backup Store ─────────────────────────────────────────────────────
@@ -237,11 +566,23 @@ function saveStoredMessages(data) {
     _saveMessagesTimer = setTimeout(() => {
         _saveMessagesTimer = null
         try {
-            fs.writeFile(MESSAGE_STORE_FILE, JSON.stringify(data, null, 2), () => {})
+            atomicWriteFile(MESSAGE_STORE_FILE, JSON.stringify(data, null, 2))
         } catch (e) {
             log(`Error saving message backup: ${e.message}`, 'red', true)
         }
     }, 5000)
+}
+
+function flushStoredMessages() {
+    if (_saveMessagesTimer) {
+        clearTimeout(_saveMessagesTimer)
+        _saveMessagesTimer = null
+    }
+    try {
+        atomicWriteFile(MESSAGE_STORE_FILE, JSON.stringify(global.messageBackup || {}, null, 2))
+    } catch (e) {
+        log(`Error flushing message backup: ${e.message}`, 'red', true)
+    }
 }
 
 global.messageBackup = loadStoredMessages()
@@ -261,7 +602,7 @@ function loadErrorCount() {
 
 function saveErrorCount(data) {
     try {
-        fs.writeFileSync(SESSION_ERROR_FILE, JSON.stringify(data, null, 2))
+        atomicWriteFile(SESSION_ERROR_FILE, JSON.stringify(data, null, 2))
     } catch (e) {
         log(`Error saving error count: ${e.message}`, 'red', true)
     }
@@ -283,11 +624,23 @@ function deleteErrorCountFile() {
 function clearSessionFiles() {
     try {
         log('[ CLEARING ] session folder...', 'blue')
-        rmSync(sessionDir, { recursive: true, force: true })
+        if (fs.existsSync(sessionDir)) {
+            const quarantinePath = `${sessionDir}.quarantine-${Date.now()}`
+            try {
+                fs.renameSync(sessionDir, quarantinePath)
+                log(`[ SESSION ] Previous auth preserved at ${path.basename(quarantinePath)}.`, 'yellow')
+            } catch (renameError) {
+                log(`[ SESSION ] Could not quarantine old auth: ${renameError.message}`, 'yellow')
+                rmSync(sessionDir, { recursive: true, force: true })
+            }
+        }
         if (fs.existsSync(loginFile)) fs.unlinkSync(loginFile)
         deleteErrorCountFile()
         global.errorRetryCount = 0
         clearSession()
+        clearSQLiteAuth(juneDatabase._db, 'session-cleared')
+        clearSessionIdFingerprint()
+        juneDatabase.markDatabaseDirty('session-cleared')
         log('[ SESSION ] files cleared successfully.', 'green')
     } catch (e) {
         log(`Failed to clear session files: ${e.message}`, 'red', true)
@@ -312,26 +665,56 @@ function cleanupOldMessages() {
     log('[ MSG CLEANUP ] Old messages removed 🧹', 'green')
 }
 
+const ROOT_TEMP_FILE_PATTERN = /^(?:tmp|temp|download|converted|upload|media|sticker)[._-]/i
+const ROOT_TEMP_EXTENSIONS = new Set(['.gif', '.png', '.mp3', '.mp4', '.opus', '.jpg', '.jpeg', '.webp', '.webm', '.zip'])
+const ROOT_TEMP_MAX_AGE_MS = 60 * 60 * 1000
+
 function cleanupJunkFiles(sock) {
     const dir = path.join(__dirname)
-    fs.readdir(dir, async (err, files) => {
+    fs.readdir(dir, { withFileTypes: true }, (err, entries) => {
         if (err) return log(`[Junk Cleanup] Error reading dir: ${err}`, 'red', true)
-        const junk = files.filter(f =>
-            ['.gif', '.png', '.mp3', '.mp4', '.opus', '.jpg', '.webp', '.webm', '.zip'].some(ext => f.endsWith(ext))
-        )
-        if (junk.length > 0) {
-            if (sock?.user?.id) {
-                sock.sendMessage(sock.user.id.split(':')[0] + '@s.whatsapp.net', {
-                    text: `🧹 Detected ${junk.length} junk file(s) — deleted automatically.`
-                }).catch(() => {})
+        const cutoff = Date.now() - ROOT_TEMP_MAX_AGE_MS
+        const junk = entries.filter((entry) => {
+            if (!entry.isFile()) return false
+            const ext = path.extname(entry.name).toLowerCase()
+            if (!ROOT_TEMP_EXTENSIONS.has(ext) || !ROOT_TEMP_FILE_PATTERN.test(entry.name)) return false
+            try {
+                return fs.statSync(path.join(dir, entry.name)).mtimeMs < cutoff
+            } catch (_) {
+                return false
             }
-            junk.forEach(f => {
-                try { fs.unlinkSync(path.join(dir, f)) } catch (e) {}
-            })
-            log(`[Junk Cleanup] ${junk.length} file(s) deleted.`, 'yellow')
+        }).map((entry) => entry.name)
+
+        if (junk.length === 0) return
+        if (sock?.user?.id) {
+            sock.sendMessage(sock.user.id.split(':')[0] + '@s.whatsapp.net', {
+                text: `🧹 Removed ${junk.length} expired temporary file(s).`
+            }).catch(() => {})
         }
+        for (const file of junk) {
+            try { fs.unlinkSync(path.join(dir, file)) } catch (_) {}
+        }
+        log(`[Junk Cleanup] Removed ${junk.length} expired temporary root file(s).`, 'yellow')
     })
 }
+
+let diskManager = null
+function runEmergencyCleanup({ aggressive = false } = {}) {
+    try { cleanupOldMessages() } catch (_) {}
+    try { cleanupJunkFiles(null) } catch (_) {}
+    try { cleanupExpiredSessionQuarantines('low-disk cleanup') } catch (_) {}
+    try { handler?.cleanupRuntimeCaches?.(aggressive) } catch (_) {}
+    try { Promise.resolve(juneDatabase.flushBackup?.()).catch(() => {}) } catch (_) {}
+}
+
+diskManager = createDiskManager({
+    root: __dirname,
+    cleanup: ({ aggressive }) => {
+        runEmergencyCleanup({ aggressive })
+        log(`[ DISK ] Low storage detected; ${aggressive ? 'emergency ' : ''}cleanup completed.`, 'yellow')
+    },
+})
+global.diskManager = diskManager
 
 // ─── Readline ─────────────────────────────────────────────────────────────────
 
@@ -345,7 +728,7 @@ const question = (text) => rl
 // ─── Session Helpers ──────────────────────────────────────────────────────────
 
 async function saveLoginMethod(method) {
-    await fs.promises.writeFile(loginFile, JSON.stringify({ method }, null, 2))
+    atomicWriteFile(loginFile, JSON.stringify({ method }, null, 2))
 }
 
 async function getLastLoginMethod() {
@@ -357,6 +740,105 @@ async function getLastLoginMethod() {
 
 function sessionExists() {
     return fs.existsSync(credsPath)
+}
+
+function fingerprintSessionId(sessionId) {
+    return crypto.createHash('sha256').update(String(sessionId)).digest('hex')
+}
+
+function readSessionFingerprintFile(filePath) {
+    try {
+        const value = fs.readFileSync(filePath, 'utf8').trim()
+        return /^[a-f0-9]{64}$/i.test(value) ? value : null
+    } catch (_) {
+        return null
+    }
+}
+
+function writeSessionFingerprintFile(filePath, fingerprint) {
+    if (!fingerprint) return false
+    try {
+        atomicWriteFile(filePath, String(fingerprint) + '\n', 'utf8')
+        return true
+    } catch (_) {
+        return false
+    }
+}
+
+function removeSessionFingerprintFile(filePath) {
+    try { fs.rmSync(filePath, { force: true }) } catch (_) {}
+}
+
+function hasUsableFileSession() {
+    if (!sessionExists()) return false
+    try {
+        const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'))
+        return !!(creds && typeof creds === 'object' && (
+            creds.noiseKey ||
+            creds.signedIdentityKey ||
+            creds.registrationId ||
+            creds.registered === true
+        ))
+    } catch (_) {
+        return false
+    }
+}
+
+function rememberSessionIdFingerprint(fingerprint) {
+    if (!fingerprint) return
+    setSessionIdFingerprint(juneDatabase._db, fingerprint)
+    writeSessionFingerprintFile(sessionIdHashFile, fingerprint)
+    juneDatabase.markDatabaseDirty('session-id-fingerprint')
+}
+
+function clearSessionIdFingerprint() {
+    setSessionIdFingerprint(juneDatabase._db, null)
+    removeSessionFingerprintFile(sessionIdHashFile)
+}
+
+function markSessionIdFingerprintRevoked(fingerprint) {
+    if (!fingerprint) return
+    setSessionIdRevokedFingerprint(juneDatabase._db, fingerprint)
+    writeSessionFingerprintFile(sessionRevokedFile, fingerprint)
+    juneDatabase.markDatabaseDirty('session-id-revoked')
+}
+
+function clearRevokedSessionIdFingerprint() {
+    setSessionIdRevokedFingerprint(juneDatabase._db, null)
+    removeSessionFingerprintFile(sessionRevokedFile)
+    juneDatabase.markDatabaseDirty('session-id-revocation-cleared')
+}
+
+function cleanupExpiredSessionQuarantines(source = 'startup') {
+    const result = cleanupSessionQuarantines(sessionDir)
+    if (result.removed.length > 0) {
+        const details = []
+        if (result.removedByRetention) details.push(`${result.removedByRetention} expired`)
+        if (result.removedByLimit) details.push(`${result.removedByLimit} over limit`)
+        log(
+            `[ SESSION ] Removed ${result.removed.length} quarantine(s) during ${source}${details.length ? ` (${details.join(', ')})` : ''}.`,
+            'yellow'
+        )
+    }
+    return result
+}
+
+// A new SESSION_ID deliberately replaces file auth once. The old directory is
+// preserved as a short-lived quarantine backup, never deleted during the swap.
+function quarantineCurrentSessionForReplacement() {
+    if (!fs.existsSync(sessionDir)) return null
+    try {
+        const entries = fs.readdirSync(sessionDir)
+        if (entries.length === 0) {
+            fs.rmSync(sessionDir, { recursive: true, force: true })
+            return null
+        }
+        const quarantinedPath = `${sessionDir}.quarantine-${Date.now()}`
+        fs.renameSync(sessionDir, quarantinedPath)
+        return quarantinedPath
+    } catch (error) {
+        throw new Error(`Could not preserve the current session directory: ${error.message}`)
+    }
 }
 
 // ─── Session Format Validator ─────────────────────────────────────────────────
@@ -400,7 +882,7 @@ async function downloadSessionData() {
         // Validate that the decoded content is valid JSON before writing
         JSON.parse(sessionData.toString('utf8'))
 
-        await fs.promises.writeFile(credsPath, sessionData)
+        atomicWriteFile(credsPath, sessionData)
         log('✅ Session saved from SESSION_ID successfully.', 'green')
     }
 }
@@ -415,7 +897,7 @@ async function restoreSessionFromDB() {
         await fs.promises.mkdir(sessionDir, { recursive: true })
         const data = Buffer.from(b64, 'base64')
         JSON.parse(data.toString('utf8')) // validate
-        await fs.promises.writeFile(credsPath, data)
+        atomicWriteFile(credsPath, data)
         return true
     } catch (e) {
         log(`⚠️ DB session restore failed`, 'yellow')
@@ -463,7 +945,7 @@ async function autoExportSessionToEnv(force = false) {
             const updatedContent = /^SESSION_ID=/m.test(envContent)
                 ? envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
                 : envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
-            fs.writeFileSync(envPath, updatedContent)
+            atomicWriteFile(envPath, updatedContent)
             process.env.SESSION_ID = sessionID
             _lastSessionExport = now
         }
@@ -585,7 +1067,6 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        log('Connected', 'red')
         deleteErrorCountFile()
         global.errorRetryCount = 0
     } catch (e) {
@@ -623,6 +1104,17 @@ async function checkSessionIntegrityAndClean() {
     const folderExists = fs.existsSync(sessionDir)
     const validSession = sessionExists()
     if (folderExists && !validSession) {
+        if (hasVerifiedSQLiteAuth(juneDatabase._db)) {
+            const files = fs.readdirSync(sessionDir)
+            if (files.length > 0) {
+                const quarantinePath = `${sessionDir}.incomplete-${Date.now()}`
+                try {
+                    fs.renameSync(sessionDir, quarantinePath)
+                    log(`[ SESSION ] Incomplete session folder preserved at ${path.basename(quarantinePath)}.`, 'yellow')
+                } catch (_) {}
+            }
+            return
+        }
         clearSessionFiles()
         log('Cleanup done. Waiting 3 seconds...', 'yellow')
         await delay(3000)
@@ -634,7 +1126,7 @@ async function checkSessionIntegrityAndClean() {
 function checkEnvStatus() {
     try {
         log('[ WATCHER ] Monitoring .env for changes...', 'green')
-        fs.watch(envPath, { persistent: false }, (eventType, filename) => {
+        global._envWatcher = fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (filename && eventType === 'change') {
                 // Suppress restart when we ourselves wrote the session update.
                 // Use a time-window (not a one-shot boolean) because fs.watch fires
@@ -680,12 +1172,43 @@ const store = {
 const processedMessages = new Set()
 setInterval(() => processedMessages.clear(), 5 * 60 * 1000)
 
+
+
+
+// ─── Database Type Detection ──────────────────────────────────────────────
+
+// ─── Get External Database Status ──────────────────────────────────────────
+
+function getExternalDatabaseStatus() {
+    const postgres = pgAdapter.getStatus?.() || {}
+    const mongo = mongoAdapter.getStatus?.() || {}
+    const databases = [
+        {
+            name: 'PostgreSQL',
+            configured: Boolean(postgres.configured || String(process.env.DATABASE_URL || '').trim()),
+            connected: postgres.available === true,
+            error: postgres.lastError ? 'connection unavailable' : null,
+        },
+        {
+            name: 'MongoDB',
+            configured: Boolean(mongo.configured || String(process.env.MONGODB_URI || process.env.MONGO_URL || '').trim()),
+            connected: mongo.available === true,
+            error: mongo.lastError ? 'connection unavailable' : null,
+        },
+    ]
+
+    return {
+        configured: databases.some((entry) => entry.configured),
+        connected: databases.some((entry) => entry.connected),
+        databases,
+    }
+}
 // ─── Suppressed Logger ────────────────────────────────────────────────────────
 
 const NOISE_PATTERNS = [
     'closing session', 'sessionentry', 'prekey bundle', 'pendingprekey',
     '_chains', 'registrationid', 'currentratchet', 'chainkey', 'ratchet',
-    'signal protocol', 'ephemeralkeypair', 'indexinfo', 'basekey', 'ratchetkey'
+    'signal protocol', 'ephemeralkeypair', 'indexinfo', 'basekey', 'ratchetkey', '(node:33) Warning:', '(node:33)','WARNING:','SECURITY',
 ]
 
 function suppressedLogger() {
@@ -727,6 +1250,18 @@ async function getBaileysVersion() {
 }
 
 async function startJunexBot() {
+    if (global._shutdownRequested) return null
+    // Reconnects must not leave the previous Baileys socket alive. A stale
+    // socket can keep emitting updates and create the same duplicate-session
+    // pressure as a second deployed bot instance.
+    const previousSock = global.currentSock
+    if (previousSock) {
+        global.currentSock = null
+        try { previousSock.ev?.removeAllListeners?.() } catch (_) {}
+        try { previousSock.ws?.close?.() } catch (_) {}
+        try { previousSock.end?.(new Error('replaced by reconnect')) } catch (_) {}
+        await delay(250)
+    }
     if (global._activeIntervals && global._activeIntervals.length > 0) {
         global._activeIntervals.forEach(id => clearInterval(id))
         global._activeIntervals = []
@@ -734,10 +1269,100 @@ async function startJunexBot() {
     }
 
     const version = await getBaileysVersion()
-    await fs.promises.mkdir(sessionDir, { recursive: true })
+    const authStatsBeforeStart = getSQLiteAuthStats(juneDatabase._db)
+    if (authStatsBeforeStart.pendingFileMigration && fs.existsSync(sessionDir)) {
+        try {
+            const finalized = await finalizePendingFileMigration(juneDatabase._db, sessionDir, {
+                onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+            })
+            if (finalized.ok) {
+                log(`[ AUTH ] Finalized pending file-auth migration; session folder quarantined.`, 'green')
+            }
+        } catch (error) {
+            log(`[ AUTH ] Pending file-auth migration deferred: ${error.message}`, 'yellow')
+            log('[ AUTH ] Continuing with the previously verified SQLite snapshot.', 'yellow')
+        }
+    }
+    const authValidation = await validateSQLiteAuth(juneDatabase._db, {
+        onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+    })
+    if (authValidation.repairedLidMappings > 0) {
+        const count = authValidation.repairedLidMappings
+        log(`[ AUTH ] Repaired ${count} malformed auxiliary LID mapping ${count === 1 ? 'row' : 'rows'}; valid Signal auth preserved.`, 'yellow')
+        // Persist the repaired snapshot immediately. Otherwise a process
+        // crash before the normal debounce window could restore the old bad
+        // LID row from the database backup on the next boot.
+        try {
+            await juneDatabase.createBackup?.()
+            log('[ AUTH ] Cleaned auth backup written; invalid LID mappings will not be restored.', 'cyan')
+        } catch (backupError) {
+            log(`[ AUTH ] Could not flush cleaned auth backup yet: ${backupError.message}`, 'yellow')
+        }
+    }
+    if (authValidation.wasVerified && !authValidation.ok) {
+        log(`[ AUTH ] ❌ SQLite startup validation failed: ${authValidation.reason}`, 'red', true)
+        log('[ AUTH ] Recovery required: restore the last valid database backup or perform an explicit re-pair.', 'yellow')
+        throw new Error(`AUTH_STARTUP_VALIDATION_FAILED: ${authValidation.reason}`)
+    }
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir)
+    let authState
+    try {
+        if (!hasVerifiedSQLiteAuth(juneDatabase._db)) {
+            await fs.promises.mkdir(sessionDir, { recursive: true })
+        }
+        authState = await useSQLiteAuthState(juneDatabase._db, sessionDir, {
+            allowFresh: true,
+            allowFreshAfterInvalid: authStatsBeforeStart.invalidReason === 'session-cleared',
+            onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+        })
+    } catch (authError) {
+        if (!authError.message?.startsWith('AUTH_MIGRATION_NO_KEY_FILES') &&
+            !authError.message?.startsWith('AUTH_MIGRATION_NO_VALID_KEY_FILES')) {
+            throw authError
+        }
+        //log('[ AUTH ] Only legacy creds.json is available; using file auth until Signal keys exist.', 'yellow')
+        await fs.promises.mkdir(sessionDir, { recursive: true })
+        const fileState = await useMultiFileAuthState(sessionDir)
+        authState = { ...fileState, source: 'files', stats: getSQLiteAuthStats(juneDatabase._db) }
+    }
+    const { state, saveCreds } = authState
+    log(`[ AUTH ] ${authState.source === 'sqlite' ? 'SQLite' : 'file'} auth active (${authState.stats.totalKeys} signal key rows in SQLite).`, 'cyan')
     const msgRetryCounterCache = new NodeCache()
+    let fileMigrationInFlight = null
+    let fileMigrationComplete = false
+    let fileMigrationBlockedReason = null
+    const tryMigrateFileAuth = async (trigger) => {
+        if (authState.source !== 'files' || fileMigrationComplete) return null
+        const currentStats = getSQLiteAuthStats(juneDatabase._db)
+        if (currentStats.verified && !currentStats.pendingFileMigration) return null
+        if (fileMigrationBlockedReason) return null
+        if (fileMigrationInFlight) return fileMigrationInFlight
+        fileMigrationInFlight = (async () => {
+            try {
+                const result = await migrateFilesToSQLite(juneDatabase._db, sessionDir, {
+                    replace: true,
+                    quarantine: false,
+                    onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+                })
+                authState.stats = result.stats
+                fileMigrationComplete = true
+                fileMigrationBlockedReason = null
+                log(`[ AUTH ] File-auth snapshot migrated to SQLite after ${trigger}; quarantine will complete on the next start.`, 'green')
+                return result
+            } catch (error) {
+                if (error.message?.startsWith('AUTH_MIGRATION_NO_VALID_KEY_FILES')) {
+                    fileMigrationBlockedReason = error.message
+                    log(`[ AUTH ] File-auth SQLite migration paused: ${error.message}`, 'yellow')
+                } else if (!error.message?.startsWith('AUTH_MIGRATION_NO_KEY_FILES')) {
+                    log(`[ AUTH ] File-auth migration after ${trigger} failed: ${error.message}`, 'yellow')
+                }
+                return null
+            } finally {
+                fileMigrationInFlight = null
+            }
+        })()
+        return fileMigrationInFlight
+    }
 
     const sock = makeWASocket({
         version,
@@ -788,10 +1413,25 @@ async function startJunexBot() {
             global.isBotConnected = false
             global.botState = 'connecting'
             const statusCode = lastDisconnect?.error?.output?.statusCode
-            const loggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401
+            const disconnectMessage = String(
+                lastDisconnect?.error?.message ||
+                lastDisconnect?.error?.output?.payload?.message ||
+                ''
+            ).toLowerCase()
+            // Baileys can report a device conflict as 401 with "conflict".
+            // That is recoverable and must not erase the verified session.
+            const isConflict401 = statusCode === 401 && disconnectMessage.includes('conflict')
+            const loggedOut = !isConflict401 &&
+                (statusCode === DisconnectReason.loggedOut || statusCode === 401)
 
             if (loggedOut) {
                 log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session...`), 'white')
+                // Remember only a hash so an expired SESSION_ID cannot cause an
+                // endless file-download/relogin loop on the next startup.
+                const configuredSessionId = process.env.SESSION_ID?.trim()
+                if (configuredSessionId && VALID_PREFIXES.some((prefix) => configuredSessionId.startsWith(prefix))) {
+                    markSessionIdFingerprintRevoked(fingerprintSessionId(configuredSessionId))
+                }
                 global.botState = 'disconnected'
                 global.connectedAt = null
                 clearSessionFiles()
@@ -811,6 +1451,9 @@ async function startJunexBot() {
                 const is408 = await handle408Error(statusCode)
 
                 let waitMs
+                // Conflict branches already provide a throttled reconnect message.
+                // Avoid a second generic "Connection closed" line every retry.
+                let showConnectionClosedLog = true
                 if (is408) {
                     // 408 timeout — exponential backoff capped at 60s
                     waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
@@ -823,52 +1466,234 @@ async function startJunexBot() {
                     //Error 500
                     global._consecutive500Count = (global._consecutive500Count || 0) + 1
                     if (global._consecutive500Count >= 3) {
-                        log(chalk.white.bgRedBright(`[500×${global._consecutive500Count}] Persistent bad-session signal. Clearing session files...`), 'white')
+                        log(chalk.white.bgRedBright(`[500×${global._consecutive500Count}] Persistent server errors. Preserving verified auth state...`), 'white')
                         global._consecutive500Count = 0
-                        clearSessionFiles()
+                        log('[500] Keeping the verified SQLite auth state; this may be a transient server error.', 'yellow')
                         waitMs = 8000
                     } else {
                         log(chalk.black.bgYellowBright(`[500] WhatsApp error (attempt ${global._consecutive500Count}/3). Retrying without clearing session...`), 'white')
                         waitMs = 10000
                     }
-                } else if (statusCode === 440) {
-                    // 440 connection replaced (another device logged in)
-                    waitMs = 20000
+                } else if (statusCode === 409 || statusCode === 440 || isConflict401) {
+                    // 409/440 means the WhatsApp session was replaced or
+                    // conflicted with another active client. This is not a
+                    // logout and must never clear verified auth.
+                    // The conflict branch below emits a throttled status line,
+                    // so suppress the generic reconnect line for this cycle.
+                    showConnectionClosedLog = false
+                    global._conflictCount = (global._conflictCount || 0) + 1
+                    const now = Date.now()
+                    const lastLogTime = global._lastConflictLogTime || 0
+                    const SUPPRESS_WINDOW = 3 * 60 * 1000 // 3 minutes
+                    const shouldLog = (now - lastLogTime) > SUPPRESS_WINDOW
+                    
+                    if (global._conflictCount >= 10) {
+                        waitMs = 300000
+                        if (shouldLog) {
+                            log(`[ CONFLICT ] Persistent device conflict (${statusCode} × ${global._conflictCount}). Waiting 5 minutes; close other WhatsApp bot instances.`, 'yellow')
+                            global._lastConflictLogTime = now
+                            global._suppressedConflictCount = 0
+                        } else {
+                            global._suppressedConflictCount++
+                        }
+                        global._conflictCount = 0
+                    } else {
+                        waitMs = Math.min(8000 + (global._conflictCount * 5000), 120000)
+                        
+                        if (shouldLog) {
+                            // Initial message: show reconnection timing
+                            log(`[ CONFLICT ] WhatsApp session replaced (${statusCode}). Reconnecting in ${waitMs / 1000}s.`, 'yellow')
+                            global._lastConflictLogTime = now
+                            global._suppressedConflictCount = 0
+                            
+                            // Set up summary message after suppress window ends
+                            if (global._conflictSummaryTimer) clearTimeout(global._conflictSummaryTimer)
+                            global._conflictSummaryTimer = setTimeout(() => {
+                                if (global._suppressedConflictCount > 0) {
+                                    log(`[ CONFLICT ] Repeated ${statusCode} conflicts suppressed — ${global._suppressedConflictCount} reconnect attempts.`, 'yellow')
+                                }
+                                global._suppressedConflictCount = 0
+                                global._conflictSummaryTimer = null
+                            }, SUPPRESS_WINDOW)
+                        } else {
+                            // Inside suppress window: just increment counter silently
+                            global._suppressedConflictCount++
+                        }
+                    }
                 } else {
                     waitMs = 5000
                 }
 
-                log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
-                await delay(waitMs)
+                if (showConnectionClosedLog) {
+                    log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
+                }
+                await new Promise(resolve => {
+                    global._reconnectTimer = setTimeout(resolve, waitMs)
+                    global._reconnectTimer.unref?.()
+                })
+                global._reconnectTimer = null
+                if (global._shutdownRequested) {
+                    global.isReconnecting = false
+                    return
+                }
                 global.isReconnecting = false
-                startJunexBot()
+                try {
+                    await startJunexBot()
+                } catch (error) {
+                    const message = String(error?.message || error || 'unknown startup error')
+                    const authFailure = message.includes('AUTH_STARTUP_VALIDATION_FAILED')
+                    global.botState = 'connecting'
+                    if (authFailure) {
+                        log(`[ AUTH ] Reconnect stopped safely: ${message.replace(/^AUTH_STARTUP_VALIDATION_FAILED:\s*/, '')}`, 'yellow')
+                        log('[ AUTH ] No auth data was cleared. Restore a known-good backup or explicitly re-pair to recover.', 'yellow')
+                    } else {
+                        const retryMs = 30000
+                        log(`[ RECONNECT ] Startup retry failed safely: ${message}`, 'yellow')
+                        log(`[ RECONNECT ] Retrying in ${retryMs / 1000}s...`, 'yellow')
+                        global._reconnectTimer = setTimeout(() => {
+                            global._reconnectTimer = null
+                            void startJunexBot().catch(retryError => {
+                                log(`[ RECONNECT ] Retry stopped safely: ${retryError?.message || retryError}`, 'yellow')
+                            })
+                        }, retryMs)
+                        global._reconnectTimer.unref?.()
+                    }
+                }
             }
         } else if (connection === 'open') {
             global.isReconnecting = false
             global.errorRetryCount = 0
             global._consecutive500Count = 0  // Clear the 500 guard on successful connect
+            global._conflictCount = 0
+            
+            // Clear conflict summary timer and show success
+            if (global._conflictSummaryTimer) {
+                clearTimeout(global._conflictSummaryTimer)
+                global._conflictSummaryTimer = null
+            }
+            if (global._suppressedConflictCount > 0) {
+                log(`[ CONFLICT ] Connection restored successfully.`, 'green')
+                global._suppressedConflictCount = 0
+            }
+            global._lastConflictLogTime = 0
+            
             global.botState = 'connected'
             global.connectedAt = Date.now()
+            // Drop only stale replay traffic for a brief, bounded period after
+            // reconnect so WhatsApp backlog delivery cannot block live commands.
+            replayDrain.markConnectionOpen()
             global.phoneNumber = null  // Clear so reconnects don't re-request pairing code
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
-            log(`🌿 Connected as: +${botNum}`, 'yellow')
-            log('Connecting...', 'green')
+            await tryMigrateFileAuth('connection-open')
             // Auto-export the session to .env so restarts never need re-login
             autoExportSessionToEnv(true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
+            const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
+            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
+            global.newsletters = newsletters;
+            global.groupInvites = groupInvites;
+
+            // Resolve the startup join result before printing the one-box report.
+            // This keeps the connection summary complete and removes a duplicate
+            // standalone "Group join failed" line below the box.
+            let groupJoinLabel = 'Failed'
+let groupJoinStatus = 'warning'
+
+if (groupInvites.length > 0) {
+    const joinResults = await Promise.allSettled(
+        groupInvites.map(inv => sock.groupAcceptInvite(inv))
+    )
+
+    const hasSuccess = joinResults.some(
+        result => result.status === 'fulfilled'
+    )
+
+    const errors = joinResults
+        .filter(result => result.status === 'rejected')
+        .map(result =>
+            String(
+                result.reason?.message ||
+                result.reason ||
+                'failed'
+            ).toLowerCase()
+        )
+
+    const alreadyJoined = errors.some(error =>
+        error.includes('already') ||
+        error.includes('conflict')
+    )
+
+    if (hasSuccess) {
+        groupJoinLabel = 'Connected'
+        groupJoinStatus = 'connected'
+    } else if (alreadyJoined) {
+        groupJoinLabel = 'Joined already'
+        groupJoinStatus = 'connected'
+    } else {
+        groupJoinLabel = 'Failed'
+        groupJoinStatus = 'warning'
+    }
+}
+           
+            if (!global.startupReportPrinted) {
+                const databaseHealth = juneDatabase.getDatabaseHealth()
+                const authStats = getSQLiteAuthStats(juneDatabase._db)
+                const postgres = pgAdapter.getStatus()
+                const mongo = mongoAdapter.getStatus()
+                const mode = juneDatabase.getBotMode?.() || 'public'
+                const diskReport = diskManager?.getStatus?.() || {}
+                const toggles = getStartupToggleState()
+                const owner = Array.isArray(config.ownerName)
+                    ? config.ownerName[0]
+                    : (config.ownerName || 'configured')
+                const startupSeconds = ((Date.now() - global.startupStartedAt) / 1000).toFixed(2)
+
+                printStartupReport({
+                    version: config.version,
+                    platform: os.platform(),
+                    nodeVersion: process.version,
+                    prefix: config.prefix === '' ? 'none' : (config.prefix || '.'),
+                    mode,
+                    owner,
+                    commandCount: cmdCount,
+                    startupTime: `${startupSeconds}s`,
+                    sqliteLabel: databaseHealth.ok ? 'ready' : 'degraded',
+                    sqliteStatus: databaseHealth.ok ? 'ready' : 'warning',
+                    sqliteDriver: databaseHealth.driver || 'unknown',
+                    schemaVersion: databaseHealth.schemaVersion,
+                    integrityLabel: databaseHealth.lastIntegrityCheck?.ok === false
+                        ? 'failed'
+                        : 'passed',
+                    integrityStatus: databaseHealth.lastIntegrityCheck?.ok === false
+                        ? 'failed'
+                        : 'passed',
+                    postgres,
+                    mongo,
+                    toggles,
+                    diskManagerLabel: diskReport.low ? 'low storage' : 'active',
+                    diskManagerStatus: diskReport.low ? 'warning' : 'active',
+                    sessionLabel: authStats.verified ? 'verified' : 'active',
+                    sessionStatus: authStats.verified ? 'ready' : 'warning',
+                    authSource: authState.source === 'sqlite' ? 'SQLite' : 'file auth',
+                    signalKeysLabel: `${authStats.totalKeys || 0} key rows`,
+                    signalKeysStatus: authStats.verified ? 'ready' : 'warning',
+                    whatsappLabel: 'connected',
+                    whatsappStatus: 'connected',
+                    accountLabel: `+${String(botNum).slice(0, 3)}******${String(botNum).slice(-3)}`,
+                    accountStatus: 'connected',
+                    groupJoinLabel,
+                    groupJoinStatus,
+                    databaseInfo: getExternalDatabaseStatus(),
+                }, output => console.log(output))
+                global.startupReportPrinted = true
+            }
             if (!global.welcomeSent) {
                 global.welcomeSent = true
                 await sendWelcomeMessage(sock)
             }
             handler.initializeAntiCall(sock)
 
-            // ── Auto-follow newsletters & auto-join groups (non-blocking) ──
-            const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
-            global.newsletters = newsletters;
-            const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
-            global.groupInvites = groupInvites;
-
-            // Run in background so they don't delay the bot becoming ready
+            // ── Auto-follow newsletters (non-blocking) ──
             setImmediate(async () => {
                 await Promise.allSettled(
                     newsletters.filter(Boolean).map(n =>
@@ -876,16 +1701,6 @@ async function startJunexBot() {
                             .catch(e => {
                                 if (!e.message?.includes('already') && !e.message?.includes('conflict') && !e.message?.includes('unexpected')) {
                                     log(`🚫 Newsletter follow failed: ${e.message}`, 'red');
-                                }
-                            })
-                    )
-                );
-                await Promise.allSettled(
-                    groupInvites.filter(Boolean).map(inv =>
-                        sock.groupAcceptInvite(inv)
-                            .catch(e => {
-                                if (!e.message?.includes('conflict') && !e.message?.includes('already')) {
-                                    log(`🚫 Group join failed: ${e.message}`, 'red');
                                 }
                             })
                     )
@@ -915,6 +1730,8 @@ async function startJunexBot() {
     // ── Message Handler ────────────────────────────────────────────────────────
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return
+        messages = messages.filter((msg) => !replayDrain.isReplayMessage(msg))
+        if (messages.length === 0) return
 
         // Save all messages to backup store
         for (const msg of messages) {
@@ -936,6 +1753,7 @@ async function startJunexBot() {
         // ── Status Handler ─────────────────────────────────────────────────────
         // shared settings module required once outside the loop for efficiency
         const { loadSettings, pickEmoji } = require('./database')
+        const { handleAutoDownloadStatus } = require('./commands/owner/autodownloadstatus')
 
         // ── Reaction queue: one at a time, properly spaced ──
         if (!global._sReactQueue) {
@@ -990,6 +1808,11 @@ async function startJunexBot() {
                 global.statusStore.set(normPart, existing)
             }
 
+            // Auto-download status before anti-delete storage
+            try {
+                await handleAutoDownloadStatus(sock, msg.key, msg.message)
+            } catch (_) {}
+
             // Store status for antideletestatus (recover deleted statuses)
             try {
                 const antideletestatus = require('./commands/owner/antideletestatus')
@@ -999,35 +1822,18 @@ async function startJunexBot() {
             try {
                 const s = loadSettings()
 
-                // ── Auto View (this is what flips the ring from green → grey) ──
+                // Auto View
                 if (s.enabled && normPart) {
                     // 1. Mark the message as read first
                     try {
                         await sock.readMessages([msg.key])
-                    } catch (e) {
-                        log(`[StatusView] readMessages failed: ${e.message}`, 'yellow')
-                    }
-
+                    } catch (_) {}
                     // 2. Send the story read receipt after a short natural delay
-                    //    so WhatsApp registers the view and greys out the ring.
+                    //    so WhatsApp registers the view and updates the poster's seen list
                     await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 500)))
-
                     try {
                         await sock.sendReceipt('status@broadcast', normPart, [msg.key.id], 'read')
-                    } catch (e) {
-                        log(`[StatusView] sendReceipt (normalized JID) failed: ${e.message}`, 'yellow')
-                        // Fallback: some WA/Baileys versions expect the raw
-                        // participant JID rather than the LID-normalized one.
-                        // Without this fallback, a normalization mismatch means
-                        // the receipt silently never lands and the ring stays green.
-                        if (rawPart && rawPart !== normPart) {
-                            try {
-                                await sock.sendReceipt('status@broadcast', rawPart, [msg.key.id], 'read')
-                            } catch (e2) {
-                                log(`[StatusView] sendReceipt (raw JID) also failed: ${e2.message}`, 'yellow')
-                            }
-                        }
-                    }
+                    } catch (_) {}
                 }
 
                 // Auto React — routed through the serialized queue, no inline setTimeout
@@ -1139,6 +1945,8 @@ async function startJunexBot() {
         await saveCreds()
         // Persist to database so session survives restarts without re-login
         saveSession(credsPath)
+        if (authState.source === 'sqlite') juneDatabase.markDatabaseDirty('auth-creds')
+        await tryMigrateFileAuth('creds-update')
         // Periodically refresh SESSION_ID in .env as a secondary backup
         autoExportSessionToEnv(false).catch(() => {})
     })
@@ -1154,6 +1962,12 @@ async function startJunexBot() {
                     lastSeen: data.lastSeen || null,
                     updatedAt: Date.now()
                 }
+                try {
+                    juneDatabase.recordRuntimeTelemetry('presence', jid, {
+                        chatId: id,
+                        status: data.lastKnownPresence || 'unavailable',
+                    })
+                } catch (_) {}
             }
         } catch (e) {
             log(`[Presence] update error: ${e.message}`, 'yellow')
@@ -1185,23 +1999,11 @@ async function startJunexBot() {
 
     // ── Background Cleanup Intervals ───────────────────────────────────────────
 
-    // Session file cleanup (every 2 hours)
+    // Auth key files are live Signal state. Never delete them by age.
+    // Only remove completed migration quarantines after the configured retention.
     global._activeIntervals.push(setInterval(() => {
-        if (!fs.existsSync(sessionDir)) return
-        fs.readdir(sessionDir, (err, files) => {
-            if (err) return
-            const now = Date.now()
-            const old = files.filter(f => {
-                try {
-                    const stats = fs.statSync(path.join(sessionDir, f))
-                    return (f.startsWith('pre-key') || f.startsWith('sender-key') || f.startsWith('session-') || f.startsWith('app-state')) &&
-                        f !== 'creds.json' && now - stats.mtimeMs > 2 * 24 * 60 * 60 * 1000
-                } catch { return false }
-            })
-            old.forEach(f => { try { fs.unlinkSync(path.join(sessionDir, f)) } catch (e) {} })
-            if (old.length > 0) log(`[Session Cleanup] Removed ${old.length} old session file(s).`, 'yellow')
-        })
-    }, 7200000))
+        cleanupExpiredSessionQuarantines('scheduled cleanup')
+    }, 6 * 60 * 60 * 1000))
 
     // Message backup cleanup (every hour)
     global._activeIntervals.push(setInterval(cleanupOldMessages, 60 * 60 * 1000))
@@ -1215,11 +2017,47 @@ async function startJunexBot() {
 // ─── Main Login Flow ──────────────────────────────────────────────────────────
 
 async function main() {
+    // The database uses async sql.js initialization when better-sqlite3 cannot
+    // load on an older VPS. Nothing may read settings/auth/schema before this.
+    await juneDatabase.ready
+    const configuredBotId = process.env.JUNE_BOT_ID || process.env.BOT_ID ||
+        process.env.OWNER_NUMBER || config.JUNE_BOT_ID || config.ownerNumber?.[0]
+    if (!process.env.JUNE_BOT_ID && !process.env.BOT_ID && !process.env.OWNER_NUMBER) {
+        pgAdapter.setBotId(configuredBotId)
+    }
+    mongoAdapter.setBotId(configuredBotId)
+
+    const [pgStatus, mongoStatus] = await Promise.all([
+        pgAdapter.init(),
+        mongoAdapter.init(),
+    ])
+    if (pgStatus.available) {
+        const restored = await juneDatabase.restoreFromPostgres()
+        if (restored.restored > 0) {
+            log(`[ PG ] Restored ${restored.restored} missing local database records.`, 'green')
+        }
+    }
+    if (mongoStatus.available) {
+        const restored = await juneDatabase.restoreFromMongo()
+        if (restored.restored > 0) {
+            log(`[ MONGO ] Restored ${restored.restored} missing local database records.`, 'green')
+        }
+    }
+    const settingsRecovery = settingsRegistry.restoreIfNeeded(juneDatabase)
+    if (settingsRecovery.restored > 0) {
+        log(`[ SETTINGS ] Restored ${settingsRecovery.restored} bot setting(s) from local recovery snapshot.`, 'green')
+    }
+    await applyPersistedRuntimeSettings()
+    settingsRegistry.start(juneDatabase)
+    if (!handler) handler = require('./handler')
+    diskManager.start()
 
     // 0. Re-read SESSION_ID directly from .env every time main() runs so that
     //    recursive calls (after logout) always see the latest value, and dotenvx
     //    quirks (which mangle long base64 values) are bypassed entirely.
     const _freshSessionID = readSessionIDFromEnv()
+    // Keep a platform-provided SESSION_ID when .env intentionally contains
+    // SESSION_ID= (the normal pattern for Heroku/Replit/Railway secrets).
     if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
 
     // 1. Validate SESSION_ID format before doing anything
@@ -1229,34 +2067,100 @@ async function main() {
     global.errorRetryCount = loadErrorCount().count
     log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
 
-    // 3. PRIORITY MODE: SESSION_ID from .env always wins
-    const envSessionID = process.env.SESSION_ID?.trim()
-    log(`[ SESSION_ID ] Detected: ${envSessionID ? envSessionID.slice(0, 20) + '...' : '(none)'}`, 'cyan')
+    cleanupExpiredSessionQuarantines('startup')
 
-    if (envSessionID && VALID_PREFIXES.some(p => envSessionID.startsWith(p))) {
-        log(chalk.black.bgGreenBright('[ SESSION_ID MODE ] SESSION_ID detected in .env — using as priority login.'), 'white')
+    // 3. SESSION_ID is a provisioning/recovery source — never an unconditional
+    // override for a verified SQLite auth state. Store only an opaque SHA-256
+    // fingerprint so we can detect a genuinely changed SESSION_ID safely.
+    const envSessionID = process.env.SESSION_ID?.trim() || ''
+    const hasValidEnvSessionID = Boolean(
+        envSessionID && VALID_PREFIXES.some((prefix) => envSessionID.startsWith(prefix))
+    )
+    const sqliteAuthReady = hasVerifiedSQLiteAuth(juneDatabase._db)
+    const currentSessionFingerprint = hasValidEnvSessionID
+        ? fingerprintSessionId(envSessionID)
+        : null
+    // Wolf-style marker files supplement the SQLite metadata. Both contain
+    // only SHA-256 values and help persistent hosts distinguish an unchanged
+    // SESSION_ID from a deliberately replaced one.
+    const storedSessionFingerprints = [
+        getSessionIdFingerprint(juneDatabase._db),
+        readSessionFingerprintFile(sessionIdHashFile),
+    ].filter(Boolean)
+    const revokedSessionFingerprints = [
+        getSessionIdRevokedFingerprint(juneDatabase._db),
+        readSessionFingerprintFile(sessionRevokedFile),
+    ].filter(Boolean)
+    const sameSessionId = Boolean(
+        currentSessionFingerprint && storedSessionFingerprints.includes(currentSessionFingerprint)
+    )
+    const sessionIdChanged = Boolean(
+        currentSessionFingerprint &&
+        storedSessionFingerprints.length > 0 &&
+        !sameSessionId
+    )
+    const sessionIdRevoked = Boolean(
+        currentSessionFingerprint && revokedSessionFingerprints.includes(currentSessionFingerprint)
+    )
+    const usableFileSession = hasUsableFileSession()
 
+    log(`[ SESSION_ID ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
+
+    if (sessionIdRevoked) {
+        log('[ SESSION_ID ] This SESSION_ID was logged out by WhatsApp. Add a fresh SESSION_ID, then restart.', 'red', true)
+        checkEnvStatus()
+        return
+    }
+
+    // Match Wolf's deployment flow:
+    // - same hash + usable creds file: reconnect from local evolved state;
+    // - new/missing hash on a non-verified state: apply SESSION_ID once;
+    // - fresh Heroku dyno: no marker and no local session, so bootstrap from
+    //   the platform Config Var automatically.
+    const shouldBootstrapFromSessionId = hasValidEnvSessionID && (
+        sessionIdChanged ||
+        (!sqliteAuthReady && (!sameSessionId || !usableFileSession))
+    )
+
+    if (shouldBootstrapFromSessionId) {
         global.SESSION_ID = envSessionID
+        const replacingFileSession = sessionIdChanged ||
+            (!sameSessionId && sessionExists()) ||
+            (!usableFileSession && sessionExists())
+
+        if (replacingFileSession) {
+            log('[ SESSION_ID ] Applying a new or untracked SESSION_ID — preserving prior file auth first.', 'yellow')
+            const oldSessionPath = quarantineCurrentSessionForReplacement()
+            if (oldSessionPath) {
+                log(`[ SESSION ] Previous file auth preserved at ${path.basename(oldSessionPath)}.`, 'yellow')
+            }
+        } else {
+            log('[ SESSION_ID MODE ] No usable local auth found — bootstrapping from SESSION_ID.', 'white')
+        }
 
         if (!sessionExists()) {
-            log('[ SESSION_ID ] No stored session found — downloading from SESSION_ID...', 'magenta')
+            log('[ SESSION_ID ] Writing creds.json from SESSION_ID...', 'magenta')
             await fs.promises.mkdir(sessionDir, { recursive: true })
             try {
                 await downloadSessionData()
-                // Verify the file was actually written — downloadSessionData can
-                // return without writing if something went silently wrong.
-                if (!sessionExists()) {
-                    throw new Error('creds.json was not written after download — SESSION_ID may be corrupt or expired')
+                if (!hasUsableFileSession()) {
+                    throw new Error('creds.json was not written or is invalid after SESSION_ID bootstrap')
                 }
-                log('[ SESSION_ID ] ✅ Session downloaded successfully.', 'green')
+                log('[ SESSION_ID ] ✅ Session bootstrap saved successfully.', 'green')
             } catch (e) {
-                log(`[ SESSION_ID ] ❌ Failed to download session: ${e.message}`, 'red', true)
+                log(`[ SESSION_ID ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
                 log('Retrying in 5 seconds...', 'yellow')
                 await delay(5000)
                 return main()
             }
         }
 
+        invalidateSQLiteAuth(
+            juneDatabase._db,
+            sessionIdChanged ? 'session-id-changed' : 'session-id-bootstrap'
+        )
+        rememberSessionIdFingerprint(currentSessionFingerprint)
+        clearRevokedSessionIdFingerprint()
         await saveLoginMethod('session')
         log('[ SESSION_ID ] Connecting...', 'cyan')
         await startJunexBot()
@@ -1264,7 +2168,23 @@ async function main() {
         return
     }
 
-    log('[ALERT] No SESSION_ID in .env..', 'blue')
+    if (hasValidEnvSessionID && sqliteAuthReady) {
+        if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
+            clearRevokedSessionIdFingerprint()
+        }
+        if (!sameSessionId) {
+            // Upgrade path for an existing verified June X installation.
+            rememberSessionIdFingerprint(currentSessionFingerprint)
+            log('[ AUTH ] Linked the existing verified SQLite auth to the configured SESSION_ID fingerprint.', 'cyan')
+        }
+        log('[ AUTH ] Verified SQLite auth found; SESSION_ID is retained only as a recovery backup.', 'green')
+    } else if (hasValidEnvSessionID && usableFileSession) {
+        // Persistent host restart: hash and creds agree, but SQLite needs to be
+        // rebuilt from files. Do not re-download or overwrite the evolved creds.
+        log('[ SESSION_ID ] Existing file session matches its fingerprint; rebuilding local SQLite auth.', 'cyan')
+    } else {
+        log('[ALERT] No SESSION_ID in .env..', 'blue')
+    }
 
     // 4. Integrity check on stored session
     await checkSessionIntegrityAndClean()
@@ -1277,7 +2197,17 @@ async function main() {
         return
     }
 
-    // 5b. Restore from database if session folder was lost
+    // 5b. A verified SQLite auth state is complete on its own. Do not
+    // reconstruct only creds.json from the legacy session table.
+    if (hasVerifiedSQLiteAuth(juneDatabase._db)) {
+        log('[ AUTH ] Verified SQLite auth found; starting without session files.', 'green')
+        await saveLoginMethod('session')
+        await startJunexBot()
+        checkEnvStatus()
+        return
+    }
+
+    // 5c. Legacy fallback for databases created before complete auth storage.
     const restoredFromDB = await restoreSessionFromDB()
     if (restoredFromDB) {
         await saveLoginMethod('session')
@@ -1507,6 +2437,63 @@ function startKeepAliveServer() {
 
     app.get('/health', (req, res) => res.status(200).send('OK'));
 
+    app.get('/health/details', async (req, res) => {
+        try {
+            const databaseHealth = juneDatabase.getDatabaseHealth();
+            const authStats = getSQLiteAuthStats(juneDatabase._db);
+            let antiDelete = null;
+            try {
+                antiDelete = require('./commands/owner/antidelete').getStoreStats();
+            } catch (_) {}
+            res.json({
+                ok: databaseHealth.ok === true &&
+                    (!databaseHealth.backupExists || databaseHealth.backupValid === true),
+                botState: global.botState || 'unknown',
+                database: {
+                    sizeBytes: databaseHealth.databaseSizeBytes,
+                    backupSizeBytes: databaseHealth.backupSizeBytes,
+                    backupExists: databaseHealth.backupExists,
+                    backupValid: databaseHealth.backupValid,
+                    dirty: databaseHealth.dirty,
+                    lastBackup: databaseHealth.lastBackup,
+                    integrity: databaseHealth.lastIntegrityCheck,
+                    maintenance: databaseHealth.maintenance,
+                    remoteSync: databaseHealth.remoteSync,
+                    postgres: databaseHealth.postgres,
+                    mongo: databaseHealth.mongo,
+                },
+                stability: {
+                    replayDrain: replayDrain.getStats(),
+                    settingsRegistry: settingsRegistry.getStatus(),
+                },
+                auth: {
+                    verified: authStats.verified,
+                    hasCreds: authStats.hasCreds,
+                    totalKeys: authStats.totalKeys,
+                    byType: authStats.byType,
+                    pendingFileMigration: authStats.pendingFileMigration,
+                    invalidReason: authStats.invalidReason,
+                },
+                antiDelete,
+                storage: diskManager?.getReport?.() || null,
+                telemetry: {
+                    stats: (() => {
+                        const rows = juneDatabase.getRuntimeTelemetry(1000);
+                        return {
+                            total: rows.length,
+                            eventTypes: rows.reduce((counts, row) => {
+                                counts[row.eventType] = (counts[row.eventType] || 0) + row.count;
+                                return counts;
+                            }, {}),
+                        };
+                    })(),
+                },
+            });
+        } catch (error) {
+            res.status(503).json({ ok: false, error: error.message });
+        }
+    });
+
     const server = http.createServer(app);
 
     const PORTS_TO_TRY = process.env.PORT
@@ -1539,7 +2526,39 @@ function startKeepAliveServer() {
     return server;
 }
 
-startKeepAliveServer();
+let keepAliveServer = null
+
+global.__JUNE_SHUTDOWN = async () => {
+    if (global._shutdownPromise) return global._shutdownPromise
+    global._shutdownRequested = true
+    global._shutdownPromise = (async () => {
+        log('[ SHUTDOWN ] Gracefully stopping June-X...', 'yellow')
+        if (global._reconnectTimer) {
+            clearTimeout(global._reconnectTimer)
+            global._reconnectTimer = null
+        }
+        for (const interval of global._activeIntervals || []) clearInterval(interval)
+        global._activeIntervals = []
+        try { global._envWatcher?.close?.() } catch (_) {}
+        try { diskManager?.stop?.() } catch (_) {}
+        try { settingsRegistry.stop(juneDatabase) } catch (_) {}
+        try { flushStoredMessages() } catch (_) {}
+        try {
+            const sock = global.currentSock
+            if (sock?.ws?.close) sock.ws.close()
+            else if (sock?.end) sock.end(new Error('process shutdown'))
+        } catch (_) {}
+        try { keepAliveServer?.close?.() } catch (_) {}
+        try { await autoExportSessionToEnv(true) } catch (_) {}
+        try { await juneDatabase.shutdownDatabase() } catch (error) {
+            log(`[ SHUTDOWN ] Database flush failed: ${error.message}`, 'red', true)
+        }
+        log('[ SHUTDOWN ] Complete.', 'green')
+    })()
+    return global._shutdownPromise
+}
+
+keepAliveServer = startKeepAliveServer();
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 
@@ -1560,6 +2579,11 @@ process.on('unhandledRejection', (err) => {
         return
     }
     if (err?.message?.includes('rate-overlimit')) return
+    if (err?.message?.includes('AUTH_STARTUP_VALIDATION_FAILED')) {
+        log(`[ AUTH ] Startup recovery stopped safely: ${err.message.replace(/^AUTH_STARTUP_VALIDATION_FAILED:\s*/, '')}`, 'yellow')
+        log('[ AUTH ] No auth data was cleared. Restore a known-good backup or explicitly re-pair.', 'yellow')
+        return
+    }
     log(`Unhandled Rejection: ${err?.message}`, 'red', true)
 })
 
