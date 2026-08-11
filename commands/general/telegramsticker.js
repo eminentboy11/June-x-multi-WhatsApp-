@@ -165,10 +165,8 @@ module.exports = {
             const chunk   = chunks[chunkIdx];
             const packId  = packIds[chunkIdx];
             const packNum = chunkIdx + 1;
-            // label embedded in EXIF — shown as the pack name inside WhatsApp
-            const label   = totalPacks > 1
-                ? `${waPack} (${packNum}/${totalPacks})`
-                : waPack;
+            // label embedded in EXIF — always the requester's pushName
+            const label   = waPack;
 
             for (let i = 0; i < chunk.length; i++) {
                 const globalIdx  = chunkIdx * PACK_SIZE + i;
