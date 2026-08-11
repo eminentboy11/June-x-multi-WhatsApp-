@@ -139,7 +139,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
-    menu += `┏◈ \`${label}\` ◆\n`;
+    menu += `┏◈ \`${label}\` \n`;
     for (const cmd of cmds) {
       menu += `┃◈${cmd.name}\n`;
     }
