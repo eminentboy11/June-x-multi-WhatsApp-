@@ -15,8 +15,8 @@ function createFakeContact(msg) {
     return {
         key: {
             participants: "0@s.whatsapp.net",
-            remoteJid: "",
-            fromMe: false,
+            remoteJid: `${jid}`,
+            fromMe: true,
             id: "JUNE-X"
         },
         message: {
