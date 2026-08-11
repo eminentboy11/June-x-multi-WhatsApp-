@@ -326,11 +326,11 @@ function printStartupReport(data = {}) {
     }
     
     const lines = [
-        `┌${'─'.repeat(48- 2)}┐`,
+        `┌${'─'.repeat(45- 2)}┐`,
         `┃${chalk.cyan('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓').padEnd(10 - 1)}┃`,
         `┃${chalk.white.bold('        🤖 JUNE X (•ˇ_ˇ•) ULTRA STARTING...').padEnd(66 - 1)}┃`,
         `┃${chalk.cyan('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛').padEnd(10 - 1)}┃`,
-        `├${'─'.repeat(48 - 2)}┤`,
+        `├${'─'.repeat(45- 2)}┤`,
         startupHeading('SYSTEM'),
         startupRow('Platform', platform),
         startupRow('Node.js', data.nodeVersion || process.version),
