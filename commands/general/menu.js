@@ -30,11 +30,11 @@ function getMenuStyle() {
   try {
     const runtimeSettings = require('../../utils/settings');
     const fromStore = runtimeSettings.get('menuStyle');
-    if (fromStore && fromStore !== '1') return fromStore;
-    if (!fs.existsSync(MENU_SETTINGS_FILE)) return fromStore || '1';
-    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || fromStore || '1';
+    if (fromStore) return fromStore;
+    if (!fs.existsSync(MENU_SETTINGS_FILE)) return '2';
+    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || '2';
   } catch {
-    return '1';
+    return '2';
   }
 }
 
@@ -82,7 +82,7 @@ const CATEGORY_LABELS = {
   textmaker: 'TEXTMAKER-CMD',
 };
 
-function buildMenuText(categories, extra, totalCount, speed) {
+function buildMenuText(categories, extra, totalCount, speed, narrow = false) {
   const prefix = config.prefix;
   const bot = config.botName || 'JuneX Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
@@ -96,18 +96,29 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu =  `┏━━❐✧ ${bot} ✧❐\n`;
-  menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
-  menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
-  menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
-  menu += `┃ *ᴘʟᴀᴛꜰᴏʀᴍ:* ${hostName}\n`;
-  menu += `┃ *ꜱᴘᴇᴇᴅ:* ${ping} ms\n`;
-  menu += `┃ *ᴜᴘᴛɪᴍᴇ:* ${uptimeFormatted}\n`;
-  menu += `┃ *Vᴇʀꜱɪᴏɴ:* v${config.version}\n`;
-  menu += `┃ *ᴜꜱᴀɢᴇ:* ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  menu += `┃ *ʀᴀᴍ:* ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  menu += `┃ *Cᴏᴍᴍᴀɴᴅꜱ:* ${totalCount}\n`;
-  menu += `┗❐\n${readmore}\n`;
+  let menu = '';
+
+  if (narrow) {
+    menu += `*${bot}*\n`;
+    menu += `ᴘʀᴇꜰɪx: ${prefix} | ᴏᴡɴᴇʀ: ${ownerName}\n`;
+    menu += `ᴍᴏᴅᴇ: ${currentMode} | ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
+    menu += `ꜱᴘᴇᴇᴅ: ${ping}ms | ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
+    menu += `Vᴇʀꜱɪᴏɴ: v${config.version} | Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
+    menu += `${readmore}\n`;
+  } else {
+    menu += `┏━━❐✧ ${bot} ✧❐\n`;
+    menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
+    menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
+    menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
+    menu += `┃ *ᴘʟᴀᴛꜰᴏʀᴍ:* ${hostName}\n`;
+    menu += `┃ *ꜱᴘᴇᴇᴅ:* ${ping} ms\n`;
+    menu += `┃ *ᴜᴘᴛɪᴍᴇ:* ${uptimeFormatted}\n`;
+    menu += `┃ *Vᴇʀꜱɪᴏɴ:* v${config.version}\n`;
+    menu += `┃ *ᴜꜱᴀɢᴇ:* ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+    menu += `┃ *ʀᴀᴍ:* ${progressBar(systemUsedMemory, totalMemory)}\n`;
+    menu += `┃ *Cᴏᴍᴍᴀɴᴅꜱ:* ${totalCount}\n`;
+    menu += `┗❐\n${readmore}\n`;
+  }
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
   const ordered = [
@@ -120,16 +131,25 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
-    menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
-    for (const cmd of cmds) {
-      menu += `┃➧ ${cmd.name}\n`;
-    }
-    menu += `┗❐\n`;
-    sectionIndex++;
-    if (sectionIndex % 3 === 0) {
-      menu += `${readmore}\n`;
-    } else {
+
+    if (narrow) {
+      menu += `*${label}*\n`;
+      for (const cmd of cmds) {
+        menu += `${cmd.name}\n`;
+      }
       menu += `\n`;
+    } else {
+      menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
+      for (const cmd of cmds) {
+        menu += `┃➧ ${cmd.name}\n`;
+      }
+      menu += `┗❐\n`;
+      sectionIndex++;
+      if (sectionIndex % 3 === 0) {
+        menu += `${readmore}\n`;
+      } else {
+        menu += `\n`;
+      }
     }
   }
 
@@ -194,12 +214,14 @@ module.exports = {
       const speedMs = Date.now() - msgTimestamp;
 
       const menulist = buildMenuText(categories, extra, uniqueCount, speedMs);
+      const narrowMenulist = buildMenuText(categories, extra, uniqueCount, speedMs, true);
       const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
       const plink = config.social?.github || 'https://github.com';
       const chatId = extra.from;
       const fullMenu = applyFont(menulist + `\n> ${config.botName}`);
+      const narrowMenu = applyFont(narrowMenulist + `\n> ${config.botName}`);
       const supreme = `Powered by ${ownername}`;
 
       if (menustyle === '1') {
@@ -225,9 +247,9 @@ module.exports = {
         await markDone();
 
       } else if (menustyle === '2') {
-        // ── Text only, no buttons ──────────────────────────────────────
+        // ── Narrow: same data/order, no box-drawing border ──────────────
         await sock.sendMessage(chatId, {
-          text: fullMenu,
+          text: narrowMenu,
           footer: supreme,
           mentions: [extra.sender],
         }, { quoted: msg });
@@ -326,7 +348,7 @@ module.exports = {
 
       } else {
         await sock.sendMessage(chatId, {
-          text: fullMenu,
+          text: narrowMenu,
           mentions: [extra.sender],
         }, { quoted: msg });
         await markDone();
