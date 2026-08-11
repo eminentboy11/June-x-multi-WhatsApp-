@@ -17,7 +17,7 @@ function createFakeContact(msg) {
             participants: "0@s.whatsapp.net",
             remoteJid: "",
             fromMe: false,
-            id: "JUNE-X-MENU"
+            id: "JUNE-X"
         },
         message: {
             contactMessage: {
@@ -115,7 +115,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu =  `┏❐✧ ${bot} ✧❐\n`;
+  let menu =  `┏◆ ${bot} ◆\n`;
   menu += `┃ ᴘʀᴇꜰɪx: [ ${prefix} ]\n`;
   menu += `┃ ᴏᴡɴᴇʀ: ${ownerName}\n`;
   menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
@@ -141,7 +141,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
     menu += `┏◆ \`${label}\` ◆\n`;
     for (const cmd of cmds) {
-      menu += `┃➧ ${cmd.name}\n`;
+      menu += `┃▷ ${cmd.name}\n`;
     }
     menu += `┗◆\n`;
     sectionIndex++;
