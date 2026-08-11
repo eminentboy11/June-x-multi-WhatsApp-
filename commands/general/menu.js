@@ -115,7 +115,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
   const readmore = String.fromCharCode(8206).repeat(4001);
   const ping = Number.isInteger(speed) ? `${speed}` : speed.toFixed(2);
 
-  let menu =  `┏━━❐✧ ${bot} ✧❐\n`;
+  let menu =  `┏❐✧ ${bot} ✧❐\n`;
   menu += `┃ *ᴘʀᴇꜰɪx:* [ ${prefix} ]\n`;
   menu += `┃ *ᴏᴡɴᴇʀ:* ${ownerName}\n`;
   menu += `┃ *ᴍᴏᴅᴇ:* ${currentMode}\n`;
@@ -139,7 +139,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     const cmds = categories[key];
     if (!cmds || cmds.length === 0) continue;
     const label = (CATEGORY_LABELS[key] || `${key.toUpperCase()}-CMD`);
-    menu += `┏━━❐◆ \`${label}\` ◆❐\n`;
+    menu += `┏❐◆ \`${label}\` ◆❐\n`;
     for (const cmd of cmds) {
       menu += `┃➧ ${cmd.name}\n`;
     }
