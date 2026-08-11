@@ -246,7 +246,7 @@ const APIs = {
 
   getIzumiDownloadByUrl: async (youtubeUrl) => {
     const res = await tryRequest(() =>
-      axios.get(`https://apiskeith2-production-ec66.up.railway.app/download/audio?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
+      axios.get(`https://apiskeith2-production-3020.up.railway.app/download/audio?url=${encodeURIComponent(youtubeUrl)}`, DOWNLOAD_HEADERS)
     );
     if (res?.data?.status && res?.data?.result) {
       return {
