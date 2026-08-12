@@ -143,7 +143,7 @@ function buildMenuText(categories, extra, totalCount, speed) {
     for (const cmd of cmds) {
       menu += `┃◈${cmd.name}\n`;
     }
-    menu += `┗❐\n`;
+    menu += `┗❐◈\n`;
     sectionIndex++;
     if (sectionIndex % 3 === 0) {
       menu += `${readmore}\n`;
