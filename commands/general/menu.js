@@ -17,11 +17,11 @@ function createFakeContact(msg) {
             participants: "0@s.whatsapp.net",
             remoteJid: "0@s.whatsapp.net",
             fromMe: false,
-            id: "JUNE-X"
+            id: `${config.botName}`
         },
         message: {
             contactMessage: {
-                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN:JUNE X\nitem1.TEL;waid=${jid}:${jid}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`
+                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN: JUNE-X\nitem1.TEL;waid=${jid}:${jid}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`
             }
         },
         participant: "0@s.whatsapp.net"
