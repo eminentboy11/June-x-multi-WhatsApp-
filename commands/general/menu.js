@@ -11,17 +11,21 @@ const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
 // Create fake contact for enhanced replies
 function createFakeContact(msg) {
-    const jid = msg.key.participant?.split('@')[0] || msg.key.remoteJid?.split('@')[0] || '0';
+    const botName = config.botName || 'JuneX-Ultra';
+    const participantId = msg.key.participant || msg.key.remoteJid || '0';
+    const cleanId = String(participantId).split(':')[0].split('@')[0] || '0';
+
     return {
         key: {
             participants: "0@s.whatsapp.net",
             remoteJid: "0@s.whatsapp.net",
             fromMe: false,
-            id: `${config.botName}`
+            id: "JUNEX" + Math.random().toString(36).substring(2, 12).toUpperCase()
         },
         message: {
             contactMessage: {
-                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN: JUNE-X\nitem1.TEL;waid=${jid}:${jid}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`
+                displayName: botName,
+                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN:${botName}\nitem1.TEL;waid=${cleanId}:${cleanId}\nitem1.X-ABLabel:Phone\nEND:VCARD`
             }
         },
         participant: "0@s.whatsapp.net"
