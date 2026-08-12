@@ -1192,21 +1192,30 @@ const getStoredBotSettings = () => {
 };
 const getAllBotSettings = () => ({ ...BOT_SETTINGS_DEFAULTS, ...getStoredBotSettings() });
 const updateBotSettings = (updates) => { for (const [key, value] of Object.entries(updates)) setBotSetting(key, value); return true; };
-const VALID_BOT_MODES = ['public', 'groups', 'dms', 'silent'];
+
+// ── Bot Mode ──────────────────────────────────────────────────────────────
+// Canonical vocabulary used everywhere else (utils/botMode.js, the mode.js
+// command, and messageHandler.js's mode gate): 'public' | 'private' | 'group'
+// | 'pm'. Older installs may have 'silent' / 'restricted' / 'groups' / 'dms'
+// stored on disk from a previous naming scheme — translate those on read
+// only, never write them again.
+const VALID_BOT_MODES = ['public', 'private', 'group', 'pm'];
+
+const LEGACY_MODE_ALIASES = {
+  silent: 'private',
+  restricted: 'private',
+  groups: 'group',
+  dms: 'pm',
+};
+
 const getBotMode = () => {
-  const mode = getBotSetting('mode') || 'public';
-  if (mode === 'private' || mode === 'restricted') return 'silent';
-  if (mode === 'group') return 'groups';
-  if (mode === 'pm') return 'dms';
+  const raw = getBotSetting('mode') || 'public';
+  const mode = LEGACY_MODE_ALIASES[raw] || raw;
   return VALID_BOT_MODES.includes(mode) ? mode : 'public';
 };
+
 const setBotMode = (mode) => {
-  const normalized = {
-    private: 'silent',
-    restricted: 'silent',
-    group: 'groups',
-    pm: 'dms',
-  }[mode] || mode;
+  const normalized = LEGACY_MODE_ALIASES[mode] || mode;
   if (!VALID_BOT_MODES.includes(normalized)) throw new Error(`Invalid mode: ${mode}`);
   setBotSetting('mode', normalized);
   return true;
