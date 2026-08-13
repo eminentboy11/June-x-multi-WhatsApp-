@@ -1502,7 +1502,7 @@ const clearStoredLoginMethod = () => {
 // The menu renderer and owner commands use these SQLite-backed values only.
 const MENU_STYLE_VALUES = Object.freeze(['1', '2', '3', '4', '5', '6']);
 const MENU_SETTINGS_DEFAULTS = Object.freeze({
-  menuStyle: '2',
+  menuStyle: '5',
   showMemory: true,
   showUptime: true,
   showPluginCount: true,
