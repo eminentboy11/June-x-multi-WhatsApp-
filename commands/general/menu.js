@@ -11,7 +11,7 @@ const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
 
 // Create fake contact for enhanced replies
 function createFakeContact(msg) {
-    const botName = config.botName || 'JuneX-Ultra';
+    const botName = config.botName || 'JUNE-X';
     const participantId = msg.key.participant || msg.key.remoteJid || '0';
     const cleanId = String(participantId).split(':')[0].split('@')[0] || '0';
 
