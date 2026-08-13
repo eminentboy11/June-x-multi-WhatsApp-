@@ -22,7 +22,6 @@ module.exports = {
     autoSticker: false,
     autoReact: false,
     autoReactMode: 'bot',
-    autoDownload: false,
     autoRecording: false,
     autoRecordType: false,
     
@@ -60,7 +59,6 @@ module.exports = {
       antilinkAction: 'delete',
       antitag: false,
       antitagAction: 'delete',
-      antiall: false,
       antiviewonce: false,
       antibot: false,
       anticall: false,
@@ -80,7 +78,6 @@ module.exports = {
       antiSpamLimit: 5,
       antiSpamWindow: 5,
       antiSpamAction: 'delete',
-      antidelete: false,
       nsfw: false,
       detect: false,
       chatbot: false,

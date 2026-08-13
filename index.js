@@ -128,7 +128,6 @@ const {
 const juneDatabase = require('./database')
 const pgAdapter = require('./utils/juneDb/pgAdapter')
 const mongoAdapter = require('./utils/juneDb/mongoAdapter')
-const settingsRegistry = require('./utils/juneDb/settingsRegistry')
 const replayDrain = require('./utils/juneDb/replayDrain')
 const {
     useSQLiteAuthState,
@@ -253,18 +252,12 @@ function getStartupToggleState() {
             return Boolean(db.getBotSetting?.('autoReact') ?? config.autoReact)
         }
     })()
-    const autoDownload = (() => {
-        try {
-            return Boolean(require('./commands/owner/autodownloadstatus').manager?.config?.enabled)
-        } catch (_) {
-            return Boolean(db.getBotSetting?.('autoDownload') ?? config.autoDownload)
-        }
-    })()
-    const kv = (() => {
-        try { return require('./utils/kvstore') } catch (_) { return null }
-    })()
-    const antidelete = kv?.get('antidelete', '_global', {}) || {}
-    const antideleteStatus = kv?.get('antideletestatus', '_global', {}) || {}
+    // Auto-download status has one source of truth: SQLite bot_settings.
+    const autoDownload = Boolean(db.getAutoDownloadStatusSettings().enabled)
+    // Anti-feature configuration is read directly from SQLite. There is no
+    // data/*.json or config.js fallback for these values.
+    const antideleteMode = db.getAntideleteMode()
+    const antideleteStatus = db.isAntideleteStatusEnabled()
 
     return {
         autoStatusView: Boolean(statusSettings.enabled),
@@ -275,12 +268,9 @@ function getStartupToggleState() {
         autoDownload,
         alwaysOnline: Boolean(db.getBotSetting?.('alwaysOnline')),
         readReceipts: (db.getBotSetting?.('readReceipts') || 'off') !== 'off',
-        antideleteStatus: antideleteStatus.enabled === true,
+        antideleteStatus,
         autoReact,
-        antiDelete: Boolean(
-            (antidelete._global?.mode || antidelete.mode) &&
-            (antidelete._global?.mode || antidelete.mode) !== 'off'
-        ),
+        antiDelete: antideleteMode !== 'off',
     }
 }
 
@@ -326,11 +316,11 @@ function printStartupReport(data = {}) {
     }
     
     const lines = [
-        `┌${'─'.repeat(45- 2)}┐`,
+        `┌${'─'.repeat(48- 2)}┐`,
         `┃${chalk.cyan('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓').padEnd(10 - 1)}┃`,
         `┃${chalk.white.bold('        🤖 JUNE X (•ˇ_ˇ•) ULTRA STARTING...').padEnd(66 - 1)}┃`,
         `┃${chalk.cyan('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛').padEnd(10 - 1)}┃`,
-        `├${'─'.repeat(45- 2)}┤`,
+        `├${'─'.repeat(48 - 2)}┤`,
         startupHeading('SYSTEM'),
         startupRow('Platform', platform),
         startupRow('Node.js', data.nodeVersion || process.version),
@@ -443,47 +433,9 @@ async function applyPersistedRuntimeSettings() {
         if (all.presenceMode === 'recording')  config.autoRecording  = true;
         if (all.presenceMode === 'recordtype') { config.autoRecording = true; config.autoRecordType = true; }
 
-        // Restore custom menu image if one was set before restart.
-        if (all.menuImageCustom) {
-            const PERSIST_PATH = path.join(__dirname, 'data/custom_menu.jpg');
-            const IMAGE_PATH   = path.join(__dirname, 'utils/bot_image.jpg');
-            const MENU1_PATH   = path.join(__dirname, 'assets/menu1.jpg');
-            let buf = null;
-
-            if (fs.existsSync(PERSIST_PATH)) {
-                try { buf = fs.readFileSync(PERSIST_PATH); } catch {}
-            }
-
-            if (!buf && all.menuImageData) {
-                try {
-                    const decoded = Buffer.from(all.menuImageData, 'base64');
-                    if (!decoded || decoded.length < 100) {
-                        throw new Error('Decoded image data is empty or too small to be valid.');
-                    }
-                    buf = decoded;
-                    try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); } catch {}
-                    atomicWriteFile(PERSIST_PATH, buf);
-                    log('[ SETTINGS ] Custom menu image rebuilt from database.', 'cyan');
-                } catch (rebuildErr) {
-                    log(`[ SETTINGS ] Could not rebuild menu image from database: ${rebuildErr.message}`, 'yellow');
-                    buf = null;
-                }
-            }
-
-            if (buf) {
-                try {
-                    atomicWriteFile(IMAGE_PATH, buf);
-                    try { atomicWriteFile(MENU1_PATH, buf); } catch {}
-                    log('[ SETTINGS ] Custom menu image restored successfully.', 'cyan');
-                } catch (imgErr) {
-                    log(`[ SETTINGS ] Could not restore custom menu image: ${imgErr.message}`, 'yellow');
-                }
-            } else {
-                db.setBotSetting('menuImageCustom', false);
-                db.setBotSetting('menuImageData', null);
-                log('[ SETTINGS ] Custom menu image missing from both disk and database.', 'yellow');
-            }
-        }
+        // Custom menu images stay in SQLite and are decoded directly by
+        // commands/general/menu.js when a menu is sent. Do not rebuild or
+        // maintain a persistent runtime image copy here.
     } catch (e) {
         log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
     }
@@ -496,13 +448,9 @@ const { saveSession, getSession, clearSession } = juneDatabase
 
 const sessionDir = path.join(__dirname, config.sessionName || 'session')
 const credsPath = path.join(sessionDir, 'creds.json')
-const loginFile = path.join(__dirname, 'login.json')
 const envPath = path.join(process.cwd(), '.env')
-// Wolf-style local markers. They contain only SHA-256 fingerprints, never
-// the raw SESSION_ID. They are useful on persistent hosts and naturally reset
-// on a fresh ephemeral Heroku dyno.
-const sessionIdHashFile = path.join(__dirname, '.session_id_hash')
-const sessionRevokedFile = path.join(__dirname, '.session_revoked')
+// Login metadata and session-ID fingerprints are stored in SQLite metadata.
+// Raw SESSION_ID values remain environment-only secrets.
 
 // ─── Auto-generate .env if missing ────────────────────────────────────────────
 if (!fs.existsSync(envPath)) {
@@ -542,80 +490,35 @@ const _rawSessionID = readSessionIDFromEnv()
 // value intentionally leaves Heroku/Replit/Railway environment secrets intact.
 if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
-// ─── Message Backup Store ─────────────────────────────────────────────────────
+// ─── Session Error Counter Helpers ───────────────────────────────────────────
+// The retry state is stored in SQLite KV through database.js. No session error
+// counter file is read or written.
 
-const MESSAGE_STORE_FILE = path.join(__dirname, 'message_backup.json')
-const SESSION_ERROR_FILE = path.join(__dirname, 'sessionErrorCount.json')
-global.messageBackup = {}
-
-function loadStoredMessages() {
+function getPersistedSessionErrorState() {
     try {
-        if (fs.existsSync(MESSAGE_STORE_FILE)) {
-            return JSON.parse(fs.readFileSync(MESSAGE_STORE_FILE, 'utf-8'))
-        }
-    } catch (e) {
-        log(`Error loading message backup: ${e.message}`, 'red', true)
-    }
-    return {}
-}
-
-let _saveMessagesTimer = null
-function saveStoredMessages(data) {
-    // Debounce: only write to disk at most once every 5 seconds
-    if (_saveMessagesTimer) return
-    _saveMessagesTimer = setTimeout(() => {
-        _saveMessagesTimer = null
-        try {
-            atomicWriteFile(MESSAGE_STORE_FILE, JSON.stringify(data, null, 2))
-        } catch (e) {
-            log(`Error saving message backup: ${e.message}`, 'red', true)
-        }
-    }, 5000)
-}
-
-function flushStoredMessages() {
-    if (_saveMessagesTimer) {
-        clearTimeout(_saveMessagesTimer)
-        _saveMessagesTimer = null
-    }
-    try {
-        atomicWriteFile(MESSAGE_STORE_FILE, JSON.stringify(global.messageBackup || {}, null, 2))
-    } catch (e) {
-        log(`Error flushing message backup: ${e.message}`, 'red', true)
+        return juneDatabase.getSessionErrorState()
+    } catch (error) {
+        log(`Error loading session retry state: ${error.message}`, 'red', true)
+        return { count: 0, last_error_timestamp: 0 }
     }
 }
 
-global.messageBackup = loadStoredMessages()
-
-// ─── Error Counter Helpers ────────────────────────────────────────────────────
-
-function loadErrorCount() {
+function setPersistedSessionErrorState(state) {
     try {
-        if (fs.existsSync(SESSION_ERROR_FILE)) {
-            return JSON.parse(fs.readFileSync(SESSION_ERROR_FILE, 'utf-8'))
-        }
-    } catch (e) {
-        log(`Error loading error count: ${e.message}`, 'red', true)
-    }
-    return { count: 0, last_error_timestamp: 0 }
-}
-
-function saveErrorCount(data) {
-    try {
-        atomicWriteFile(SESSION_ERROR_FILE, JSON.stringify(data, null, 2))
-    } catch (e) {
-        log(`Error saving error count: ${e.message}`, 'red', true)
+        return juneDatabase.setSessionErrorState(state)
+    } catch (error) {
+        log(`Error saving session retry state: ${error.message}`, 'red', true)
+        return { count: 0, last_error_timestamp: 0 }
     }
 }
 
-function deleteErrorCountFile() {
+function clearPersistedSessionErrorState() {
     try {
-        if (fs.existsSync(SESSION_ERROR_FILE)) {
-            fs.unlinkSync(SESSION_ERROR_FILE)
-            log('✅ Session error count reset.', 'green')
-        }
-    } catch (e) {
-        log(`Failed to delete error count file: ${e.message}`, 'red', true)
+        juneDatabase.clearSessionErrorState()
+        return true
+    } catch (error) {
+        log(`Failed to clear session retry state: ${error.message}`, 'red', true)
+        return false
     }
 }
 
@@ -634,35 +537,20 @@ function clearSessionFiles() {
                 rmSync(sessionDir, { recursive: true, force: true })
             }
         }
-        if (fs.existsSync(loginFile)) fs.unlinkSync(loginFile)
-        deleteErrorCountFile()
+        juneDatabase.clearStoredLoginMethod()
+        clearPersistedSessionErrorState()
         global.errorRetryCount = 0
         clearSession()
         clearSQLiteAuth(juneDatabase._db, 'session-cleared')
+        // A deliberate local logout/session clear must not leave an older
+        // remote auth state behind in the external mirror.
+        juneDatabase.clearRemoteAuthState()
         clearSessionIdFingerprint()
         juneDatabase.markDatabaseDirty('session-cleared')
         log('[ SESSION ] files cleared successfully.', 'green')
     } catch (e) {
         log(`Failed to clear session files: ${e.message}`, 'red', true)
     }
-}
-
-function cleanupOldMessages() {
-    const stored = loadStoredMessages()
-    const now = Math.floor(Date.now() / 1000)
-    const maxAge = 24 * 60 * 60
-    const cleaned = {}
-    for (const chatId in stored) {
-        const newChat = {}
-        for (const msgId in stored[chatId]) {
-            if (now - stored[chatId][msgId].timestamp <= maxAge) {
-                newChat[msgId] = stored[chatId][msgId]
-            }
-        }
-        if (Object.keys(newChat).length > 0) cleaned[chatId] = newChat
-    }
-    saveStoredMessages(cleaned)
-    log('[ MSG CLEANUP ] Old messages removed 🧹', 'green')
 }
 
 const ROOT_TEMP_FILE_PATTERN = /^(?:tmp|temp|download|converted|upload|media|sticker)[._-]/i
@@ -700,7 +588,8 @@ function cleanupJunkFiles(sock) {
 
 let diskManager = null
 function runEmergencyCleanup({ aggressive = false } = {}) {
-    try { cleanupOldMessages() } catch (_) {}
+    // Anti-delete records are SQLite-backed and bounded by database maintenance.
+    try { juneDatabase.pruneAntideleteData?.() } catch (_) {}
     try { cleanupJunkFiles(null) } catch (_) {}
     try { cleanupExpiredSessionQuarantines('low-disk cleanup') } catch (_) {}
     try { handler?.cleanupRuntimeCaches?.(aggressive) } catch (_) {}
@@ -728,14 +617,15 @@ const question = (text) => rl
 // ─── Session Helpers ──────────────────────────────────────────────────────────
 
 async function saveLoginMethod(method) {
-    atomicWriteFile(loginFile, JSON.stringify({ method }, null, 2))
+    return juneDatabase.setStoredLoginMethod(method)
 }
 
 async function getLastLoginMethod() {
-    if (fs.existsSync(loginFile)) {
-        return JSON.parse(fs.readFileSync(loginFile, 'utf-8')).method
-    }
-    return null
+    return juneDatabase.getStoredLoginMethod()
+}
+
+function clearLoginMethod() {
+    return juneDatabase.clearStoredLoginMethod()
 }
 
 function sessionExists() {
@@ -744,29 +634,6 @@ function sessionExists() {
 
 function fingerprintSessionId(sessionId) {
     return crypto.createHash('sha256').update(String(sessionId)).digest('hex')
-}
-
-function readSessionFingerprintFile(filePath) {
-    try {
-        const value = fs.readFileSync(filePath, 'utf8').trim()
-        return /^[a-f0-9]{64}$/i.test(value) ? value : null
-    } catch (_) {
-        return null
-    }
-}
-
-function writeSessionFingerprintFile(filePath, fingerprint) {
-    if (!fingerprint) return false
-    try {
-        atomicWriteFile(filePath, String(fingerprint) + '\n', 'utf8')
-        return true
-    } catch (_) {
-        return false
-    }
-}
-
-function removeSessionFingerprintFile(filePath) {
-    try { fs.rmSync(filePath, { force: true }) } catch (_) {}
 }
 
 function hasUsableFileSession() {
@@ -785,27 +652,35 @@ function hasUsableFileSession() {
 }
 
 function rememberSessionIdFingerprint(fingerprint) {
-    if (!fingerprint) return
+    if (!fingerprint) return false
+
     setSessionIdFingerprint(juneDatabase._db, fingerprint)
-    writeSessionFingerprintFile(sessionIdHashFile, fingerprint)
+    const persisted = getSessionIdFingerprint(juneDatabase._db)
+    if (persisted !== fingerprint) {
+        // Never print the fingerprint itself. The presence check is enough to
+        // diagnose persistence without exposing any session-derived value.
+        log('[ AUTH META ] SESSION_ID fingerprint could not be verified in SQLite.', 'red', true)
+        return false
+    }
+
     juneDatabase.markDatabaseDirty('session-id-fingerprint')
+    log('[ AUTH META ] SESSION_ID fingerprint saved in SQLite.', 'green')
+    return true
 }
 
 function clearSessionIdFingerprint() {
     setSessionIdFingerprint(juneDatabase._db, null)
-    removeSessionFingerprintFile(sessionIdHashFile)
+    juneDatabase.markDatabaseDirty('session-id-fingerprint-cleared')
 }
 
 function markSessionIdFingerprintRevoked(fingerprint) {
     if (!fingerprint) return
     setSessionIdRevokedFingerprint(juneDatabase._db, fingerprint)
-    writeSessionFingerprintFile(sessionRevokedFile, fingerprint)
     juneDatabase.markDatabaseDirty('session-id-revoked')
 }
 
 function clearRevokedSessionIdFingerprint() {
     setSessionIdRevokedFingerprint(juneDatabase._db, null)
-    removeSessionFingerprintFile(sessionRevokedFile)
     juneDatabase.markDatabaseDirty('session-id-revocation-cleared')
 }
 
@@ -908,9 +783,17 @@ async function restoreSessionFromDB() {
 
 
 let _lastSessionExport = 0
-const SESSION_EXPORT_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes — keeps .env backup fresh across restarts
+const SESSION_EXPORT_INTERVAL_MS = 30 * 60 * 1000
+// A configured SESSION_ID is an input/provisioning secret, not a value that
+// should silently mutate after every creds.update. Explicitly opt in only when
+// a deployment genuinely needs to export a refreshed file session to .env.
+const SESSION_ENV_EXPORT_ENABLED = /^(1|true|yes|on)$/i.test(
+    String(process.env.JUNE_EXPORT_SESSION_TO_ENV || '')
+)
 
 async function autoExportSessionToEnv(force = false) {
+    if (!SESSION_ENV_EXPORT_ENABLED) return
+
     try {
         const now = Date.now()
         if (!force && (now - _lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
@@ -921,7 +804,6 @@ async function autoExportSessionToEnv(force = false) {
         const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
         const sessionID = `Ultra-X:~${base64}`
 
-        // Skip if nothing has changed
         if (process.env.SESSION_ID?.trim() === sessionID) {
             _lastSessionExport = now
             return
@@ -930,26 +812,26 @@ async function autoExportSessionToEnv(force = false) {
         if (fs.existsSync(envPath)) {
             const envContent = fs.readFileSync(envPath, 'utf8')
 
-            // If .env has SESSION_ID= empty, the value is managed as a Replit Secret.
-            // Writing it to the file would trigger the watcher and restart the bot
-            // unnecessarily — the Secret already persists across restarts.
+            // Do not overwrite a platform-managed secret when the local file
+            // intentionally contains SESSION_ID=. The platform value must be
+            // changed through the platform's secret UI, not at runtime.
             if (/^SESSION_ID=\s*$/m.test(envContent)) {
-                process.env.SESSION_ID = sessionID
                 _lastSessionExport = now
                 return
             }
 
-            // Suppress the .env watcher using a time window (not a one-shot boolean).
-            // fs.watch fires 2 events per write on Linux; a 3-second window covers all of them.
             global._suppressEnvWatcherUntil = Date.now() + 3000
             const updatedContent = /^SESSION_ID=/m.test(envContent)
                 ? envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
                 : envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
             atomicWriteFile(envPath, updatedContent)
             process.env.SESSION_ID = sessionID
+            rememberSessionIdFingerprint(fingerprintSessionId(sessionID))
             _lastSessionExport = now
+            log('[ SESSION_ID ] Session export completed; SQLite fingerprint updated.', 'cyan')
         }
-    } catch (e) {
+    } catch (_) {
+        // Export is an optional backup path; never make it a startup failure.
     }
 }
 
@@ -961,8 +843,8 @@ async function getLoginMethod() {
         return lastMethod
     }
 
-    if (!sessionExists() && fs.existsSync(loginFile)) {
-        fs.unlinkSync(loginFile)
+    if (!sessionExists() && lastMethod) {
+        clearLoginMethod()
     }
 
     if (!process.stdin.isTTY) {
@@ -1068,7 +950,7 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        deleteErrorCountFile()
+        clearPersistedSessionErrorState()
         global.errorRetryCount = 0
     } catch (e) {
         log(`Welcome message error: ${e.message}`, 'red', true)
@@ -1083,16 +965,16 @@ async function handle408Error(statusCode) {
 
     global.errorRetryCount++
     const MAX_RETRIES = 10
-    const errorState = loadErrorCount()
+    const errorState = getPersistedSessionErrorState()
     errorState.count = global.errorRetryCount
     errorState.last_error_timestamp = Date.now()
-    saveErrorCount(errorState)
+    setPersistedSessionErrorState(errorState)
 
     log(`Connection Timeout (408). Retry ${global.errorRetryCount}/${MAX_RETRIES}`, 'yellow')
 
     if (global.errorRetryCount >= MAX_RETRIES) {
         log(chalk.black.bgYellowBright(`[MAX TIMEOUTS] ${MAX_RETRIES} reached. Waiting 60s before next attempt...`), 'white')
-        deleteErrorCountFile()
+        clearPersistedSessionErrorState()
         global.errorRetryCount = 0
         await delay(60000)
     }
@@ -1332,6 +1214,11 @@ async function startJunexBot() {
     let fileMigrationInFlight = null
     let fileMigrationComplete = false
     let fileMigrationBlockedReason = null
+    let credsUpdateMigrationTimer = null
+    const CREDS_UPDATE_MIGRATION_DELAY_MS = Math.min(
+        1500,
+        Math.max(500, Number(process.env.JUNE_CREDS_MIGRATION_DELAY_MS) || 1000)
+    )
     const tryMigrateFileAuth = async (trigger) => {
         if (authState.source !== 'files' || fileMigrationComplete) return null
         const currentStats = getSQLiteAuthStats(juneDatabase._db)
@@ -1363,6 +1250,19 @@ async function startJunexBot() {
             }
         })()
         return fileMigrationInFlight
+    }
+
+    // creds.update can fire while Baileys is still atomically replacing or
+    // finishing creds.json. Debounce the file-auth snapshot migration so it
+    // reads the completed file instead of a partial JSON write.
+    const scheduleCredsUpdateMigration = () => {
+        if (credsUpdateMigrationTimer) clearTimeout(credsUpdateMigrationTimer)
+        credsUpdateMigrationTimer = setTimeout(() => {
+            credsUpdateMigrationTimer = null
+            if (global._shutdownRequested || global.currentSock !== sock) return
+            void tryMigrateFileAuth('creds-update')
+        }, CREDS_UPDATE_MIGRATION_DELAY_MS)
+        credsUpdateMigrationTimer.unref?.()
     }
 
     const sock = makeWASocket({
@@ -1461,6 +1361,10 @@ async function startJunexBot() {
                 } else if (statusCode === 503) {
                     // 503 Service Unavailable — WhatsApp servers overloaded.
                     global.errorRetryCount++
+                    setPersistedSessionErrorState({
+                        count: global.errorRetryCount,
+                        last_error_timestamp: Date.now(),
+                    })
                     waitMs = Math.min(30000 * global.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
                     log(chalk.black.bgYellowBright(`[503] WhatsApp servers unavailable. Retry ${global.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
                 } else if (statusCode === 500) {
@@ -1564,6 +1468,7 @@ async function startJunexBot() {
         } else if (connection === 'open') {
             global.isReconnecting = false
             global.errorRetryCount = 0
+            clearPersistedSessionErrorState()
             global._consecutive500Count = 0  // Clear the 500 guard on successful connect
             global._conflictCount = 0
             
@@ -1733,23 +1638,6 @@ if (groupInvites.length > 0) {
         if (type !== 'notify') return
         messages = messages.filter((msg) => !replayDrain.isReplayMessage(msg))
         if (messages.length === 0) return
-
-        // Save all messages to backup store
-        for (const msg of messages) {
-            if (!msg.message) continue
-            const chatId = msg.key.remoteJid
-            const msgId = msg.key.id
-            if (!global.messageBackup[chatId]) global.messageBackup[chatId] = {}
-            const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || null
-            if (text && !global.messageBackup[chatId][msgId]) {
-                global.messageBackup[chatId][msgId] = {
-                    sender: msg.key.participant || msg.key.remoteJid,
-                    text,
-                    timestamp: msg.messageTimestamp
-                }
-                saveStoredMessages(global.messageBackup)
-            }
-        }
 
         // ── Status Handler ─────────────────────────────────────────────────────
         // shared settings module required once outside the loop for efficiency
@@ -1947,8 +1835,11 @@ if (groupInvites.length > 0) {
         // Persist to database so session survives restarts without re-login
         saveSession(credsPath)
         if (authState.source === 'sqlite') juneDatabase.markDatabaseDirty('auth-creds')
-        await tryMigrateFileAuth('creds-update')
-        // Periodically refresh SESSION_ID in .env as a secondary backup
+        // Wait briefly for Baileys to finish the credentials write before the
+        // file-auth migration attempts to parse its JSON snapshot.
+        scheduleCredsUpdateMigration()
+        // Session export is disabled by default; this is a no-op unless the
+        // owner explicitly enables JUNE_EXPORT_SESSION_TO_ENV.
         autoExportSessionToEnv(false).catch(() => {})
     })
 
@@ -2006,9 +1897,6 @@ if (groupInvites.length > 0) {
         cleanupExpiredSessionQuarantines('scheduled cleanup')
     }, 6 * 60 * 60 * 1000))
 
-    // Message backup cleanup (every hour)
-    global._activeIntervals.push(setInterval(cleanupOldMessages, 60 * 60 * 1000))
-
     // Junk file cleanup (every 10 minutes)
     global._activeIntervals.push(setInterval(() => cleanupJunkFiles(sock), 10 * 60 * 1000))
 
@@ -2044,12 +1932,27 @@ async function main() {
             log(`[ MONGO ] Restored ${restored.restored} missing local database records.`, 'green')
         }
     }
-    const settingsRecovery = settingsRegistry.restoreIfNeeded(juneDatabase)
-    if (settingsRecovery.restored > 0) {
-        log(`[ SETTINGS ] Restored ${settingsRecovery.restored} bot setting(s) from local recovery snapshot.`, 'green')
+
+    // Disaster recovery path: if this host lost its local auth database and
+    // has no usable file session, restore the direct remote auth state before
+    // normal SESSION_ID/session startup decisions run.
+    if (!hasVerifiedSQLiteAuth(juneDatabase._db) && !hasUsableFileSession()) {
+        const authRecovery = await juneDatabase.restoreRemoteAuthState()
+        if (authRecovery.restored) {
+            log(`[ AUTH MIRROR ] Restored ${authRecovery.source} auth state (${authRecovery.keyRows} key rows).`, 'green')
+        } else if (authRecovery.error) {
+            log('[ AUTH MIRROR ] Remote auth state was unavailable or invalid.', 'yellow')
+        }
     }
+    if (hasVerifiedSQLiteAuth(juneDatabase._db)) {
+        // Ensure an already healthy deployment mirrors the current auth state
+        // without waiting for the next creds.update event.
+        if (juneDatabase.scheduleRemoteAuthMirror('startup')) {
+            log('[ AUTH MIRROR ] External auth state mirror scheduled.', 'cyan')
+        }
+    }
+
     await applyPersistedRuntimeSettings()
-    settingsRegistry.start(juneDatabase)
     if (!handler) handler = require('./handler')
     diskManager.start()
 
@@ -2064,8 +1967,8 @@ async function main() {
     // 1. Validate SESSION_ID format before doing anything
     await checkAndHandleSessionFormat()
 
-    // 2. Restore error retry counter from disk
-    global.errorRetryCount = loadErrorCount().count
+    // 2. Restore the persisted retry counter from SQLite KV.
+    global.errorRetryCount = getPersistedSessionErrorState().count
     log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
 
     cleanupExpiredSessionQuarantines('startup')
@@ -2081,16 +1984,13 @@ async function main() {
     const currentSessionFingerprint = hasValidEnvSessionID
         ? fingerprintSessionId(envSessionID)
         : null
-    // Wolf-style marker files supplement the SQLite metadata. Both contain
-    // only SHA-256 values and help persistent hosts distinguish an unchanged
-    // SESSION_ID from a deliberately replaced one.
+    // SQLite session_auth_meta is the sole persistent home for opaque SHA-256
+    // SESSION_ID fingerprints. The raw SESSION_ID remains environment-only.
     const storedSessionFingerprints = [
         getSessionIdFingerprint(juneDatabase._db),
-        readSessionFingerprintFile(sessionIdHashFile),
     ].filter(Boolean)
     const revokedSessionFingerprints = [
         getSessionIdRevokedFingerprint(juneDatabase._db),
-        readSessionFingerprintFile(sessionRevokedFile),
     ].filter(Boolean)
     const sameSessionId = Boolean(
         currentSessionFingerprint && storedSessionFingerprints.includes(currentSessionFingerprint)
@@ -2113,24 +2013,30 @@ async function main() {
         return
     }
 
-    // Match Wolf's deployment flow:
-    // - same hash + usable creds file: reconnect from local evolved state;
-    // - new/missing hash on a non-verified state: apply SESSION_ID once;
-    // - fresh Heroku dyno: no marker and no local session, so bootstrap from
-    //   the platform Config Var automatically.
+    // A fingerprint mismatch is a warning, not permission to destroy a usable
+    // file session. Auto-exported creds can legitimately change the raw backup
+    // SESSION_ID over time. Preserve usable auth and refresh the SQLite metadata;
+    // an owner can use JUNE_FORCE_SESSION_BOOTSTRAP=true for an intentional
+    // replacement.
+    const forceSessionBootstrap = /^(1|true|yes|on)$/i.test(
+        String(process.env.JUNE_FORCE_SESSION_BOOTSTRAP || '')
+    )
     const shouldBootstrapFromSessionId = hasValidEnvSessionID && (
-        sessionIdChanged ||
-        (!sqliteAuthReady && (!sameSessionId || !usableFileSession))
+        forceSessionBootstrap ||
+        (!sqliteAuthReady && !usableFileSession)
     )
 
     if (shouldBootstrapFromSessionId) {
         global.SESSION_ID = envSessionID
-        const replacingFileSession = sessionIdChanged ||
-            (!sameSessionId && sessionExists()) ||
+        const replacingFileSession =
+            (forceSessionBootstrap && sessionExists()) ||
             (!usableFileSession && sessionExists())
 
         if (replacingFileSession) {
-            log('[ SESSION_ID ] Applying a new or untracked SESSION_ID — preserving prior file auth first.', 'yellow')
+            const reason = forceSessionBootstrap
+                ? 'a forced SESSION_ID bootstrap'
+                : 'an unusable existing file session'
+            log(`[ SESSION_ID ] Applying ${reason} — preserving prior file auth first.`, 'yellow')
             const oldSessionPath = quarantineCurrentSessionForReplacement()
             if (oldSessionPath) {
                 log(`[ SESSION ] Previous file auth preserved at ${path.basename(oldSessionPath)}.`, 'yellow')
@@ -2158,7 +2064,7 @@ async function main() {
 
         invalidateSQLiteAuth(
             juneDatabase._db,
-            sessionIdChanged ? 'session-id-changed' : 'session-id-bootstrap'
+            forceSessionBootstrap ? 'session-id-forced-bootstrap' : 'session-id-bootstrap'
         )
         rememberSessionIdFingerprint(currentSessionFingerprint)
         clearRevokedSessionIdFingerprint()
@@ -2180,9 +2086,23 @@ async function main() {
         }
         log('[ AUTH ] Verified SQLite auth found; SESSION_ID is retained only as a recovery backup.', 'green')
     } else if (hasValidEnvSessionID && usableFileSession) {
-        // Persistent host restart: hash and creds agree, but SQLite needs to be
-        // rebuilt from files. Do not re-download or overwrite the evolved creds.
-        log('[ SESSION_ID ] Existing file session matches its fingerprint; rebuilding local SQLite auth.', 'cyan')
+        // The file session is usable. If fingerprint metadata is absent (for
+        // example after the move from marker files to session_auth_meta), adopt
+        // this session instead of quarantining and recreating it.
+        if (!sameSessionId && currentSessionFingerprint) {
+            if (sessionIdChanged) {
+                log('[ SESSION_ID ] Configured fingerprint differs; retaining usable file auth. Set JUNE_FORCE_SESSION_BOOTSTRAP=true only for an intentional replacement.', 'yellow')
+            }
+            const saved = rememberSessionIdFingerprint(currentSessionFingerprint)
+            if (saved) {
+                log('[ SESSION_ID ] Existing file auth adopted; fingerprint recorded in SQLite.', 'green')
+            }
+        }
+        if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
+            clearRevokedSessionIdFingerprint()
+        }
+        await saveLoginMethod('session')
+        log('[ SESSION_ID ] Existing usable file session retained; rebuilding SQLite auth if needed.', 'cyan')
     } else {
         log('[ALERT] No SESSION_ID in .env..', 'blue')
     }
@@ -2460,12 +2380,12 @@ function startKeepAliveServer() {
                     integrity: databaseHealth.lastIntegrityCheck,
                     maintenance: databaseHealth.maintenance,
                     remoteSync: databaseHealth.remoteSync,
+                    authMirror: databaseHealth.authMirror,
                     postgres: databaseHealth.postgres,
                     mongo: databaseHealth.mongo,
                 },
                 stability: {
                     replayDrain: replayDrain.getStats(),
-                    settingsRegistry: settingsRegistry.getStatus(),
                 },
                 auth: {
                     verified: authStats.verified,
@@ -2542,8 +2462,10 @@ global.__JUNE_SHUTDOWN = async () => {
         global._activeIntervals = []
         try { global._envWatcher?.close?.() } catch (_) {}
         try { diskManager?.stop?.() } catch (_) {}
-        try { settingsRegistry.stop(juneDatabase) } catch (_) {}
-        try { flushStoredMessages() } catch (_) {}
+        // Anti-delete and group stats keep small in-memory debounce queues.
+        // Persist both before shutdownDatabase closes SQLite.
+        try { global.__JUNE_FLUSH_ANTIDELETE?.() } catch (_) {}
+        try { global.__JUNE_FLUSH_GROUP_STATS?.() } catch (_) {}
         try {
             const sock = global.currentSock
             if (sock?.ws?.close) sock.ws.close()

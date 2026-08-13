@@ -1,341 +1,309 @@
+'use strict';
+
 /**
- * JID Helper Utilities for LID-aware matching
- * Shared by promote, demote, and other commands
+ * JID Helper Utilities for LID-aware matching.
+ *
+ * LID ↔ phone mappings are read from and written to SQLite lid_map. Runtime
+ * resolution may also learn a mapping from Baileys or group metadata, then
+ * persists it immediately for later commands/restarts.
  */
 
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
-const path = require('path');
-const fs = require('fs');
-const config = require('../config');
+const database = require('../database');
 
-// LID mapping cache
 const lidMappingCache = new Map();
 
-// Get LID mapping value from files
-const getLidMappingValue = (user, direction) => {
-  if (!user) return null;
-  const cacheKey = `${direction}:${user}`;
-  if (lidMappingCache.has(cacheKey)) {
-    return lidMappingCache.get(cacheKey);
-  }
-  
-  const sessionPath = path.join(__dirname, '..', config.sessionName || 'session');
-  const suffix = direction === 'pnToLid' ? '.json' : '_reverse.json';
-  const filePath = path.join(sessionPath, `lid-mapping-${user}${suffix}`);
-  
-  if (!fs.existsSync(filePath)) {
-    lidMappingCache.set(cacheKey, null);
-    return null;
-  }
-  
+function jidUser(value) {
+  if (!value) return null;
+  const raw = String(value);
   try {
-    const raw = fs.readFileSync(filePath, 'utf8').trim();
-    const value = raw ? JSON.parse(raw) : null;
-    lidMappingCache.set(cacheKey, value || null);
-    return value || null;
-  } catch (error) {
-    lidMappingCache.set(cacheKey, null);
+    const decoded = jidDecode(raw);
+    if (decoded?.user) return decoded.user.split(':')[0];
+  } catch (_) {}
+  return raw.split(':')[0].split('@')[0] || null;
+}
+
+function jidServer(value) {
+  try {
+    const server = jidDecode(String(value || ''))?.server;
+    return server === 'c.us' ? 's.whatsapp.net' : server || null;
+  } catch (_) {
     return null;
   }
-};
+}
 
-// Normalize JID handling LID conversion
-const normalizeJidWithLid = (jid) => {
+function isLidJid(value) {
+  const server = jidServer(value);
+  return server === 'lid' || server === 'hosted.lid';
+}
+
+function isPnJid(value) {
+  const server = jidServer(value);
+  return server === 's.whatsapp.net' || server === 'hosted';
+}
+
+function cacheKey(direction, user) {
+  return `${direction}:${user}`;
+}
+
+function getLidMappingValue(user, direction) {
+  const normalizedUser = jidUser(user);
+  if (!normalizedUser || !['lidToPn', 'pnToLid'].includes(direction)) return null;
+
+  const key = cacheKey(direction, normalizedUser);
+  if (lidMappingCache.has(key)) return lidMappingCache.get(key);
+
+  try {
+    const value = database.getLidMap(direction, normalizedUser) || null;
+    lidMappingCache.set(key, value);
+    return value;
+  } catch (_) {
+    // The helper can be imported before database.ready; do not cache a startup
+    // failure as a permanent missing mapping.
+    return null;
+  }
+}
+
+function rememberLidMapping(lidValue, pnValue) {
+  const lidUser = jidUser(lidValue);
+  const pnUser = jidUser(pnValue);
+  if (!lidUser || !pnUser || lidUser === pnUser) return false;
+
+  try {
+    const knownPn = getLidMappingValue(lidUser, 'lidToPn');
+    const knownLid = getLidMappingValue(pnUser, 'pnToLid');
+
+    if (knownPn !== pnUser) database.saveLidMap('lidToPn', lidUser, pnUser);
+    if (knownLid !== lidUser) database.saveLidMap('pnToLid', pnUser, lidUser);
+
+    lidMappingCache.set(cacheKey('lidToPn', lidUser), pnUser);
+    lidMappingCache.set(cacheKey('pnToLid', pnUser), lidUser);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function rememberParticipantLidMapping(participant) {
+  if (!participant || typeof participant === 'string') return false;
+
+  const jidValues = [participant.lid, participant.id, participant.userJid].filter(Boolean);
+  const lid = jidValues.find(isLidJid);
+  const pn = participant.phoneNumber || participant.pn || jidValues.find(isPnJid);
+  return lid && pn ? rememberLidMapping(lid, pn) : false;
+}
+
+function normalizeJidWithLid(jid) {
   if (!jid) return jid;
-  
+
   try {
     const decoded = jidDecode(jid);
-    if (!decoded?.user) {
-      return `${jid.split(':')[0].split('@')[0]}@s.whatsapp.net`;
-    }
-    
-    let user = decoded.user;
+    if (!decoded?.user) return `${String(jid).split(':')[0].split('@')[0]}@s.whatsapp.net`;
+
+    let user = decoded.user.split(':')[0];
     let server = decoded.server === 'c.us' ? 's.whatsapp.net' : decoded.server;
-    
-    const mapToPn = () => {
+
+    if (server === 'lid' || server === 'hosted.lid') {
       const pnUser = getLidMappingValue(user, 'lidToPn');
       if (pnUser) {
         user = pnUser;
         server = server === 'hosted.lid' ? 'hosted' : 's.whatsapp.net';
-        return true;
       }
-      return false;
-    };
-    
-    if (server === 'lid' || server === 'hosted.lid') {
-      mapToPn();
-    } else if (server === 's.whatsapp.net' || server === 'hosted') {
-      mapToPn();
     }
-    
-    if (server === 'hosted') {
-      return jidEncode(user, 'hosted');
-    }
-    return jidEncode(user, 's.whatsapp.net');
-  } catch (error) {
+
+    return jidEncode(user, server === 'hosted' ? 'hosted' : 's.whatsapp.net');
+  } catch (_) {
     return jid;
   }
-};
+}
 
-// Build comparable JID variants (PN + LID) for matching
-const buildComparableIds = (jid) => {
+function buildComparableIds(jid) {
   if (!jid) return [];
-  
+
   try {
     const decoded = jidDecode(jid);
-    if (!decoded?.user) {
-      return [normalizeJidWithLid(jid)].filter(Boolean);
+    if (!decoded?.user) return [normalizeJidWithLid(jid)].filter(Boolean);
+
+    const user = decoded.user.split(':')[0];
+    const server = decoded.server === 'c.us' ? 's.whatsapp.net' : decoded.server;
+    const variants = new Set([jidEncode(user, server)]);
+
+    if (server === 's.whatsapp.net' || server === 'hosted') {
+      const lidUser = getLidMappingValue(user, 'pnToLid');
+      if (lidUser) variants.add(jidEncode(lidUser, server === 'hosted' ? 'hosted.lid' : 'lid'));
+    } else if (server === 'lid' || server === 'hosted.lid') {
+      const pnUser = getLidMappingValue(user, 'lidToPn');
+      if (pnUser) variants.add(jidEncode(pnUser, server === 'hosted.lid' ? 'hosted' : 's.whatsapp.net'));
     }
-    
-    const variants = new Set();
-    const normalizedServer = decoded.server === 'c.us' ? 's.whatsapp.net' : decoded.server;
-    
-    variants.add(jidEncode(decoded.user, normalizedServer));
-    
-    const isPnServer = normalizedServer === 's.whatsapp.net' || normalizedServer === 'hosted';
-    const isLidServer = normalizedServer === 'lid' || normalizedServer === 'hosted.lid';
-    
-    if (isPnServer) {
-      const lidUser = getLidMappingValue(decoded.user, 'pnToLid');
-      if (lidUser) {
-        const lidServer = normalizedServer === 'hosted' ? 'hosted.lid' : 'lid';
-        variants.add(jidEncode(lidUser, lidServer));
-      }
-    } else if (isLidServer) {
-      const pnUser = getLidMappingValue(decoded.user, 'lidToPn');
-      if (pnUser) {
-        const pnServer = normalizedServer === 'hosted.lid' ? 'hosted' : 's.whatsapp.net';
-        variants.add(jidEncode(pnUser, pnServer));
-      }
-    }
-    
-    return Array.from(variants);
-  } catch (error) {
+
+    return [...variants];
+  } catch (_) {
     return [jid];
   }
-};
+}
 
-// Find participant by either PN JID or LID JID
-const findParticipant = (participants = [], userIds) => {
+function findParticipant(participants = [], userIds) {
   const targets = (Array.isArray(userIds) ? userIds : [userIds])
     .filter(Boolean)
-    .flatMap(id => buildComparableIds(id));
-  
+    .flatMap(buildComparableIds);
   if (!targets.length) return null;
-  
+
   return participants.find(participant => {
     if (!participant) return false;
-    
-    const participantIds = [
-      participant.id,
-      participant.lid,
-      participant.userJid
-    ]
+    const participantIds = [participant.id, participant.lid, participant.userJid]
       .filter(Boolean)
-      .flatMap(id => buildComparableIds(id));
-    
+      .flatMap(buildComparableIds);
     return participantIds.some(id => targets.includes(id));
   }) || null;
-};
+}
 
-/**
- * Build a list of candidate JIDs to try for a target user, handling
- * @lid → phone-number resolution using both the lid-mapping cache and
- * the current group's participant list (which contains phoneNumber/pn).
- */
-const resolveTargetJidVariants = (jid, groupMetadata) => {
+function resolveTargetJidVariants(jid, groupMetadata) {
   if (!jid) return [];
-  const variants = new Set();
-  variants.add(jid);
+  const variants = new Set([jid]);
+  for (const variant of buildComparableIds(jid)) variants.add(variant);
 
-  for (const v of buildComparableIds(jid)) variants.add(v);
-
-  if (groupMetadata && Array.isArray(groupMetadata.participants)) {
-    const isLid = jid.endsWith('@lid') || jid.endsWith('@hosted.lid');
-    const matched = groupMetadata.participants.find(p => {
-      if (!p) return false;
-      const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
-      const pLid = typeof p === 'string' ? '' : (p.lid || '');
-      return pId === jid || pLid === jid;
-    });
-    if (matched && typeof matched === 'object') {
-      if (matched.id)  variants.add(matched.id);
-      if (matched.lid) variants.add(matched.lid);
-      const pn = matched.phoneNumber || matched.pn;
-      if (pn) {
-        const pnJid = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
-        variants.add(pnJid);
-      }
-    }
-    // also try matching against bare user portion
-    if (isLid || jid.includes('@')) {
-      const bare = jid.split('@')[0].split(':')[0];
-      const matched2 = groupMetadata.participants.find(p => {
-        if (!p) return false;
-        const pId  = typeof p === 'string' ? p : (p.id  || p.jid || '');
-        const pLid = typeof p === 'string' ? '' : (p.lid || '');
-        return pId.startsWith(bare + '@') || pLid.startsWith(bare + '@');
-      });
-      if (matched2 && typeof matched2 === 'object') {
-        if (matched2.id)  variants.add(matched2.id);
-        if (matched2.lid) variants.add(matched2.lid);
-        const pn2 = matched2.phoneNumber || matched2.pn;
-        if (pn2) variants.add(pn2.includes('@') ? pn2 : `${pn2}@s.whatsapp.net`);
-      }
-    }
-  }
-
-  return Array.from(variants).filter(Boolean);
-};
-
-/**
- * Try profilePictureUrl across every variant of a JID until one succeeds.
- * Returns { url, jid } on success, or throws the last error.
- */
-const tryFetchProfilePictureUrl = async (sock, jid, groupMetadata) => {
-  const variants = resolveTargetJidVariants(jid, groupMetadata);
-  let lastErr;
-  for (const v of variants) {
-    try {
-      const url = await sock.profilePictureUrl(v, 'image');
-      if (url) return { url, jid: v };
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  if (lastErr) throw lastErr;
-  return { url: null, jid };
-};
-
-/**
- * Pretty display for an LID/JID — prefers phone number if known.
- */
-const displayUserTag = (jid, groupMetadata) => {
-  if (!jid) return '';
-  if (jid.endsWith('@lid') && groupMetadata?.participants) {
-    const matched = groupMetadata.participants.find(p => {
-      if (!p || typeof p === 'string') return false;
-      return p.id === jid || p.lid === jid;
+  if (Array.isArray(groupMetadata?.participants)) {
+    const targetUser = jidUser(jid);
+    const matched = groupMetadata.participants.find(participant => {
+      if (!participant || typeof participant === 'string') return false;
+      const ids = [participant.id, participant.lid, participant.userJid].filter(Boolean);
+      return ids.includes(jid) || ids.some(value => jidUser(value) === targetUser);
     });
     if (matched) {
-      const pn = matched.phoneNumber || matched.pn;
-      if (pn) return pn.split('@')[0];
+      rememberParticipantLidMapping(matched);
+      for (const value of [matched.id, matched.lid, matched.userJid, matched.phoneNumber, matched.pn]) {
+        if (!value) continue;
+        variants.add(String(value).includes('@') ? value : `${value}@s.whatsapp.net`);
+      }
+      for (const variant of [matched.id, matched.lid, matched.userJid].filter(Boolean).flatMap(buildComparableIds)) {
+        variants.add(variant);
+      }
     }
   }
-  return jid.split('@')[0];
-};
 
-// ── LID → Phone resolution (shared by antiforeign, vcf, kickall, etc.) ────────
+  return [...variants].filter(Boolean);
+}
 
-/**
- * Returns the real phone number string (digits only) for any JID, or null.
- *
- * Resolution order:
- *   1. Plain phone-number JID → user field is already the number
- *   2. Baileys in-memory signalRepository.lidMapping (fastest, no I/O)
- *   3. lid-mapping-<user>_reverse.json on disk (fallback after decryption)
- */
-const resolvePhone = async (sock, jid) => {
+async function tryFetchProfilePictureUrl(sock, jid, groupMetadata) {
+  const variants = resolveTargetJidVariants(jid, groupMetadata);
+  let lastError;
+  for (const variant of variants) {
+    try {
+      const url = await sock.profilePictureUrl(variant, 'image');
+      if (url) return { url, jid: variant };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return { url: null, jid };
+}
+
+function displayUserTag(jid, groupMetadata) {
+  if (!jid) return '';
+  if (Array.isArray(groupMetadata?.participants)) {
+    const targetUser = jidUser(jid);
+    const matched = groupMetadata.participants.find(participant => {
+      if (!participant || typeof participant === 'string') return false;
+      const ids = [participant.id, participant.lid, participant.userJid].filter(Boolean);
+      return ids.includes(jid) || ids.some(value => jidUser(value) === targetUser);
+    });
+    if (matched) {
+      rememberParticipantLidMapping(matched);
+      const pn = matched.phoneNumber || matched.pn;
+      if (pn) return jidUser(pn) || String(pn).split('@')[0];
+    }
+  }
+  return String(jid).split('@')[0];
+}
+
+async function resolvePhone(sock, jid) {
   if (!jid) return null;
+
   try {
     const decoded = jidDecode(jid);
     if (!decoded?.user) return null;
-
-    const { user, server } = decoded;
+    const user = decoded.user.split(':')[0];
+    const server = decoded.server;
     const isLid = server === 'lid' || server === 'hosted.lid';
+    if (!isLid) return user;
 
-    if (!isLid) return user.split(':')[0];
-
-    // 1. Baileys in-memory LID store — pass the full JID, not just the user part
+    // Baileys maintains a live LID map while connected. Persist any successful
+    // live answer into SQLite so later commands/restarts do not need a file.
     try {
       const lidStore = sock?.signalRepository?.lidMapping;
       if (lidStore?.getPNForLID) {
         const pn = await lidStore.getPNForLID(jid);
         if (pn) {
-          const pnUser = jidDecode(pn)?.user || String(pn).split('@')[0];
-          return pnUser.split(':')[0];
+          const pnUser = jidUser(pn);
+          if (pnUser) {
+            rememberLidMapping(user, pnUser);
+            return pnUser;
+          }
         }
       }
-    } catch (_) { /* fall through */ }
+    } catch (_) {}
 
-    // 2. Reverse-mapping file written by Baileys after decryption
-    const sessionPath = path.join(__dirname, '..', config.sessionName || 'session');
-    const mapFile = path.join(sessionPath, `lid-mapping-${user}_reverse.json`);
-    if (fs.existsSync(mapFile)) {
-      try {
-        const raw = fs.readFileSync(mapFile, 'utf8').trim();
-        if (raw) {
-          const pn = JSON.parse(raw);
-          if (pn) return String(pn).split(':')[0];
-        }
-      } catch (_) {}
-    }
-
-    return null;
+    return getLidMappingValue(user, 'lidToPn');
   } catch (_) {
     return null;
   }
-};
+}
 
-/**
- * Subscribes to presence for all LID participants to nudge WhatsApp into
- * pushing LID↔PN mapping data, then polls until all resolve or timeout.
- */
-const preloadLidResolution = async (sock, participants, { maxWaitMs = 12000, intervalMs = 1500 } = {}) => {
-  const lidParticipants = participants.filter(p => {
-    const decoded = jidDecode(p.id);
-    return decoded && (decoded.server === 'lid' || decoded.server === 'hosted.lid');
+async function preloadLidResolution(sock, participants, { maxWaitMs = 12_000, intervalMs = 1_500 } = {}) {
+  const list = Array.isArray(participants) ? participants : [];
+  for (const participant of list) rememberParticipantLidMapping(participant);
+
+  const lidParticipants = list.filter(participant => {
+    const id = participant?.id || participant;
+    return isLidJid(id);
   });
   if (!lidParticipants.length) return { attempted: 0, resolved: 0 };
 
-  await Promise.all(lidParticipants.map(async p => {
-    try { await sock.presenceSubscribe(p.id); } catch (_) {}
+  await Promise.all(lidParticipants.map(async participant => {
+    try { await sock.presenceSubscribe(participant.id || participant); } catch (_) {}
   }));
 
   const start = Date.now();
   let resolvedCount = 0;
-
   while (Date.now() - start < maxWaitMs) {
-    const results = await Promise.all(lidParticipants.map(p => resolvePhone(sock, p.id)));
+    const results = await Promise.all(lidParticipants.map(participant => resolvePhone(sock, participant.id || participant)));
     resolvedCount = results.filter(Boolean).length;
     if (resolvedCount === lidParticipants.length) break;
-    await new Promise(r => setTimeout(r, intervalMs));
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
   }
 
   return { attempted: lidParticipants.length, resolved: resolvedCount };
-};
+}
 
-/**
- * Resolves phone numbers for all participants, skipping the bot and (optionally) admins.
- * Uses the phoneNumber field from groupMetadata() first (Baileys v7+), then full LID resolution.
- */
-const enrichParticipants = async (sock, participants, { skipAdmins = true } = {}) => {
-  const botJid   = sock.user?.id || '';
-  const botPhone = (await resolvePhone(sock, botJid)) || botJid.split('@')[0].split(':')[0];
+async function enrichParticipants(sock, participants, { skipAdmins = true } = {}) {
+  const list = Array.isArray(participants) ? participants : [];
+  const botJid = sock.user?.id || '';
+  const botPhone = (await resolvePhone(sock, botJid)) || jidUser(botJid);
 
-  const resolved = await Promise.all(participants.map(async p => {
-    let phone = null;
-    if (p.phoneNumber) {
-      const dec = jidDecode(p.phoneNumber);
-      phone = dec?.user?.split(':')[0] || String(p.phoneNumber).split('@')[0].split(':')[0];
-    }
-    if (!phone) phone = await resolvePhone(sock, p.id);
-    return { ...p, phone, isUnresolvableLid: !phone };
+  const resolved = await Promise.all(list.map(async participant => {
+    rememberParticipantLidMapping(participant);
+    let phone = participant.phoneNumber ? jidUser(participant.phoneNumber) : null;
+    if (!phone) phone = await resolvePhone(sock, participant.id);
+    return { ...participant, phone, isUnresolvableLid: !phone };
   }));
 
-  return resolved.filter(p => {
-    const pNum = p.phone || p.id.split('@')[0].split(':')[0];
-    if (pNum === botPhone) return false;
-    if (skipAdmins && p.admin) return false;
+  return resolved.filter(participant => {
+    const number = participant.phone || jidUser(participant.id);
+    if (number === botPhone) return false;
+    if (skipAdmins && participant.admin) return false;
     return true;
   });
-};
+}
 
 module.exports = {
+  jidUser,
+  getLidMappingValue,
+  rememberLidMapping,
+  rememberParticipantLidMapping,
   findParticipant,
   buildComparableIds,
   normalizeJidWithLid,
-  getLidMappingValue,
   resolveTargetJidVariants,
   tryFetchProfilePictureUrl,
   displayUserTag,
@@ -343,4 +311,3 @@ module.exports = {
   preloadLidResolution,
   enrichParticipants,
 };
-

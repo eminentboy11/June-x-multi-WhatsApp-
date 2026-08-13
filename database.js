@@ -19,7 +19,7 @@ const DB_FILE = path.resolve(process.env.JUNE_DB_FILE || path.join(DB_DIR, 'june
 const DB_BACKUP_FILE = path.resolve(process.env.JUNE_DB_BACKUP_FILE || path.join(DB_DIR, 'june-ultra.db.backup'));
 const DB_BACKUP_DEBOUNCE_MS = Number(process.env.JUNE_DB_BACKUP_DEBOUNCE_MS) || 15 * 1000;
 const DB_BACKUP_INTERVAL_MS = Number(process.env.JUNE_DB_BACKUP_INTERVAL_MS) || 15 * 60 * 1000;
-const DB_SCHEMA_VERSION = '4';
+const DB_SCHEMA_VERSION = '6';
 const NATIVE_PROBE_CACHE_FILE = path.join(DB_DIR, '.native-sqlite-probe.json');
 
 function positiveNumberEnv(name, fallback, { minimum = 0 } = {}) {
@@ -42,11 +42,17 @@ const ANTIDELETE_MAX_ROWS = Math.floor(positiveNumberEnv(
 const ANTIDELETE_STATUS_MAX_ROWS = Math.floor(positiveNumberEnv(
   'JUNE_ANTIDELETE_STATUS_MAX_ROWS', 500, { minimum: 0 }
 ));
+const AUTO_DOWNLOAD_STATUS_HISTORY_MAX_ROWS = Math.floor(positiveNumberEnv(
+  'JUNE_AUTODOWNLOAD_STATUS_HISTORY_MAX_ROWS', 500, { minimum: 50 }
+));
 const REMOTE_SYNC_INTERVAL_MS = positiveNumberEnv(
   'JUNE_REMOTE_SYNC_INTERVAL_MS', 30 * 1000, { minimum: 5 * 1000 }
 );
 const REMOTE_SYNC_MAX_ROWS = Math.floor(positiveNumberEnv(
   'JUNE_REMOTE_SYNC_MAX_ROWS', 2000, { minimum: 100 }
+));
+const AUTH_MIRROR_DEBOUNCE_MS = Math.floor(positiveNumberEnv(
+  'JUNE_AUTH_MIRROR_DEBOUNCE_MS', 2000, { minimum: 500 }
 ));
 
 if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
@@ -196,6 +202,9 @@ let maintenanceRunning = false;
 let remoteSyncTimer = null;
 let remoteSyncRunning = false;
 let lastRemoteSync = null;
+let authMirrorTimer = null;
+let authMirrorRunning = null;
+let lastAuthMirror = null;
 let shuttingDown = false;
 
 // SQLite is always the live source of truth. Remote adapters mirror writes in
@@ -216,6 +225,9 @@ const REMOTE_IDENTITY_ARGUMENTS = {
   deleteAntideleteStatus: [0],
   mirrorLidMap: [0, 1],
   mirrorProfile: [0, 1],
+  mirrorAuthState: [],
+  deleteAuthState: [],
+  deleteLegacyAuthRecord: [],
 };
 
 function getRemoteAdapter(name) {
@@ -386,6 +398,188 @@ function getRemoteSyncQueueStats() {
   } catch (_) {
     return { pending: 0, due: 0, oldestAt: null, lastRun: lastRemoteSync };
   }
+}
+
+// ── Plain external auth mirror ─────────────────────────────────────────────
+// This user-selected mode mirrors auth rows directly to configured remote
+// adapters. No encryption key, crypto envelope, or auth-key environment
+// variable is used by this feature.
+function buildRemoteAuthSnapshot() {
+  if (!db) return null;
+
+  try {
+    const sessionCreds = db.prepare(
+      'SELECT key, value, updated_at FROM session_creds ORDER BY key ASC'
+    ).all();
+    const sessionKeys = db.prepare(
+      'SELECT type, id, value, updated_at FROM session_keys ORDER BY type ASC, id ASC'
+    ).all();
+    const sessionAuthMeta = db.prepare(
+      'SELECT key, value FROM session_auth_meta ORDER BY key ASC'
+    ).all();
+    const status = sessionAuthMeta.find((row) => row.key === 'status')?.value;
+
+    // Never overwrite a good remote auth mirror with a partial file-auth
+    // transition. Only a complete, verified local auth state is mirrored.
+    if (!sessionCreds.some((row) => row.key === 'creds') || !sessionKeys.length || status !== 'verified') {
+      return null;
+    }
+
+    return {
+      version: 1,
+      createdAt: Date.now(),
+      sessionCreds,
+      sessionKeys,
+      sessionAuthMeta,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function validateRemoteAuthSnapshot(snapshot) {
+  if (!snapshot || snapshot.version !== 1) return null;
+  const creds = Array.isArray(snapshot.sessionCreds) ? snapshot.sessionCreds : null;
+  const keys = Array.isArray(snapshot.sessionKeys) ? snapshot.sessionKeys : null;
+  const meta = Array.isArray(snapshot.sessionAuthMeta) ? snapshot.sessionAuthMeta : null;
+  if (!creds || !keys || !meta || !creds.some((row) => row?.key === 'creds') || !keys.length) return null;
+  if (meta.find((row) => row?.key === 'status')?.value !== 'verified') return null;
+  if (!creds.every((row) => typeof row?.key === 'string' && typeof row?.value === 'string')) return null;
+  if (!keys.every((row) => typeof row?.type === 'string' && typeof row?.id === 'string' && typeof row?.value === 'string')) return null;
+  if (!meta.every((row) => typeof row?.key === 'string' && typeof row?.value === 'string')) return null;
+  return { creds, keys, meta };
+}
+
+function hasConfiguredRemoteAuthMirror() {
+  return [pgAdapter, mongoAdapter].some((adapter) => Boolean(adapter?.getStatus?.().configured));
+}
+
+function getRemoteAuthMirrorStatus() {
+  return {
+    enabled: hasConfiguredRemoteAuthMirror(),
+    mode: 'plain-remote',
+    lastMirror: lastAuthMirror,
+    queued: Boolean(authMirrorTimer),
+  };
+}
+
+async function mirrorRemoteAuthState(reason = 'scheduled') {
+  if (authMirrorRunning) return authMirrorRunning;
+  if (!hasConfiguredRemoteAuthMirror()) {
+    lastAuthMirror = { ok: false, skipped: 'remote-not-configured', reason, timestamp: Date.now() };
+    return lastAuthMirror;
+  }
+
+  authMirrorRunning = (async () => {
+    try {
+      const snapshot = buildRemoteAuthSnapshot();
+      if (!snapshot) {
+        lastAuthMirror = { ok: false, skipped: 'local-auth-not-verified', reason, timestamp: Date.now() };
+        return lastAuthMirror;
+      }
+
+      mirrorRemote('mirrorAuthState', snapshot);
+      lastAuthMirror = {
+        ok: true,
+        reason,
+        timestamp: Date.now(),
+        credentialRows: snapshot.sessionCreds.length,
+        keyRows: snapshot.sessionKeys.length,
+        metaRows: snapshot.sessionAuthMeta.length,
+      };
+      return lastAuthMirror;
+    } catch (error) {
+      lastAuthMirror = { ok: false, reason, error: error.code || 'mirror-failed', timestamp: Date.now() };
+      return lastAuthMirror;
+    } finally {
+      authMirrorRunning = null;
+    }
+  })();
+
+  return authMirrorRunning;
+}
+
+function scheduleRemoteAuthMirror(reason = 'auth-update') {
+  if (!hasConfiguredRemoteAuthMirror() || shuttingDown) return false;
+  if (authMirrorTimer) clearTimeout(authMirrorTimer);
+  authMirrorTimer = setTimeout(() => {
+    authMirrorTimer = null;
+    void mirrorRemoteAuthState(reason);
+  }, AUTH_MIRROR_DEBOUNCE_MS);
+  authMirrorTimer.unref?.();
+  return true;
+}
+
+async function flushRemoteAuthMirror(reason = 'shutdown') {
+  if (authMirrorTimer) {
+    clearTimeout(authMirrorTimer);
+    authMirrorTimer = null;
+  }
+  return mirrorRemoteAuthState(reason);
+}
+
+async function restoreRemoteAuthState() {
+  if (!db) return { restored: false, skipped: 'database-unavailable' };
+
+  try {
+    const localMeta = db.prepare('SELECT value FROM session_auth_meta WHERE key = ?').get('status');
+    const hasVerifiedLocalAuth = localMeta?.value === 'verified' &&
+      !!db.prepare("SELECT 1 FROM session_creds WHERE key = 'creds'").get();
+    if (hasVerifiedLocalAuth) return { restored: false, skipped: 'local-auth-verified' };
+
+    const candidates = (await Promise.all([
+      typeof pgAdapter.fetchAuthState === 'function' ? pgAdapter.fetchAuthState() : null,
+      typeof mongoAdapter.fetchAuthState === 'function' ? mongoAdapter.fetchAuthState() : null,
+    ])).filter((candidate) => candidate?.snapshot);
+    if (!candidates.length) return { restored: false, skipped: 'no-remote-auth-state' };
+
+    candidates.sort((a, b) => Number(b.updatedAt || b.snapshot?.createdAt || 0) - Number(a.updatedAt || a.snapshot?.createdAt || 0));
+    const source = candidates[0];
+    const snapshot = validateRemoteAuthSnapshot(source.snapshot);
+    if (!snapshot) return { restored: false, skipped: 'invalid-remote-auth-state' };
+
+    const insertCred = db.prepare(`
+      INSERT INTO session_creds (key, value, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `);
+    const insertKey = db.prepare(`
+      INSERT INTO session_keys (type, id, value, updated_at) VALUES (?, ?, ?, ?)
+      ON CONFLICT(type, id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `);
+    const insertMeta = db.prepare(`
+      INSERT INTO session_auth_meta (key, value) VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `);
+
+    const restore = db.transaction(() => {
+      db.prepare('DELETE FROM session_creds').run();
+      db.prepare('DELETE FROM session_keys').run();
+      db.prepare('DELETE FROM session_auth_meta').run();
+      for (const row of snapshot.creds) insertCred.run(row.key, row.value, Number(row.updated_at || Date.now()));
+      for (const row of snapshot.keys) insertKey.run(row.type, row.id, row.value, Number(row.updated_at || Date.now()));
+      for (const row of snapshot.meta) insertMeta.run(row.key, row.value);
+    });
+    restore();
+    requestBackup('remote-auth-mirror-restore');
+
+    return {
+      restored: true,
+      source: source.source || 'remote',
+      credentialRows: snapshot.creds.length,
+      keyRows: snapshot.keys.length,
+      metaRows: snapshot.meta.length,
+    };
+  } catch (error) {
+    return { restored: false, error: error.code || 'remote-auth-restore-failed' };
+  }
+}
+
+function clearRemoteAuthState() {
+  mirrorRemote('deleteAuthState');
+  // Cleanup compatibility records from the prior auth-backup implementation.
+  mirrorRemote('deleteLegacyAuthRecord');
+  lastAuthMirror = { ok: true, cleared: true, timestamp: Date.now() };
+  return true;
 }
 
 function startRemoteSyncQueue() {
@@ -770,6 +964,16 @@ const SCHEMA_SQL = `
     PRIMARY KEY (group_id, date)
   );
 
+  CREATE TABLE IF NOT EXISTS status_downloads (
+    status_id       TEXT PRIMARY KEY,
+    sender_id       TEXT NOT NULL DEFAULT '',
+    media_type      TEXT NOT NULL DEFAULT 'unknown',
+    downloaded_at   INTEGER NOT NULL,
+    destination_jid TEXT NOT NULL DEFAULT ''
+  );
+  CREATE INDEX IF NOT EXISTS idx_status_downloads_downloaded_at
+    ON status_downloads(downloaded_at DESC);
+
   CREATE TABLE IF NOT EXISTS chat_profiles (
     bot_id  TEXT NOT NULL,
     user_id TEXT NOT NULL,
@@ -866,7 +1070,30 @@ function createPreparedStatements() {
     insertGroupStat: db.prepare('INSERT INTO group_stats (group_id, date, data) VALUES (?, ?, ?) ON CONFLICT(group_id, date) DO UPDATE SET data = excluded.data'),
     getGroupStat: db.prepare('SELECT data FROM group_stats WHERE group_id = ? AND date = ?'),
     getAllGroupStats: db.prepare('SELECT date, data FROM group_stats WHERE group_id = ?'),
+    getStatusDownload: db.prepare('SELECT status_id FROM status_downloads WHERE status_id = ? LIMIT 1'),
+    insertStatusDownload: db.prepare(`
+      INSERT OR IGNORE INTO status_downloads
+        (status_id, sender_id, media_type, downloaded_at, destination_jid)
+      VALUES (?, ?, ?, ?, ?)
+    `),
+    getStatusDownloadLogs: db.prepare(`
+      SELECT status_id, sender_id, media_type, downloaded_at, destination_jid
+      FROM status_downloads
+      ORDER BY downloaded_at DESC
+      LIMIT ?
+    `),
+    countStatusDownloads: db.prepare('SELECT COUNT(*) AS count FROM status_downloads'),
+    deleteOldestStatusDownloads: db.prepare(`
+      DELETE FROM status_downloads
+      WHERE status_id IN (
+        SELECT status_id FROM status_downloads
+        ORDER BY downloaded_at ASC, status_id ASC
+        LIMIT ?
+      )
+    `),
+    clearStatusDownloadHistory: db.prepare('DELETE FROM status_downloads'),
     saveAntideleteMessage: db.prepare('INSERT INTO antidelete_messages (chat_id, message_id, payload, stored_at) VALUES (?, ?, ?, ?) ON CONFLICT(chat_id, message_id) DO UPDATE SET payload = excluded.payload, stored_at = excluded.stored_at'),
+    getAntideleteMessage: db.prepare('SELECT chat_id, message_id, payload, stored_at FROM antidelete_messages WHERE chat_id = ? AND message_id = ? LIMIT 1'),
     getAntideleteMessages: db.prepare('SELECT chat_id, message_id, payload, stored_at FROM antidelete_messages ORDER BY stored_at ASC'),
     deleteAntideleteMessage: db.prepare('DELETE FROM antidelete_messages WHERE chat_id = ? AND message_id = ?'),
     saveAntideleteStatus: db.prepare('INSERT INTO antidelete_statuses (status_id, payload, stored_at) VALUES (?, ?, ?) ON CONFLICT(status_id) DO UPDATE SET payload = excluded.payload, stored_at = excluded.stored_at'),
@@ -1099,6 +1326,27 @@ const BOT_SETTINGS_DEFAULTS = {
   autoRead: true,
   autoReact: false,
   mode: 'public',
+  loginMethod: null,
+
+  // Unified anti-feature configuration lives in SQLite only. These defaults
+  // are returned for a fresh database; config.js and data/*.json are never
+  // consulted as fallbacks for these values.
+  antideleteMode: 'off',
+  antieditMode: 'off',
+  antideleteStatus: false,
+
+  // Menu presentation settings are SQLite-backed. The menu renderer and owner
+  // commands do not use a file-based fallback.
+  menuStyle: '2',
+  menuShowMemory: true,
+  menuShowUptime: true,
+  menuShowPluginCount: true,
+  menuShowProgressBar: true,
+
+  // A custom menu image is stored directly in SQLite as base64. Bundled image
+  // assets remain ordinary read-only application defaults.
+  menuImageCustom: false,
+  menuImageData: null,
 };
 
 const getGroupSettings = (groupId) => {
@@ -1106,10 +1354,20 @@ const getGroupSettings = (groupId) => {
   return row ? parse(row.settings, {}) : {};
 };
 
-const updateGroupSettings = (groupId, settings) => {
+const updateGroupSettings = (groupId, updates = {}) => {
+  // Group commands normally submit a small patch (for example
+  // `{ antilink: true }`). Merge it with the existing SQLite document so one
+  // feature command cannot erase another feature's persisted settings.
+  const current = getGroupSettings(groupId);
+  const patch = updates && typeof updates === 'object' && !Array.isArray(updates)
+    ? updates
+    : {};
+  const settings = { ...current, ...patch };
+
   stmts.upsertGroupSettings.run(groupId, serial(settings));
   requestBackup('group-settings');
   mirrorRemote('mirrorGroupSettings', groupId, settings);
+  return settings;
 };
 
 // ── Users ─────────────────────────────────────────────────────────────────
@@ -1192,33 +1450,328 @@ const getStoredBotSettings = () => {
 };
 const getAllBotSettings = () => ({ ...BOT_SETTINGS_DEFAULTS, ...getStoredBotSettings() });
 const updateBotSettings = (updates) => { for (const [key, value] of Object.entries(updates)) setBotSetting(key, value); return true; };
-
-// ── Bot Mode ──────────────────────────────────────────────────────────────
-// Canonical vocabulary used everywhere else (utils/botMode.js, the mode.js
-// command, and messageHandler.js's mode gate): 'public' | 'private' | 'group'
-// | 'pm'. Older installs may have 'silent' / 'restricted' / 'groups' / 'dms'
-// stored on disk from a previous naming scheme — translate those on read
-// only, never write them again.
-const VALID_BOT_MODES = ['public', 'private', 'group', 'pm'];
-
-const LEGACY_MODE_ALIASES = {
-  silent: 'private',
-  restricted: 'private',
-  groups: 'group',
-  dms: 'pm',
-};
-
+const VALID_BOT_MODES = ['public', 'groups', 'dms', 'silent'];
 const getBotMode = () => {
-  const raw = getBotSetting('mode') || 'public';
-  const mode = LEGACY_MODE_ALIASES[raw] || raw;
+  const mode = getBotSetting('mode') || 'public';
+  if (mode === 'private' || mode === 'restricted') return 'silent';
+  if (mode === 'group') return 'groups';
+  if (mode === 'pm') return 'dms';
   return VALID_BOT_MODES.includes(mode) ? mode : 'public';
 };
-
 const setBotMode = (mode) => {
-  const normalized = LEGACY_MODE_ALIASES[mode] || mode;
+  const normalized = {
+    private: 'silent',
+    restricted: 'silent',
+    group: 'groups',
+    pm: 'dms',
+  }[mode] || mode;
   if (!VALID_BOT_MODES.includes(normalized)) throw new Error(`Invalid mode: ${mode}`);
   setBotSetting('mode', normalized);
   return true;
+};
+
+// ── Login method metadata ──────────────────────────────────────────────────
+// This is operational metadata only. Session credentials and raw SESSION_ID
+// values are never stored here.
+const LOGIN_METHOD_VALUES = Object.freeze(['session', 'number']);
+const getStoredLoginMethod = () => {
+  const method = String(getBotSetting('loginMethod') || '').trim().toLowerCase();
+  return LOGIN_METHOD_VALUES.includes(method) ? method : null;
+};
+const setStoredLoginMethod = (method) => {
+  const normalized = String(method || '').trim().toLowerCase();
+  if (!LOGIN_METHOD_VALUES.includes(normalized)) throw new Error(`Invalid login method: ${method}`);
+  setBotSetting('loginMethod', normalized);
+  return normalized;
+};
+const clearStoredLoginMethod = () => {
+  setBotSetting('loginMethod', null);
+  return true;
+};
+
+// ── Menu presentation settings ─────────────────────────────────────────────
+// The menu renderer and owner commands use these SQLite-backed values only.
+const MENU_STYLE_VALUES = Object.freeze(['1', '2', '3', '4', '5', '6']);
+const MENU_SETTINGS_DEFAULTS = Object.freeze({
+  menuStyle: '2',
+  showMemory: true,
+  showUptime: true,
+  showPluginCount: true,
+  showProgressBar: true,
+});
+
+function normaliseMenuStyle(value) {
+  const style = String(value || '').trim();
+  return MENU_STYLE_VALUES.includes(style) ? style : MENU_SETTINGS_DEFAULTS.menuStyle;
+}
+
+function menuBoolean(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+const getMenuSettings = () => ({
+  menuStyle: normaliseMenuStyle(getBotSetting('menuStyle')),
+  showMemory: menuBoolean(getBotSetting('menuShowMemory'), MENU_SETTINGS_DEFAULTS.showMemory),
+  showUptime: menuBoolean(getBotSetting('menuShowUptime'), MENU_SETTINGS_DEFAULTS.showUptime),
+  showPluginCount: menuBoolean(getBotSetting('menuShowPluginCount'), MENU_SETTINGS_DEFAULTS.showPluginCount),
+  showProgressBar: menuBoolean(getBotSetting('menuShowProgressBar'), MENU_SETTINGS_DEFAULTS.showProgressBar),
+});
+
+const updateMenuSettings = (updates = {}) => {
+  const current = getMenuSettings();
+  const has = (key) => Object.prototype.hasOwnProperty.call(updates, key);
+  const next = {
+    menuStyle: has('menuStyle') ? normaliseMenuStyle(updates.menuStyle) : current.menuStyle,
+    showMemory: has('showMemory') ? menuBoolean(updates.showMemory, current.showMemory) : current.showMemory,
+    showUptime: has('showUptime') ? menuBoolean(updates.showUptime, current.showUptime) : current.showUptime,
+    showPluginCount: has('showPluginCount')
+      ? menuBoolean(updates.showPluginCount, current.showPluginCount)
+      : current.showPluginCount,
+    showProgressBar: has('showProgressBar')
+      ? menuBoolean(updates.showProgressBar, current.showProgressBar)
+      : current.showProgressBar,
+  };
+
+  updateBotSettings({
+    menuStyle: next.menuStyle,
+    menuShowMemory: next.showMemory,
+    menuShowUptime: next.showUptime,
+    menuShowPluginCount: next.showPluginCount,
+    menuShowProgressBar: next.showProgressBar,
+  });
+  return next;
+};
+
+const getMenuImageSettings = () => {
+  const imageData = getBotSetting('menuImageData');
+  const custom = getBotSetting('menuImageCustom') === true;
+  const validData = typeof imageData === 'string' && imageData.trim().length > 0;
+  return {
+    custom: custom && validData,
+    imageData: custom && validData ? imageData : null,
+  };
+};
+
+const setMenuImageData = (imageData) => {
+  const value = typeof imageData === 'string' && imageData.trim().length > 0
+    ? imageData
+    : null;
+  updateBotSettings({
+    menuImageCustom: Boolean(value),
+    menuImageData: value,
+  });
+  return Boolean(value);
+};
+
+const clearMenuImageData = () => {
+  updateBotSettings({
+    menuImageCustom: false,
+    menuImageData: null,
+  });
+  return true;
+};
+
+// ── Auto-download status settings and history ──────────────────────────────
+// Configuration is one structured bot setting. Download history and duplicate
+// detection live in status_downloads so they never grow inside that setting.
+const AUTO_DOWNLOAD_STATUS_TYPES = Object.freeze([
+  'image', 'video', 'audio', 'document', 'sticker', 'text'
+]);
+const AUTO_DOWNLOAD_STATUS_DEFAULTS = Object.freeze({
+  enabled: false,
+  mode: 'private',
+  publicJid: '',
+  ownerJid: '',
+  downloadTypes: AUTO_DOWNLOAD_STATUS_TYPES,
+  excludedContacts: [],
+  skipOwnerStatus: true,
+  totalDownloaded: 0,
+});
+
+function autoDownloadStatusBoolean(value, fallback) {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+function normaliseAutoDownloadStatusMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  return ['private', 'public'].includes(mode) ? mode : AUTO_DOWNLOAD_STATUS_DEFAULTS.mode;
+}
+
+function normaliseAutoDownloadStatusTypes(value) {
+  if (!Array.isArray(value)) return [...AUTO_DOWNLOAD_STATUS_TYPES];
+  return [...new Set(value
+    .map(type => String(type || '').trim().toLowerCase())
+    .filter(type => AUTO_DOWNLOAD_STATUS_TYPES.includes(type)))];
+}
+
+function normaliseExcludedContacts(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map(contact => String(contact || '').replace(/\D/g, ''))
+    .filter(Boolean))];
+}
+
+function normaliseDownloadCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function normaliseAutoDownloadStatusSettings(value) {
+  const settings = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    enabled: autoDownloadStatusBoolean(settings.enabled, AUTO_DOWNLOAD_STATUS_DEFAULTS.enabled),
+    mode: normaliseAutoDownloadStatusMode(settings.mode),
+    publicJid: typeof settings.publicJid === 'string' ? settings.publicJid.trim() : '',
+    ownerJid: typeof settings.ownerJid === 'string' ? settings.ownerJid.trim() : '',
+    // An intentionally empty array means "download no content types".
+    downloadTypes: Array.isArray(settings.downloadTypes)
+      ? normaliseAutoDownloadStatusTypes(settings.downloadTypes)
+      : [...AUTO_DOWNLOAD_STATUS_TYPES],
+    excludedContacts: normaliseExcludedContacts(settings.excludedContacts),
+    skipOwnerStatus: autoDownloadStatusBoolean(
+      settings.skipOwnerStatus,
+      AUTO_DOWNLOAD_STATUS_DEFAULTS.skipOwnerStatus
+    ),
+    totalDownloaded: normaliseDownloadCount(settings.totalDownloaded),
+  };
+}
+
+const getAutoDownloadStatusSettings = () => normaliseAutoDownloadStatusSettings(
+  getBotSetting('autoDownloadStatus')
+);
+
+const setAutoDownloadStatusSettings = (updates = {}) => {
+  const current = getAutoDownloadStatusSettings();
+  const patch = updates && typeof updates === 'object' && !Array.isArray(updates) ? updates : {};
+  const next = normaliseAutoDownloadStatusSettings({ ...current, ...patch });
+  setBotSetting('autoDownloadStatus', next);
+  return next;
+};
+
+const hasStatusBeenDownloaded = (statusId) => {
+  if (!statusId) return false;
+  return !!stmts.getStatusDownload.get(String(statusId));
+};
+
+function trimStatusDownloadHistory() {
+  const row = stmts.countStatusDownloads.get();
+  const excess = Math.max(0, Number(row?.count || 0) - AUTO_DOWNLOAD_STATUS_HISTORY_MAX_ROWS);
+  if (!excess) return 0;
+  return stmts.deleteOldestStatusDownloads.run(excess).changes || 0;
+}
+
+const markStatusDownloaded = (statusId, metadata = {}) => {
+  if (!statusId) return false;
+
+  const result = stmts.insertStatusDownload.run(
+    String(statusId),
+    String(metadata.senderId || ''),
+    String(metadata.mediaType || 'unknown'),
+    Number(metadata.downloadedAt || Date.now()),
+    String(metadata.destinationJid || '')
+  );
+  if (!result.changes) return false;
+
+  trimStatusDownloadHistory();
+  requestBackup('status-download');
+  return true;
+};
+
+const getStatusDownloadLogs = (limit = 100) => {
+  const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 100)));
+  return stmts.getStatusDownloadLogs.all(safeLimit).map(row => ({
+    statusId: row.status_id,
+    senderId: row.sender_id,
+    mediaType: row.media_type,
+    downloadedAt: row.downloaded_at,
+    destinationJid: row.destination_jid,
+  }));
+};
+
+const clearStatusDownloadHistory = () => {
+  const result = stmts.clearStatusDownloadHistory.run();
+  requestBackup('status-download-history-clear');
+  return result.changes || 0;
+};
+
+const incrementStatusDownloadCount = () => {
+  const current = getAutoDownloadStatusSettings();
+  const totalDownloaded = current.totalDownloaded + 1;
+  setAutoDownloadStatusSettings({ totalDownloaded });
+  return totalDownloaded;
+};
+
+// ── Unified anti-feature settings ─────────────────────────────────────────
+// Configuration belongs to SQLite. The short-lived message/status caches used
+// by the feature handlers deliberately remain in memory.
+const ANTIDELETE_MODES = Object.freeze(['off', 'chat', 'private']);
+const ANTIEDIT_MODES = Object.freeze(['off', 'chat', 'pm']);
+const ANTITAGADMINS_ACTIONS = Object.freeze(['kick', 'warn', 'delete']);
+
+function normaliseChoice(value, choices, fallback) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return choices.includes(normalized) ? normalized : fallback;
+}
+
+const getAntideleteMode = () => normaliseChoice(
+  getBotSetting('antideleteMode'), ANTIDELETE_MODES, 'off'
+);
+const setAntideleteMode = (mode) => {
+  const normalized = normaliseChoice(mode, ANTIDELETE_MODES, null);
+  if (!normalized) throw new Error('Invalid Anti-Delete mode');
+  setBotSetting('antideleteMode', normalized);
+  return normalized;
+};
+
+const getAntieditMode = () => normaliseChoice(
+  getBotSetting('antieditMode'), ANTIEDIT_MODES, 'off'
+);
+const setAntieditMode = (mode) => {
+  const normalized = normaliseChoice(mode, ANTIEDIT_MODES, null);
+  if (!normalized) throw new Error('Invalid Anti-Edit mode');
+  setBotSetting('antieditMode', normalized);
+  return normalized;
+};
+
+const isAntideleteStatusEnabled = () => getBotSetting('antideleteStatus') === true;
+const setAntideleteStatusEnabled = (enabled) => {
+  const value = enabled === true;
+  setBotSetting('antideleteStatus', value);
+  return value;
+};
+
+const getAntiTagAdminsSettings = (groupId) => {
+  const settings = getGroupSettings(groupId);
+  return {
+    enabled: settings.antitagadmins === true,
+    action: normaliseChoice(settings.antitagadminsAction, ANTITAGADMINS_ACTIONS, 'warn'),
+  };
+};
+
+const setAntiTagAdminsSettings = (groupId, updates = {}) => {
+  const current = getAntiTagAdminsSettings(groupId);
+  const next = {
+    enabled: Object.prototype.hasOwnProperty.call(updates, 'enabled')
+      ? updates.enabled === true
+      : current.enabled,
+    action: Object.prototype.hasOwnProperty.call(updates, 'action')
+      ? normaliseChoice(updates.action, ANTITAGADMINS_ACTIONS, 'warn')
+      : current.action,
+  };
+
+  const groupSettings = getGroupSettings(groupId);
+  groupSettings.antitagadmins = next.enabled;
+  groupSettings.antitagadminsAction = next.action;
+  updateGroupSettings(groupId, groupSettings);
+  return next;
+};
+
+const isAntiAllEnabled = (groupId) => getGroupSettings(groupId).antiall === true;
+const setAntiAllEnabled = (groupId, enabled) => {
+  const groupSettings = getGroupSettings(groupId);
+  groupSettings.antiall = enabled === true;
+  updateGroupSettings(groupId, groupSettings);
+  return groupSettings.antiall;
 };
 
 // ── Antiforward ───────────────────────────────────────────────────────────
@@ -1290,6 +1843,39 @@ const setKV = (namespace, key, value) => { stmts.setKV.run(namespace, key, seria
 const delKV = (namespace, key) => { stmts.delKV.run(namespace, key); requestBackup('kv-delete'); deleteRemoteKV(namespace, key); return true; };
 const getAllKV = (namespace) => { const rows = stmts.allKV.all(namespace); const out = {}; for (const { key, value } of rows) out[key] = parse(value); return out; };
 
+// ── Session error retry state ──────────────────────────────────────────────
+// A tiny runtime record belongs in the existing SQLite KV store, not a
+// file in the source/runtime directory.
+const SESSION_ERROR_STATE_NAMESPACE = 'runtime';
+const SESSION_ERROR_STATE_KEY = 'sessionErrorCount';
+const SESSION_ERROR_STATE_DEFAULT = Object.freeze({
+  count: 0,
+  last_error_timestamp: 0,
+});
+
+function normaliseSessionErrorState(value) {
+  const state = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const count = Number(state.count);
+  const timestamp = Number(state.last_error_timestamp);
+  return {
+    count: Number.isFinite(count) && count > 0 ? Math.floor(count) : 0,
+    last_error_timestamp: Number.isFinite(timestamp) && timestamp > 0 ? Math.floor(timestamp) : 0,
+  };
+}
+
+const getSessionErrorState = () => normaliseSessionErrorState(
+  getKV(SESSION_ERROR_STATE_NAMESPACE, SESSION_ERROR_STATE_KEY, SESSION_ERROR_STATE_DEFAULT)
+);
+const setSessionErrorState = (state) => {
+  const next = normaliseSessionErrorState(state);
+  setKV(SESSION_ERROR_STATE_NAMESPACE, SESSION_ERROR_STATE_KEY, next);
+  return next;
+};
+const clearSessionErrorState = () => {
+  delKV(SESSION_ERROR_STATE_NAMESPACE, SESSION_ERROR_STATE_KEY);
+  return true;
+};
+
 // ── Group statistics ─────────────────────────────────────────────────────
 const getGroupStat = (groupId, date) => {
   const row = stmts.getGroupStat.get(String(groupId), String(date));
@@ -1310,10 +1896,17 @@ const saveAntideleteMessage = (chatId, messageId, payload, storedAt = Date.now()
   mirrorRemote('mirrorAntideleteMessage', chatId, messageId, payload, storedAt);
   return true;
 };
+const getAntideleteMessage = (chatId, messageId) => {
+  const row = stmts.getAntideleteMessage.get(String(chatId), String(messageId));
+  return row
+    ? { chatId: row.chat_id, messageId: row.message_id, payload: parse(row.payload, {}), storedAt: row.stored_at }
+    : null;
+};
 const getAntideleteMessages = () => stmts.getAntideleteMessages.all()
   .map(row => ({ chatId: row.chat_id, messageId: row.message_id, payload: parse(row.payload, {}), storedAt: row.stored_at }));
 const deleteAntideleteMessage = (chatId, messageId) => {
   stmts.deleteAntideleteMessage.run(String(chatId), String(messageId));
+  requestBackup('antidelete-message-delete');
   mirrorRemote('deleteAntideleteMessage', chatId, messageId);
   return true;
 };
@@ -1447,6 +2040,7 @@ async function shutdownDatabase() {
     try {
       console.log('[DB] 🔄 Shutting down...');
       await ready;
+      await flushRemoteAuthMirror('shutdown');
       await flushBackup();
     } finally {
       try { db?.close(); } catch (_) {}
@@ -1506,6 +2100,7 @@ function getDatabaseHealth() {
       lastBackup,
       maintenance: lastMaintenance,
       remoteSync: getRemoteSyncQueueStats(),
+      authMirror: getRemoteAuthMirrorStatus(),
       postgres: pgAdapter.getStatus(),
       mongo: mongoAdapter.getStatus(),
 
@@ -1530,6 +2125,7 @@ function getDatabaseHealth() {
       lastBackup,
       maintenance: lastMaintenance,
       remoteSync: getRemoteSyncQueueStats(),
+      authMirror: getRemoteAuthMirrorStatus(),
       postgres: pgAdapter.getStatus(),
       mongo: mongoAdapter.getStatus(),
       databaseSizeBytes: 0,
@@ -1543,7 +2139,11 @@ function getDatabaseHealth() {
 }
 
 function markDatabaseDirty(reason = 'manual-mark') {
-  requestBackup(String(reason || 'manual-mark').slice(0, 80));
+  const normalizedReason = String(reason || 'manual-mark').slice(0, 80);
+  requestBackup(normalizedReason);
+  if (/^(auth|session)/i.test(normalizedReason)) {
+    scheduleRemoteAuthMirror(normalizedReason);
+  }
 }
 
 async function restoreFromPostgres() {
@@ -1566,12 +2166,23 @@ module.exports = {
   muteUser, unmuteUser, isUserMuted, getMutedUsers,
   getBotSetting, setBotSetting, getStoredBotSettings, getAllBotSettings, updateBotSettings, BOT_SETTINGS_DEFAULTS,
   getBotMode, setBotMode, VALID_BOT_MODES,
+  getStoredLoginMethod, setStoredLoginMethod, clearStoredLoginMethod, LOGIN_METHOD_VALUES,
+  getMenuSettings, updateMenuSettings, MENU_STYLE_VALUES, MENU_SETTINGS_DEFAULTS,
+  getMenuImageSettings, setMenuImageData, clearMenuImageData,
+  getAutoDownloadStatusSettings, setAutoDownloadStatusSettings, AUTO_DOWNLOAD_STATUS_TYPES, AUTO_DOWNLOAD_STATUS_DEFAULTS,
+  markStatusDownloaded, hasStatusBeenDownloaded, getStatusDownloadLogs, clearStatusDownloadHistory, incrementStatusDownloadCount,
+  getAntideleteMode, setAntideleteMode, ANTIDELETE_MODES,
+  getAntieditMode, setAntieditMode, ANTIEDIT_MODES,
+  isAntideleteStatusEnabled, setAntideleteStatusEnabled,
+  getAntiTagAdminsSettings, setAntiTagAdminsSettings, ANTITAGADMINS_ACTIONS,
+  isAntiAllEnabled, setAntiAllEnabled,
   getAntiforwardSettings, updateAntiforwardSettings, addAntiforwardWarning, getAntiforwardWarningCount, clearAntiforwardWarning, clearAllAntiforwardWarnings,
   saveSession, getSession, clearSession,
   loadSettings, saveSettings, cleanEmoji, pickEmoji,
   getKV, setKV, delKV, getAllKV,
+  getSessionErrorState, setSessionErrorState, clearSessionErrorState,
   getGroupStat, saveGroupStat, getAllGroupStats,
-  saveAntideleteMessage, getAntideleteMessages, deleteAntideleteMessage,
+  saveAntideleteMessage, getAntideleteMessage, getAntideleteMessages, deleteAntideleteMessage,
   saveAntideleteStatus, getAntideleteStatuses, deleteAntideleteStatus,
   saveLidMap, getLidMap, getLidMaps,
   recordRuntimeTelemetry, getRuntimeTelemetry,
@@ -1579,6 +2190,8 @@ module.exports = {
   runIntegrityCheck, getDatabaseHealth, createBackup: () => createAtomicBackup('manual'), flushBackup, shutdownDatabase, markDatabaseDirty,
   runDatabaseMaintenance, vacuumDatabase, pruneAntideleteData,
   processRemoteSyncQueue, getRemoteSyncQueueStats,
+  getRemoteAuthMirrorStatus, scheduleRemoteAuthMirror, flushRemoteAuthMirror,
+  mirrorRemoteAuthState, restoreRemoteAuthState, clearRemoteAuthState,
   restoreFromPostgres, restoreFromMongo,
   getPostgresStatus: pgAdapter.getStatus, getMongoStatus: mongoAdapter.getStatus,
   getBotId: pgAdapter.getBotId,

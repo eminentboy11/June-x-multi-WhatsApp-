@@ -2,7 +2,7 @@
  * Runtime Settings — persists prefix, botName, timezone, menuStyle, fontStyle
  * and other owner-changed config values across bot restarts.
  *
- * Storage: All values are written to database/bot-settings.json via database.js,
+ * Storage: All values are written to SQLite bot_settings through database.js,
  * which survives every restart and session-clear scenario.
  *
  * Usage:
@@ -21,7 +21,7 @@ const DEFAULTS = {
   prefix:    '.',
   botName:   'JuneX-Ultra',
   timezone:  'Africa/Nairobi',
-  menuStyle: '1',
+  menuStyle: '2',
   fontStyle: 'normal',
 };
 

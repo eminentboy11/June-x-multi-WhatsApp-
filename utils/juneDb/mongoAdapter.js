@@ -4,8 +4,9 @@
  * Optional MongoDB persistence for June X.
  *
  * SQLite remains the live local database. MongoDB is a remote mirror/recovery
- * layer enabled only when MONGODB_URI (or MONGO_URL) exists. Authentication
- * credentials and Signal keys are deliberately not mirrored here.
+ * layer enabled only when MONGODB_URI (or MONGO_URL) exists. When the plain
+ * auth mirror is active, session credentials and Signal keys are mirrored in a
+ * dedicated auth-state record for recovery.
  */
 
 let MongoClient = null;
@@ -260,6 +261,39 @@ function mirrorProfile(profileBotId, userId, profile) {
   });
 }
 
+// Direct auth-state mirror. This mode intentionally stores the verified local
+// auth snapshot as-is in the remote collection; it uses no encryption key.
+function mirrorAuthState(snapshot) {
+  return upsertRecord('auth-state', [], snapshot || {}).then((result) => {
+    if (!result) return result;
+    // Once the new state is written, remove the prior implementation's stale
+    // auth record for this bot if it still exists.
+    return deleteLegacyAuthRecord().then(() => result);
+  });
+}
+
+function fetchAuthState() {
+  if (!ready || !collection()) return Promise.resolve(null);
+  return runRemoteOperation(async () => {
+    const document = await collection().findOne({ _id: recordId('auth-state', []) });
+    if (!document?.data) return null;
+    return {
+      snapshot: document.data,
+      updatedAt: document.updatedAt ? new Date(document.updatedAt).getTime() : 0,
+      source: 'mongo',
+    };
+  });
+}
+
+function deleteAuthState() {
+  return deleteRecord('auth-state', []);
+}
+
+// Compatibility cleanup only. This is never read as auth state by this version.
+function deleteLegacyAuthRecord() {
+  return deleteRecord('auth-backup', []);
+}
+
 function insertIfMissing(sqlite, existsSql, existsArgs, insertSql, insertArgs) {
   if (sqlite.prepare(existsSql).get(...existsArgs)) return false;
   sqlite.prepare(insertSql).run(...insertArgs);
@@ -445,5 +479,9 @@ module.exports = {
   deleteAntideleteStatus,
   mirrorLidMap,
   mirrorProfile,
+  mirrorAuthState,
+  fetchAuthState,
+  deleteAuthState,
+  deleteLegacyAuthRecord,
   restoreIntoSQLite,
 };

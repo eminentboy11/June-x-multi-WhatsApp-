@@ -20,6 +20,7 @@ try {
 }
 
 const SCHEMA_FILE = path.join(__dirname, 'postgres-schema.sql');
+const LEGACY_AUTH_RECORD_KEY = '__june_encrypted_auth_backup_v1__';
 
 function normalizeBotId(value) {
   const raw = String(value || '')
@@ -294,6 +295,69 @@ function mirrorProfile(botProfileId, userId, profile) {
   );
 }
 
+// Direct auth-state mirror. This user-selected mode stores the verified
+// SQLite auth rows in a dedicated remote table and uses no encryption key.
+function mirrorAuthState(snapshot) {
+  const state = snapshot || {};
+  return query(
+    `INSERT INTO session_auth_state (bot_id, session_creds, session_keys, session_auth_meta)
+     VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+     ON CONFLICT (bot_id)
+     DO UPDATE SET
+       session_creds = EXCLUDED.session_creds,
+       session_keys = EXCLUDED.session_keys,
+       session_auth_meta = EXCLUDED.session_auth_meta,
+       updated_at = NOW()`,
+    [
+      activeBotId,
+      JSON.stringify(Array.isArray(state.sessionCreds) ? state.sessionCreds : []),
+      JSON.stringify(Array.isArray(state.sessionKeys) ? state.sessionKeys : []),
+      JSON.stringify(Array.isArray(state.sessionAuthMeta) ? state.sessionAuthMeta : []),
+    ]
+  ).then((result) => {
+    if (!result) return result;
+    // Remove the previous implementation's stale auth record only after the
+    // direct auth state has been written successfully.
+    return deleteLegacyAuthRecord().then(() => result);
+  });
+}
+
+async function fetchAuthState() {
+  const result = await query(
+    `SELECT session_creds, session_keys, session_auth_meta, updated_at
+     FROM session_auth_state
+     WHERE bot_id = $1
+     LIMIT 1`,
+    [activeBotId]
+  );
+  const row = result?.rows?.[0];
+  if (!row) return null;
+  return {
+    snapshot: {
+      version: 1,
+      createdAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+      sessionCreds: row.session_creds,
+      sessionKeys: row.session_keys,
+      sessionAuthMeta: row.session_auth_meta,
+    },
+    updatedAt: row.updated_at ? new Date(row.updated_at).getTime() : 0,
+    source: 'postgres',
+  };
+}
+
+function deleteAuthState() {
+  return query('DELETE FROM session_auth_state WHERE bot_id = $1', [activeBotId]);
+}
+
+// Compatibility cleanup only. This record is never read as auth state by this
+// version; it is removed after a successful direct mirror or deliberate clear.
+function deleteLegacyAuthRecord() {
+  return query(
+    'DELETE FROM bot_configs WHERE bot_id = $1 AND key = $2',
+    [activeBotId, LEGACY_AUTH_RECORD_KEY]
+  );
+}
+
 function restoreIntoSQLite(db) {
   if (!ready || !pool || !db) return Promise.resolve({ restored: 0, skipped: 'pg_unavailable' });
 
@@ -311,6 +375,8 @@ function restoreIntoSQLite(db) {
       for (const row of result.rows) {
         const payload = row.payload || {};
         if (row.table_name === 'bot_configs') {
+          // A legacy auth record is never restored as an ordinary bot setting.
+          if (payload.key === LEGACY_AUTH_RECORD_KEY) continue;
           const exists = db.prepare('SELECT 1 FROM bot_settings WHERE key = ?').get(payload.key);
           if (!exists) {
             db.prepare('INSERT INTO bot_settings (key, value) VALUES (?, ?)')
@@ -502,5 +568,9 @@ module.exports = {
   mirrorKV,
   deleteKV,
   mirrorProfile,
+  mirrorAuthState,
+  fetchAuthState,
+  deleteAuthState,
+  deleteLegacyAuthRecord,
   restoreIntoSQLite,
 };
