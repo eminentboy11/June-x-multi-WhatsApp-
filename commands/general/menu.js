@@ -3,24 +3,29 @@ const { loadCommands } = require('../../utils/commandLoader');
 const { generateWAMessageFromContent } = require('@whiskeysockets/baileys');
 const { sendButtons } = require('gifted-btns');
 const { applyFont } = require('../../utils/fontConverter');
-const database = require('../../database');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
+
 // Create fake contact for enhanced replies
 function createFakeContact(msg) {
-    const jid = msg.key.participant?.split('@')[0] || msg.key.remoteJid?.split('@')[0] || '0';
+    const botName = config.botName || 'JuneX-Ultra';
+    const participantId = msg.key.participant || msg.key.remoteJid || '0';
+    const cleanId = String(participantId).split(':')[0].split('@')[0] || '0';
+
     return {
         key: {
             participants: "0@s.whatsapp.net",
             remoteJid: "0@s.whatsapp.net",
             fromMe: false,
-            id: "JUNE-X"
+            id: "JUNEX" + Math.random().toString(36).substring(2, 12).toUpperCase()
         },
         message: {
             contactMessage: {
-                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN:JUNE X\nitem1.TEL;waid=${jid}:${jid}\nitem1.X-ABLabel:Ponsel\nEND:VCARD`
+                displayName: botName,
+                vcard: `BEGIN:VCARD\nVERSION:3.0\nN:Sy;Bot;;;\nFN:${botName}\nitem1.TEL;waid=${cleanId}:${cleanId}\nitem1.X-ABLabel:Phone\nEND:VCARD`
             }
         },
         participant: "0@s.whatsapp.net"
@@ -44,9 +49,16 @@ const detectPlatform = () => {
   }
 };
 
-function getMenuSettings() {
-  // Menu presentation has one source of truth: SQLite bot_settings.
-  return database.getMenuSettings();
+function getMenuStyle() {
+  try {
+    const runtimeSettings = require('../../utils/settings');
+    const fromStore = runtimeSettings.get('menuStyle');
+    if (fromStore && fromStore !== '1') return fromStore;
+    if (!fs.existsSync(MENU_SETTINGS_FILE)) return fromStore || '5';
+    return JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8')).menuStyle || fromStore || '1';
+  } catch {
+    return '1';
+  }
 }
 
 function formatUptime() {
@@ -93,7 +105,7 @@ const CATEGORY_LABELS = {
   textmaker: 'MAKER-CMD',
 };
 
-function buildMenuText(categories, extra, totalCount, speed, menuSettings) {
+function buildMenuText(categories, extra, totalCount, speed) {
   const prefix = config.prefix;
   const bot = config.botName || 'JuneX-Ultra';
   const ownerName = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
@@ -113,19 +125,11 @@ function buildMenuText(categories, extra, totalCount, speed, menuSettings) {
   menu += `┃ ᴍᴏᴅᴇ: ${currentMode}\n`;
   menu += `┃ ᴘʟᴀᴛꜰᴏʀᴍ: ${hostName}\n`;
   menu += `┃ ꜱᴘᴇᴇᴅ: ${ping} ms\n`;
-  if (menuSettings.showUptime) {
-    menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
-  }
+  menu += `┃ ᴜᴘᴛɪᴍᴇ: ${uptimeFormatted}\n`;
   menu += `┃ Vᴇʀꜱɪᴏɴ: v${config.version}\n`;
-  if (menuSettings.showMemory) {
-    menu += `┃ ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
-  }
-  if (menuSettings.showProgressBar) {
-    menu += `┃ ʀᴀᴍ: ${progressBar(systemUsedMemory, totalMemory)}\n`;
-  }
-  if (menuSettings.showPluginCount) {
-    menu += `┃ Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
-  }
+  menu += `┃ ᴜꜱᴀɢᴇ: ${formatMemory(botUsedMemory)} of ${formatMemory(totalMemory)}\n`;
+  menu += `┃ ʀᴀᴍ: ${progressBar(systemUsedMemory, totalMemory)}\n`;
+  menu += `┃ Cᴏᴍᴍᴀɴᴅꜱ: ${totalCount}\n`;
   menu += `┗❐◈\n${readmore}\n`;
 
   const allCategoryKeys = Object.keys(categories).filter(k => categories[k]?.length > 0);
@@ -143,7 +147,7 @@ function buildMenuText(categories, extra, totalCount, speed, menuSettings) {
     for (const cmd of cmds) {
       menu += `┃◈${cmd.name}\n`;
     }
-    menu += `┗❐\n`;
+    menu += `┗❐◈\n`;
     sectionIndex++;
     if (sectionIndex % 3 === 0) {
       menu += `${readmore}\n`;
@@ -156,32 +160,22 @@ function buildMenuText(categories, extra, totalCount, speed, menuSettings) {
 }
 
 function getThumbnail() {
-  // Custom images are decoded directly from SQLite. No runtime image copy is
-  // needed because every supported menu style accepts a Buffer thumbnail.
-  const customImage = database.getMenuImageSettings();
-  if (customImage.custom && customImage.imageData) {
-    try {
-      const buffer = Buffer.from(customImage.imageData, 'base64');
-      if (buffer.length >= 100) return buffer;
-    } catch (_) {}
+  const customPath = path.join(__dirname, '../../data/custom_menu.jpg');
+  if (fs.existsSync(customPath)) {
+    try { return fs.readFileSync(customPath); } catch {}
   }
-
-  // These are bundled, read-only fallback assets. Do not include paths that
-  // older releases used as mutable custom-image copies.
   const defaults = [
-    path.join(__dirname, '../../utils/menu1.jpg'),
+    path.join(__dirname, '../../assets/menu1.jpg'),
+    path.join(__dirname, '../../utils/bot_image.jpg'),
     path.join(__dirname, '../../utils/menu2.jpg'),
     path.join(__dirname, '../../utils/menu3.jpg'),
     path.join(__dirname, '../../utils/menu4.jpg'),
     path.join(__dirname, '../../utils/menu5.jpg'),
   ];
-  const available = defaults.filter(filePath => {
-    try { return fs.existsSync(filePath); } catch (_) { return false; }
-  });
+  const available = defaults.filter(p => { try { return fs.existsSync(p); } catch { return false; } });
   if (!available.length) return null;
-
   const picked = available[Math.floor(Math.random() * available.length)];
-  try { return fs.readFileSync(picked); } catch (_) { return null; }
+  try { return fs.readFileSync(picked); } catch { return null; }
 }
 
 module.exports = {
@@ -205,8 +199,7 @@ module.exports = {
         }
       });
 
-      const menuSettings = getMenuSettings();
-      const menustyle = menuSettings.menuStyle;
+      const menustyle = getMenuStyle();
       const fakeQuoted = createFakeContact(msg);
 
       // ── Loading message ─────────────────────────────────────────────────
@@ -224,7 +217,7 @@ module.exports = {
         : Date.now();
       const speedMs = Date.now() - msgTimestamp;
 
-      const menulist = buildMenuText(categories, extra, uniqueCount, speedMs, menuSettings);
+      const menulist = buildMenuText(categories, extra, uniqueCount, speedMs);
       const tylorkids = getThumbnail();
       const botname = config.botName || 'June Ultra';
       const ownername = (Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName) || 'Bot Owner';
