@@ -528,6 +528,37 @@ const hasGroupLink = (text) => {
   return linkRegex.test(text);
 };
 
+function extractButtonId(content, msg) {
+  const raw = content || msg?.message || {};
+  const candidates = [
+    raw.buttonsResponseMessage?.selectedButtonId,
+    raw.templateButtonReplyMessage?.selectedId,
+    raw.listResponseMessage?.singleSelectReply?.selectedRowId,
+    raw.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson,
+    raw.interactiveResponseMessage?.body?.text,
+    msg?.message?.buttonsResponseMessage?.selectedButtonId,
+    msg?.message?.templateButtonReplyMessage?.selectedId,
+    msg?.message?.listResponseMessage?.singleSelectReply?.selectedRowId,
+    msg?.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson,
+  ].filter(Boolean);
+
+  for (const value of candidates) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const id = parsed.id || parsed.selectedId || parsed.cmd || parsed.command || parsed.name;
+        if (id) return String(id);
+      } catch (_) {}
+      continue;
+    }
+    return trimmed;
+  }
+  return null;
+}
+
 // System JID filter - checks if JID is from broadcast/status/newsletter
 const isSystemJid = (jid) => {
   if (!jid) return true;
@@ -742,12 +773,10 @@ const handleMessage = async (sock, msg) => {
     // Return early for non-group messages with no recognizable content
     if (!content || actualMessageTypes.length === 0) return;
 
-    // Button response — covers both buttonsResponseMessage and templateButtonReplyMessage
-    const _btnResp = content.buttonsResponseMessage || msg.message?.buttonsResponseMessage;
-    const _tplResp = content.templateButtonReplyMessage || msg.message?.templateButtonReplyMessage;
-    const btn = _btnResp || _tplResp || null;
-    if (btn) {
-      const buttonId = _btnResp ? btn.selectedButtonId : btn.selectedId;
+    // Button / native-flow response. gifted-btns and current WhatsApp send
+    // interactiveResponseMessage.paramsJson, not the old buttonsResponseMessage.
+    const buttonId = extractButtonId(content, msg);
+    if (buttonId) {
 
       // Helper to build the standard extra object for command execution
       const makeExtra = async () => ({
@@ -800,15 +829,27 @@ const handleMessage = async (sock, msg) => {
 
       // ── Generic fallback: buttonId starts with the bot prefix → run as command
       const cfgPrefix = config.prefix || '.';
-      if (buttonId && buttonId.startsWith(cfgPrefix)) {
-        const parts   = buttonId.slice(cfgPrefix.length).trim().split(/\s+/);
-        const cmdName = parts[0].toLowerCase();
+      let routedId = String(buttonId).replace(/_(\d{8,})$/, '');
+      if (routedId && routedId.startsWith(cfgPrefix)) {
+        const parts   = routedId.slice(cfgPrefix.length).trim().split(/\s+/);
+        const cmdName = (parts[0] || '').toLowerCase();
         const cmdArgs = parts.slice(1);
         const dynCmd  = commands.get(cmdName);
         if (dynCmd) {
           const extra = await makeExtra();
           extra.command = cmdName;
           extra.prefix  = cfgPrefix;
+          extra.isOwner = msg.key.fromMe || extra.isOwner;
+          extra.isSudo = extra.isOwner || extra.isSudo;
+          extra.isMod = extra.isSudo;
+          if (dynCmd.ownerOnly && !extra.isOwner && !extra.isSudo) {
+            await sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
+            return;
+          }
+          if (dynCmd.adminOnly && !extra.isAdmin && !extra.isOwner) {
+            await sock.sendMessage(from, { text: config.messages.adminOnly }, { quoted: msg });
+            return;
+          }
           await dynCmd.execute(sock, msg, cmdArgs, extra);
         }
         return;
