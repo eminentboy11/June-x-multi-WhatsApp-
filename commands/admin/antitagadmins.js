@@ -1,33 +1,16 @@
+'use strict';
+
 /**
- * AntiTagAdmins Command
+ * AntiTagAdmins
  * Prevents non-admins from tagging/mentioning group admins.
  *
- * Usage:
- *   .antitagadmins              — show current status
- *   .antitagadmins on           — enable (default action: warn)
- *   .antitagadmins on kick      — enable with kick action
- *   .antitagadmins on warn      — enable with warn action
- *   .antitagadmins on delete    — enable with delete action
- *   .antitagadmins off          — disable
+ * Configuration is group-scoped and stored only in SQLite through database.js.
  */
 
-const fs   = require('fs');
-const path = require('path');
-
-const CONFIG_PATH = path.join(__dirname, '../../data/antitagadmins.json');
-
-function loadConfig() {
-    try {
-        if (!fs.existsSync(CONFIG_PATH)) fs.writeFileSync(CONFIG_PATH, '{}');
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    } catch { return {}; }
-}
-
-function saveConfig(cfg) {
-    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch {}
-}
+const database = require('../../database');
 
 const ACTION_LABELS = { kick: '👢 Kick', warn: '⚠️ Warn', delete: '🗑️ Delete' };
+const VALID_ACTIONS = new Set(['kick', 'warn', 'delete']);
 
 module.exports = {
     name: 'antitagadmins',
@@ -41,8 +24,7 @@ module.exports = {
 
     async execute(sock, msg, args, extra) {
         const { from, reply } = extra;
-        const cfg      = loadConfig();
-        const groupCfg = cfg[from] || { enabled: false, action: 'warn' };
+        const groupCfg = database.getAntiTagAdminsSettings(from);
 
         const statusLine = groupCfg.enabled
             ? `✅ *ON* — action: *${ACTION_LABELS[groupCfg.action] || groupCfg.action}*`
@@ -61,23 +43,17 @@ module.exports = {
             );
         }
 
-        const first  = args[0].toLowerCase();
-        const second = (args[1] || 'warn').toLowerCase();
+        const first = args[0].toLowerCase();
+        const requestedAction = (args[1] || 'warn').toLowerCase();
 
         if (first === 'off') {
-            groupCfg.enabled = false;
-            cfg[from] = groupCfg;
-            saveConfig(cfg);
+            database.setAntiTagAdminsSettings(from, { enabled: false });
             return reply('🛡️ *AntiTagAdmins* turned ❌ *OFF*.');
         }
 
         if (first === 'on') {
-            const validActions = ['kick', 'warn', 'delete'];
-            const action = validActions.includes(second) ? second : 'warn';
-            groupCfg.enabled = true;
-            groupCfg.action  = action;
-            cfg[from] = groupCfg;
-            saveConfig(cfg);
+            const action = VALID_ACTIONS.has(requestedAction) ? requestedAction : 'warn';
+            database.setAntiTagAdminsSettings(from, { enabled: true, action });
             return reply(
                 `🛡️ *AntiTagAdmins* turned ✅ *ON*\n\n` +
                 `Action: *${ACTION_LABELS[action]}*\n\n` +
@@ -88,44 +64,42 @@ module.exports = {
         return reply('❌ Usage: `.antitagadmins on [kick|warn|delete]` | `.antitagadmins off`');
     },
 
-    // ── Called from handler.js on every group message ────────────────────────
-    async handleMessage(sock, msg, groupMetadata, sender, from) {
-        const cfg      = loadConfig();
-        const groupCfg = cfg[from];
-        if (!groupCfg?.enabled) return;
+    // Called from handler.js for every group message. The message handling
+    // logic remains in-memory/runtime-only; only configuration moved to SQLite.
+    async handleMessage(sock, msg, groupMetadata, sender, from, senderIsOwner = false) {
+        const groupCfg = database.getAntiTagAdminsSettings(from);
+        if (!groupCfg.enabled || msg.key?.fromMe) return;
 
-        // Extract all mentioned JIDs
+        // Extract all mentioned JIDs.
         const ctx = msg.message?.extendedTextMessage?.contextInfo
                   || msg.message?.imageMessage
                   || msg.message?.videoMessage;
         const mentionedJids = ctx?.mentionedJid || [];
         if (!mentionedJids.length) return;
 
-        // Build admin JID set for this group
         const participants = groupMetadata?.participants || [];
-        const adminJids    = new Set(
-            participants.filter(p => p.admin).map(p => p.id)
+        const adminJids = new Set(
+            participants.filter(participant => participant.admin).map(participant => participant.id)
         );
         if (!adminJids.size) return;
 
-        // Does this message tag any admin?
         const taggedAdmins = mentionedJids.filter(jid => adminJids.has(jid));
         if (!taggedAdmins.length) return;
 
-        // Is the sender themselves an admin or owner? Skip if so.
+        // Admins and configured owners may tag admins; this feature applies to
+        // non-admin members only.
         const senderIsAdmin = participants.some(
-            p => p.id === sender && p.admin
+            participant => participant.id === sender && participant.admin
         );
-        if (senderIsAdmin) return;
+        if (senderIsAdmin || senderIsOwner) return;
 
-        const action = groupCfg.action || 'warn';
-        const adminTags = taggedAdmins.map(j => `@${j.split('@')[0]}`).join(', ');
+        const action = groupCfg.action;
+        const adminTags = taggedAdmins.map(jid => `@${jid.split('@')[0]}`).join(', ');
 
         try {
-            if (action === 'delete' || action === 'warn' || action === 'kick') {
-                // Always delete the offending message first
-                try { await sock.sendMessage(from, { delete: msg.key }); } catch (_) {}
-            }
+            // Delete first for every supported action. A failed delete should not
+            // prevent a warning/kick attempt when the bot has the permission.
+            try { await sock.sendMessage(from, { delete: msg.key }); } catch (_) {}
 
             if (action === 'warn') {
                 await sock.sendMessage(from, {
@@ -135,18 +109,15 @@ module.exports = {
             }
 
             if (action === 'kick') {
-                try {
-                    await sock.groupParticipantsUpdate(from, [sender], 'remove');
-                } catch (_) {}
+                try { await sock.groupParticipantsUpdate(from, [sender], 'remove'); } catch (_) {}
                 await sock.sendMessage(from, {
                     text: `🛡️ *AntiTagAdmins*\n\n👢 @${sender.split('@')[0]} was kicked for tagging admins (${adminTags}).`,
                     mentions: [sender, ...taggedAdmins],
                 });
             }
-            // action === 'delete' → already deleted above, no extra notice
-
-        } catch (err) {
-            console.error('[ANTITAGADMINS] error:', err.message);
+            // action === 'delete' has already been handled above.
+        } catch (error) {
+            console.error('[ANTITAGADMINS] error:', error.message);
         }
     },
 };

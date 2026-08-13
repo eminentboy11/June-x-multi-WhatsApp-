@@ -1,51 +1,64 @@
+'use strict';
+
 /**
  * AntiAll Command
- * Turn ALL anti-* group protection features ON or OFF at once.
- * .antiall on   → enables every anti feature with default settings
- * .antiall off  → disables every anti feature
- * .antiall      → shows current status of all features
+ *
+ * Enables/disables the group-scoped protection bundle and the AntiAll master
+ * gate. Global owner settings (AntiDelete, AntiEdit, AntiDeleteStatus) remain
+ * global and are intentionally not changed from a group command.
+ *
+ * Every setting in this module is stored in SQLite through database.js.
  */
 
-const fs   = require('fs');
-const path = require('path');
-const database = require(require('path').join(global.__CORE__, 'database'));
+const database = require('../../database');
 
-const ANTIBOT_PATH   = path.join(__dirname, '../../data/antibot.json');
-const ANTIDEL_PATH   = path.join(__dirname, '../../data/antidelete.json');
-const ANTIEDIT_PATH  = path.join(__dirname, '../../data/antiedit.json');
-
-function loadJson(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) fs.writeFileSync(filePath, '{}');
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch { return {}; }
-}
-
-function saveJson(filePath, data) {
-  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch {}
-}
-
-// All features that live in database.updateGroupSettings
-// key = database field name, label = display name
-const DB_FEATURES = [
-  { key: 'antilink',         label: '🔗 Anti-Link' },
-  { key: 'antiSpam',         label: '🛡️ Anti-Spam' },
-  { key: 'antiimage',        label: '🖼️ Anti-Image' },
-  { key: 'antiaudio',        label: '🔇 Anti-Audio' },
-  { key: 'antisticker',      label: '🎭 Anti-Sticker' },
-  { key: 'antitag',          label: '📛 Anti-Tag' },
-  { key: 'antigroupmention', label: '📌 Anti-Group Mention' },
-  { key: 'antigroupstatus',  label: '🛡️ Anti-Group Status' },
-  { key: 'antidemote',       label: '⬇️ Anti-Demote' },
-  { key: 'antipromote',      label: '⬆️ Anti-Promote' },
-  { key: 'antiviewonce',     label: '👁️ Anti-View-Once' },
+// Flat group-settings fields already used by their respective group handlers.
+const GROUP_FEATURES = [
+  { key: 'antilink',          label: '🔗 Anti-Link' },
+  { key: 'antiSpam',          label: '🛡️ Anti-Spam' },
+  { key: 'antiimage',         label: '🖼️ Anti-Image' },
+  { key: 'antiaudio',         label: '🔇 Anti-Audio' },
+  { key: 'antisticker',       label: '🎭 Anti-Sticker' },
+  { key: 'antitag',           label: '📛 Anti-Tag' },
+  { key: 'antibot',           label: '🤖 Anti-Bot' },
+  { key: 'antigroupmention',  label: '📌 Anti-Group Mention' },
+  { key: 'antigroupstatus',   label: '🛡️ Anti-Group Status' },
+  { key: 'antidemote',        label: '⬇️ Anti-Demote' },
+  { key: 'antipromote',       label: '⬆️ Anti-Promote' },
+  { key: 'antiviewonce',      label: '👁️ Anti-View-Once' },
 ];
+
+const icon = (value) => value ? '✅' : '❌';
+const modeLabel = (mode) => mode === 'off' ? '❌ OFF' : `✅ ${mode}`;
+
+function getStatus(from) {
+  const groupSettings = database.getGroupSettings(from);
+  const antiTagAdmins = database.getAntiTagAdminsSettings(from);
+
+  return {
+    groupSettings,
+    antiAll: database.isAntiAllEnabled(from),
+    antiTagAdmins,
+    antiDeleteMode: database.getAntideleteMode(),
+    antiEditMode: database.getAntieditMode(),
+    antiDeleteStatus: database.isAntideleteStatusEnabled(),
+  };
+}
+
+function setGroupProtectionBundle(from, enabled) {
+  const groupSettings = database.getGroupSettings(from);
+  for (const feature of GROUP_FEATURES) groupSettings[feature.key] = enabled;
+
+  database.updateGroupSettings(from, groupSettings);
+  database.setAntiAllEnabled(from, enabled);
+  database.setAntiTagAdminsSettings(from, { enabled });
+}
 
 module.exports = {
   name: 'antiall',
   aliases: ['allanti', 'antialll'],
   category: 'admin',
-  description: 'Enable or disable ALL anti-* group protection features at once',
+  description: 'Enable/disable the AntiAll group master and group protections',
   usage: '.antiall on/off',
   groupOnly: true,
   adminOnly: true,
@@ -55,92 +68,56 @@ module.exports = {
     const { from, reply } = extra;
     const sub = (args[0] || '').toLowerCase();
 
-    // ── STATUS (no args) ────────────────────────────────────────────────────
     if (!sub) {
-      const gs       = database.getGroupSettings(from);
-      const botCfg   = loadJson(ANTIBOT_PATH);
-      const delCfg   = loadJson(ANTIDEL_PATH);
-
-      const icon = (v) => v ? '✅' : '❌';
-
-      const lines = DB_FEATURES.map(f => `  ${icon(gs[f.key])} ${f.label}`);
-
-      const editCfg  = loadJson(ANTIEDIT_PATH);
-      lines.push(`  ${icon(botCfg[from]?.enabled)} 🤖 Anti-Bot`);
-      lines.push(`  ${icon(delCfg['_global']?.mode && delCfg['_global'].mode !== 'off')} 🗑️ Anti-Delete`);
-      lines.push(`  ${icon(editCfg[from]?.mode && editCfg[from].mode !== 'off')} ✏️ Anti-Edit`);
+      const status = getStatus(from);
+      const lines = [
+        `  ${icon(status.antiAll)} ⛔ AntiAll Master (blocks non-admin/non-owner messages)`,
+        ...GROUP_FEATURES.map(feature => `  ${icon(status.groupSettings[feature.key])} ${feature.label}`),
+        `  ${icon(status.antiTagAdmins.enabled)} 🛡️ Anti-Tag Admins${status.antiTagAdmins.enabled ? ` — ${status.antiTagAdmins.action}` : ''}`,
+      ];
 
       return reply(
         `🛡️ *AntiAll — Group Protection Status*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         lines.join('\n') +
         `\n━━━━━━━━━━━━━━━━━━━━\n` +
+        `*Global owner settings — not changed by .antiall:*\n` +
+        `  🗑️ Anti-Delete: ${modeLabel(status.antiDeleteMode)}\n` +
+        `  ✏️ Anti-Edit: ${modeLabel(status.antiEditMode)}\n` +
+        `  📸 Anti-Delete Status: ${icon(status.antiDeleteStatus)}\n\n` +
         `*Commands:*\n` +
-        `  .antiall on  — enable all\n` +
-        `  .antiall off — disable all`
+        `  .antiall on  — enable the group bundle + master\n` +
+        `  .antiall off — disable the group bundle + master`
       );
     }
 
-    // ── ON ──────────────────────────────────────────────────────────────────
     if (sub === 'on') {
-      const dbUpdate = {};
-      DB_FEATURES.forEach(f => { dbUpdate[f.key] = true; });
-      database.updateGroupSettings(from, dbUpdate);
-
-      const botCfg = loadJson(ANTIBOT_PATH);
-      botCfg[from] = { ...(botCfg[from] || {}), enabled: true };
-      saveJson(ANTIBOT_PATH, botCfg);
-
-      const delCfg = loadJson(ANTIDEL_PATH);
-      delCfg['_global'] = { mode: 'chat' };
-      saveJson(ANTIDEL_PATH, delCfg);
-
-      const editCfgOn = loadJson(ANTIEDIT_PATH);
-      editCfgOn[from] = { ...(editCfgOn[from] || {}), mode: 'chat' };
-      saveJson(ANTIEDIT_PATH, editCfgOn);
-
+      setGroupProtectionBundle(from, true);
+      const antiTagAdmins = database.getAntiTagAdminsSettings(from);
       return reply(
-        `✅ *AntiAll — All Protections ENABLED*\n` +
+        `✅ *AntiAll — Group Protections ENABLED*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        DB_FEATURES.map(f => `  ✅ ${f.label}`).join('\n') + '\n' +
-        `  ✅ 🤖 Anti-Bot\n` +
-        `  ✅ 🗑️ Anti-Delete (chat mode)\n` +
-        `  ✅ ✏️ Anti-Edit (chat mode)\n` +
+        `  ✅ ⛔ AntiAll Master\n` +
+        GROUP_FEATURES.map(feature => `  ✅ ${feature.label}`).join('\n') + '\n' +
+        `  ✅ 🛡️ Anti-Tag Admins — ${antiTagAdmins.action}\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `_All group protections are now active with default settings._`
+        `_Global Anti-Delete, Anti-Edit, and Anti-Delete Status settings were not changed._`
       );
     }
 
-    // ── OFF ─────────────────────────────────────────────────────────────────
     if (sub === 'off') {
-      const dbUpdate = {};
-      DB_FEATURES.forEach(f => { dbUpdate[f.key] = false; });
-      database.updateGroupSettings(from, dbUpdate);
-
-      const botCfg = loadJson(ANTIBOT_PATH);
-      botCfg[from] = { ...(botCfg[from] || {}), enabled: false };
-      saveJson(ANTIBOT_PATH, botCfg);
-
-      const delCfg = loadJson(ANTIDEL_PATH);
-      delete delCfg['_global'];
-      saveJson(ANTIDEL_PATH, delCfg);
-
-      const editCfgOff = loadJson(ANTIEDIT_PATH);
-      editCfgOff[from] = { ...(editCfgOff[from] || {}), mode: 'off' };
-      saveJson(ANTIEDIT_PATH, editCfgOff);
-
+      setGroupProtectionBundle(from, false);
       return reply(
-        `❌ *AntiAll — All Protections DISABLED*\n` +
+        `❌ *AntiAll — Group Protections DISABLED*\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        DB_FEATURES.map(f => `  ❌ ${f.label}`).join('\n') + '\n' +
-        `  ❌ 🤖 Anti-Bot\n` +
-        `  ❌ 🗑️ Anti-Delete\n` +
-        `  ❌ ✏️ Anti-Edit\n` +
+        `  ❌ ⛔ AntiAll Master\n` +
+        GROUP_FEATURES.map(feature => `  ❌ ${feature.label}`).join('\n') + '\n' +
+        `  ❌ 🛡️ Anti-Tag Admins\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `_All group protections have been turned off._`
+        `_Global Anti-Delete, Anti-Edit, and Anti-Delete Status settings were not changed._`
       );
     }
 
     return reply('⚠️ Usage: .antiall on | off\nNo argument shows current status.');
-  }
+  },
 };
