@@ -6,8 +6,6 @@ const { applyFont }    = require('../../utils/fontConverter');
 
 const botStartTime = Date.now() - Math.floor(process.uptime() * 1000);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 const detectPlatform = () => {
     if (process.env.DYNO)                               return '☁️ Heroku';
     if (process.env.RENDER)                             return '⚡ Render';
@@ -41,21 +39,6 @@ const formatBytes = (bytes) => {
     return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
 };
 
-function extractButtonResponseId(msg) {
-    return (
-        msg.message?.buttonsResponseMessage?.selectedButtonId ||
-        msg.message?.templateButtonReplyMessage?.selectedId ||
-        msg.message?.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
-        null
-    );
-}
-
-function getResponseSender(msg) {
-    return msg.key?.participant || msg.key?.remoteJid;
-}
-
-// ── Module ────────────────────────────────────────────────────────────────────
-
 module.exports = {
     name: 'botinfo',
     aliases: ['info', 'about'],
@@ -65,14 +48,11 @@ module.exports = {
     ownerOnly: false,
 
     async execute(sock, msg, args, extra) {
-        const chatId         = extra.from;
-        const prefix         = config.prefix || '.';
-        const originalSender = msg.key?.participant || msg.key?.remoteJid;
-        const dateNow        = Date.now();
-
-        const uptime   = Date.now() - botStartTime;
-        const mem      = process.memoryUsage();
-        const cpus     = os.cpus();
+        const chatId  = extra.from;
+        const prefix  = config.prefix || '.';
+        const uptime  = Date.now() - botStartTime;
+        const mem     = process.memoryUsage();
+        const cpus    = os.cpus();
         const cpuModel = cpus[0]?.model?.trim() || 'Unknown';
         const cpuCores = cpus.length;
 
@@ -110,75 +90,17 @@ module.exports = {
             `┗━━━━━━━━━━━━━━━━`
         );
 
+        // IDs must be real commands the main handler already knows.
+        // Do not attach a second messages.upsert listener here.
         await sendButtons(sock, chatId, {
             title:  '',
             text,
             footer: `> Powered by ${config.botName}`,
             buttons: [
-                { id: `${prefix}ping_${dateNow}`,    text: '🏓 Ping'       },
-                { id: `${prefix}uptime_${dateNow}`,  text: '⏱️ Uptime'     },
-                { id: `${prefix}restart_${dateNow}`, text: '🔄 Restart Bot' },
+                { id: `${prefix}ping`,    text: '🏓 Ping' },
+                { id: `${prefix}uptime`,  text: '⏱️ Uptime' },
+                { id: `${prefix}restart`, text: '🔄 Restart Bot' },
             ],
         }, { quoted: msg });
-
-        // ── Listen for button taps ────────────────────────────────────────────
-        const handleButton = async (event) => {
-            const messageData = event.messages[0];
-            if (!messageData?.message) return;
-
-            const selectedId = extractButtonResponseId(messageData);
-            if (!selectedId) return;
-            if (!selectedId.includes(`_${dateNow}`)) return;
-            if (messageData.key?.remoteJid !== chatId) return;
-
-            // Only original sender — silent ignore for everyone else
-            const responseSender = getResponseSender(messageData);
-            if (responseSender !== originalSender) return;
-
-            // Strip _dateNow + prefix → raw command name
-            // e.g. ".restart_1714000000000" → "restart"
-            const rawCommand = selectedId
-                .replace(`_${dateNow}`, '')
-                .replace(prefix, '')
-                .trim();
-
-            // Look up command directly from loaded commands map
-            const cmd = loadCommands().get(rawCommand);
-
-            if (!cmd) {
-                return await sock.sendMessage(chatId, {
-                    text: applyFont(
-                        `┏━━『 ERROR 』━━\n\n` +
-                        `➥ Reason ➜ Command *${rawCommand}* not found\n\n` +
-                        `┗━━━━━━━━━━━━━━━━`
-                    ),
-                }, { quoted: messageData });
-            }
-
-            try {
-                const extraData = {
-                    from:    chatId,
-                    sender:  responseSender,
-                    isGroup: chatId.endsWith('@g.us'),
-                    reply:   (text) => sock.sendMessage(chatId, { text }, { quoted: messageData }),
-                    quoted:  messageData,
-                };
-
-                await cmd.execute(sock, messageData, [], extraData);
-
-            } catch (err) {
-                console.error(`[botinfo] button error (${rawCommand}):`, err.message);
-                await sock.sendMessage(chatId, {
-                    text: applyFont(
-                        `┏━━『 ERROR 』━━\n\n` +
-                        `➥ Command ➜ ${rawCommand}\n` +
-                        `➥ Reason  ➜ ${err.message}\n\n` +
-                        `┗━━━━━━━━━━━━━━━━`
-                    ),
-                }, { quoted: messageData });
-            }
-        };
-
-        sock.ev.on('messages.upsert', handleButton);
     }
 };
