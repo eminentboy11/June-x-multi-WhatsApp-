@@ -45,7 +45,29 @@ function asLidJid(value) {
     return user ? `${user}@lid` : null;
 }
 
-function collectInput(msg, args, extra) {
+function botUsers(sock) {
+    const users = new Set();
+    for (const value of [sock?.user?.id, sock?.user?.lid, sock?.user?.phoneNumber]) {
+        const user = jidUser(value);
+        if (user) users.add(user);
+    }
+    return users;
+}
+
+function isBotJid(sock, value) {
+    const user = jidUser(value);
+    return !!(user && botUsers(sock).has(user));
+}
+
+function pairFromJid(value) {
+    if (!value) return { lid: null, pn: null };
+    return {
+        lid: isLidJid(value) ? value : null,
+        pn: isPnJid(value) ? value : null,
+    };
+}
+
+function collectInput(msg, args, extra, sock) {
     const ctx =
         msg.message?.extendedTextMessage?.contextInfo ||
         msg.message?.imageMessage?.contextInfo ||
@@ -62,7 +84,9 @@ function collectInput(msg, args, extra) {
         };
     }
 
-    if (ctx?.participant || ctx?.participantAlt) {
+    // Only treat a real quoted message as a target — bare contextInfo.participant
+    // is not a reply and can point at the bot.
+    if (ctx?.quotedMessage && (ctx.participant || ctx.participantAlt)) {
         return {
             raw: ctx.participantAlt || ctx.participant,
             lid: isLidJid(ctx.participant) ? ctx.participant : (isLidJid(ctx.participantAlt) ? ctx.participantAlt : null),
@@ -81,7 +105,7 @@ function collectInput(msg, args, extra) {
         }
         const digits = raw.replace(/\D/g, '');
         if (digits.length >= 14) {
-            // LID users are long opaque ids; phone numbers are typically 7–15 digits
+            // LID users are long opaque ids; phone numbers are typically 7–13 digits
             return { raw, lid: `${digits}@lid`, pn: null, hint: 'arg-lid' };
         }
         if (digits.length >= 7 && digits.length <= 15) {
@@ -90,13 +114,40 @@ function collectInput(msg, args, extra) {
         return { raw, lid: null, pn: null, hint: 'arg-unknown' };
     }
 
-    // No target: resolve the sender, or the DM peer
-    const sender = extra.sender;
-    const peer = extra.isGroup ? sender : extra.from;
+    // No target. Prefer the human who typed the command — never the bot.
+    // fromMe messages set extra.sender to the bot JID, which is what leaked
+    // 234815… when someone typed bare `.lid` on the linked phone.
+    const candidates = extra.isGroup
+        ? [
+            msg.key?.participantAlt,
+            msg.key?.participant,
+            extra.sender,
+        ]
+        : [
+            msg.key?.remoteJidAlt,
+            extra.from,
+            extra.sender,
+            msg.key?.remoteJid,
+        ];
+
+    let chosen = null;
+    for (const candidate of candidates) {
+        if (!candidate) continue;
+        if (String(candidate).endsWith('@g.us')) continue;
+        if (isBotJid(sock, candidate)) continue;
+        chosen = candidate;
+        break;
+    }
+
+    if (!chosen) {
+        return { raw: null, lid: null, pn: null, hint: 'need-target' };
+    }
+
+    const pair = pairFromJid(chosen);
     return {
-        raw: peer,
-        lid: isLidJid(peer) ? peer : (isLidJid(msg.key?.participant) ? msg.key.participant : (isLidJid(msg.key?.remoteJid) ? msg.key.remoteJid : null)),
-        pn: isPnJid(peer) ? peer : (msg.key?.participantAlt || msg.key?.remoteJidAlt || null),
+        raw: chosen,
+        lid: pair.lid,
+        pn: pair.pn,
         hint: extra.isGroup ? 'sender' : 'chat',
     };
 }
@@ -220,6 +271,9 @@ module.exports = {
         try {
             if (extra.react) await extra.react('🆔').catch(() => {});
             const pair = await resolvePair(sock, extra, input);
+            const source = pair.sources.length
+                ? pair.sources.join(' · ')
+                : (input.hint || 'none');
 
             const lines = [
                 `┏━━『 LID MAP 』━━`,
@@ -227,7 +281,7 @@ module.exports = {
                 `➥ Target    ➜ ${input.raw}`,
                 `➥ Phone     ➜ ${pair.pn || 'not cached'}`,
                 `➥ LID       ➜ ${pair.lid || 'not cached'}`,
-                `➥ Source    ➜ ${pair.sources.length ? pair.sources.join(' · ') : 'none'}`,
+                `➥ Source    ➜ ${source}`,
                 ``,
                 `┗━━━━━━━━━━━━━━━━`,
             ];
