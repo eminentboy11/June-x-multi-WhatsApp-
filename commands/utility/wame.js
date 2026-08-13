@@ -7,8 +7,7 @@
  *   3. Phone number in the current message args (fallback: .wame 254712345678)
  */
 
-const fs   = require('fs');
-const path = require('path');
+const { resolvePhone } = require('../../utils/jidHelper');
 
 // ── JID normalisation ─────────────────────────────────────────────────────────
 
@@ -24,40 +23,17 @@ function stripJid(jid) {
 }
 
 /**
- * Try to resolve a @lid JID to a real phone number via the session lid-mapping files.
- * Returns the phone number string or null if not found.
+ * Given any participant JID (including @lid variants), return a clean digit-only
+ * phone number. resolvePhone uses the SQLite lid_map and may learn a new mapping
+ * from Baileys' in-memory state while the bot is connected.
  */
-function resolveLid(lidUser) {
-    try {
-        const config      = require('../../config');
-        const sessionPath = path.join(__dirname, '../../', config.sessionName || 'session');
-        const filePath    = path.join(sessionPath, `lid-mapping-${lidUser}_reverse.json`);
-        if (!fs.existsSync(filePath)) return null;
-        const raw = fs.readFileSync(filePath, 'utf8').trim();
-        const pn  = raw ? JSON.parse(raw) : null;
-        return pn ? String(pn) : null;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Given any participant JID (including @lid variants), return a clean digit-only phone number.
- */
-function jidToNumber(jid) {
+async function jidToNumber(sock, jid) {
     if (!jid || typeof jid !== 'string') return null;
 
-    const isLid = jid.includes('@lid') || jid.includes('@hosted.lid');
+    const resolved = await resolvePhone(sock, jid);
+    if (resolved) return String(resolved).replace(/\D/g, '');
 
-    if (isLid) {
-        // Extract the LID user portion (before @)
-        const lidUser = jid.split(':')[0].split('@')[0];
-        const resolved = resolveLid(lidUser);
-        // resolved is the phone number
-        return resolved ? resolved.replace(/\D/g, '') : null;
-    }
-
-    // Regular JID: strip :xx device suffix and @domain, then keep digits only
+    // Regular JID fallback: strip :xx device suffix and @domain.
     const raw = stripJid(jid);
     return raw ? raw.replace(/\D/g, '') : null;
 }
@@ -278,7 +254,7 @@ module.exports = {
 
             // ── 1. Quoted message sender JID (handles :xx suffix and @lid) ────
             if (quoted && ctx?.participant) {
-                rawNumber = jidToNumber(ctx.participant);
+                rawNumber = await jidToNumber(sock, ctx.participant);
                 if (rawNumber) source = 'quoted sender';
             }
 

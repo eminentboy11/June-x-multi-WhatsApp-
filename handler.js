@@ -720,7 +720,7 @@ const handleMessage = async (sock, msg) => {
         handleAntigroupmention(sock, msg, groupMetadata),
         handleAntigroupstatus(sock, msg, groupMetadata),
         handleAntiMedia(sock, msg, groupMetadata),
-        handleAntilink(sock, msg, groupMetadata),
+        handleAntilink(sock, msg, groupMetadata, from, sender),
         antispam?.handleAntispam         ? antispam.handleAntispam(sock, msg, groupMetadata)         : Promise.resolve(),
         antiviewonce?.handleAntiviewonce ? antiviewonce.handleAntiviewonce(sock, msg)                : Promise.resolve(),
         antibot?.handleMessage           ? antibot.handleMessage(sock, msg, groupMetadata)           : Promise.resolve(),
@@ -1239,13 +1239,14 @@ const handleMessage = async (sock, msg) => {
     {
       const { getMode } = require('./utils/botMode');
       const botModeVal = getMode();
-      if (botModeVal === 'private' && !senderIsSudo) {
+      // Accept both the user-facing names and the old silent/groups/dms rows.
+      if ((botModeVal === 'private' || botModeVal === 'silent') && !senderIsSudo) {
         return;
       }
-      if (botModeVal === 'group' && !isGroup && !senderIsSudo) {
+      if ((botModeVal === 'group' || botModeVal === 'groups') && !isGroup && !senderIsSudo) {
         return;
       }
-      if (botModeVal === 'pm' && isGroup && !senderIsSudo) {
+      if ((botModeVal === 'pm' || botModeVal === 'dms') && isGroup && !senderIsSudo) {
         return;
       }
     }
@@ -1565,80 +1566,295 @@ const handleGroupUpdate = async (sock, update) => {
   }
 };
 
-// Antilink handler
-const handleAntilink = async (sock, msg, groupMetadata) => {
+// Collect every text/url WhatsApp may hide a link in (previews, cards, wrappers).
+const collectAntilinkText = (msg) => {
+  const parts = [];
+  const push = (value) => {
+    if (value == null) return;
+    if (typeof value === 'string') {
+      if (value.trim()) parts.push(value);
+      return;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      parts.push(String(value));
+    }
+  };
+
+  const walk = (node, depth = 0) => {
+    if (!node || depth > 6) return;
+    if (typeof node === 'string') {
+      push(node);
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item, depth + 1);
+      return;
+    }
+    if (typeof node !== 'object') return;
+
+    push(node.conversation);
+    push(node.text);
+    push(node.caption);
+    push(node.matchedText);
+    push(node.canonicalUrl);
+    push(node.description);
+    push(node.title);
+    push(node.sourceUrl);
+    push(node.mediaUrl);
+    push(node.originalUrl);
+    push(node.thumbnailUrl);
+    push(node.body?.text);
+    push(node.header?.title);
+    push(node.header?.subtitle);
+    push(node.footer?.text);
+    push(node.hydratedContentText);
+    push(node.contentText);
+    push(node.selectedDisplayText);
+
+    const wrappers = [
+      node.ephemeralMessage?.message,
+      node.viewOnceMessage?.message,
+      node.viewOnceMessageV2?.message,
+      node.viewOnceMessageV2Extension?.message,
+      node.documentWithCaptionMessage?.message,
+      node.editedMessage?.message,
+      node.extendedTextMessage,
+      node.imageMessage,
+      node.videoMessage,
+      node.documentMessage,
+      node.buttonsMessage,
+      node.templateMessage,
+      node.templateMessage?.hydratedTemplate,
+      node.templateMessage?.hydratedFourRowTemplate,
+      node.listMessage,
+      node.interactiveMessage,
+      node.interactiveMessage?.body,
+      node.interactiveMessage?.header,
+      node.interactiveMessage?.nativeFlowMessage,
+      node.highlyStructuredMessage,
+      node.contextInfo,
+      node.contextInfo?.externalAdReply,
+      node.contextInfo?.externalAdReplyInfo,
+      node.extendedTextMessage?.contextInfo,
+      node.extendedTextMessage?.contextInfo?.externalAdReply,
+      node.imageMessage?.contextInfo?.externalAdReply,
+      node.videoMessage?.contextInfo?.externalAdReply,
+    ];
+    for (const child of wrappers) walk(child, depth + 1);
+
+    if (Array.isArray(node.nativeFlowMessage?.buttons)) {
+      for (const button of node.nativeFlowMessage.buttons) {
+        push(button?.buttonParamsJson);
+        push(button?.name);
+      }
+    }
+  };
+
+  walk(msg?.message);
+  return parts.join('\n').replace(/[\u200B-\u200D\uFEFF\u2060]/g, '');
+};
+
+const ANTILINK_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"'）】]+|(?:chat\.whatsapp\.com|wa\.me|t\.me|vm\.tiktok\.com|vt\.tiktok\.com|tiktok\.com|instagram\.com|instagr\.am|youtu\.be|youtube\.com|facebook\.com|fb\.watch|fb\.com|x\.com|twitter\.com|spotify\.com|soundcloud\.com|t\.co)\/[^\s<>"']+/i;
+
+const messageHasLink = (msg) => ANTILINK_PATTERN.test(collectAntilinkText(msg));
+
+const resolveGroupJid = (msg, fromHint) => {
+  if (fromHint && String(fromHint).endsWith('@g.us')) return fromHint;
+  if (msg?.key?.remoteJid?.endsWith('@g.us')) return msg.key.remoteJid;
+  if (msg?.key?.remoteJidAlt?.endsWith('@g.us')) return msg.key.remoteJidAlt;
+  return fromHint || msg?.key?.remoteJid;
+};
+
+const resolveParticipantPn = (msg, senderHint) => {
+  const candidates = [
+    msg?.key?.participantAlt,
+    senderHint,
+    msg?.key?.participant,
+    msg?.key?.remoteJidAlt,
+  ].filter(Boolean);
+
+  for (const value of candidates) {
+    if (isLidJid(value)) {
+      const pnUser = getLidMappingValue(value, 'lidToPn');
+      if (pnUser) {
+        rememberLidPair(value, pnUser);
+        return `${String(pnUser).split('@')[0].split(':')[0]}@s.whatsapp.net`;
+      }
+      continue;
+    }
+    if (String(value).endsWith('@s.whatsapp.net') || String(value).endsWith('@hosted')) {
+      return value;
+    }
+  }
+
+  return senderHint || msg?.key?.participant || msg?.key?.remoteJid;
+};
+
+const mentionUser = (jid) => String(jid || '').split('@')[0].split(':')[0];
+
+const ANTILINK_DEBUG_FILE = path.join(__dirname, 'antilink-debug.json');
+
+const safeJson = (value) => {
   try {
-    const from = msg.key.remoteJid;
-    const sender = msg.key.participant || msg.key.remoteJid;
+    return JSON.parse(JSON.stringify(value, (key, nested) => {
+      if (Buffer.isBuffer(nested)) return `[Buffer ${nested.length}]`;
+      if (nested && typeof nested === 'object' && nested.type === 'Buffer' && Array.isArray(nested.data)) {
+        return `[Buffer ${nested.data.length}]`;
+      }
+      if (typeof nested === 'string' && nested.length > 500) return `${nested.slice(0, 500)}…`;
+      return nested;
+    }));
+  } catch (error) {
+    return { error: error.message };
+  }
+};
+
+const writeAntilinkDebug = (dump) => {
+  try {
+    fs.writeFileSync(ANTILINK_DEBUG_FILE, JSON.stringify(dump, null, 2));
+  } catch (error) {
+    console.error('[ANTILINK DEBUG] could not write file:', error.message);
+  }
+};
+
+// Antilink handler
+const handleAntilink = async (sock, msg, groupMetadata, fromHint, senderHint) => {
+  try {
+    if (!msg?.message || msg.key?.fromMe) return;
+
+    const from = resolveGroupJid(msg, fromHint);
+    const sender = senderHint || msg.key.participant || msg.key.remoteJid;
+    const mentionJid = resolveParticipantPn(msg, sender);
+    if (!from || !String(from).endsWith('@g.us')) return;
 
     const groupSettings = database.getGroupSettings(from);
-    if (!groupSettings.antilink) return;
+    const collectedText = collectAntilinkText(msg);
+    const hasLink = ANTILINK_PATTERN.test(collectedText);
+    const content = getMessageContent(msg) || {};
+    const dump = {
+      time: new Date().toISOString(),
+      decision: 'pending',
+      from,
+      fromHint: fromHint || null,
+      sender,
+      mentionJid,
+      senderHint: senderHint || null,
+      key: {
+        remoteJid: msg.key?.remoteJid || null,
+        remoteJidAlt: msg.key?.remoteJidAlt || null,
+        participant: msg.key?.participant || null,
+        participantAlt: msg.key?.participantAlt || null,
+        fromMe: !!msg.key?.fromMe,
+        id: msg.key?.id || null,
+        addressingMode: msg.key?.addressingMode || null,
+      },
+      rawMessageKeys: Object.keys(msg.message || {}),
+      unwrappedKeys: Object.keys(content),
+      oldBody: content.conversation ||
+        content.extendedTextMessage?.text ||
+        content.imageMessage?.caption ||
+        content.videoMessage?.caption ||
+        '',
+      collectedText,
+      hasLink,
+      antilinkEnabled: !!groupSettings.antilink,
+      antilinkAction: groupSettings.antilinkAction || 'delete',
+      settingsKeys: Object.keys(groupSettings || {}),
+      message: safeJson(msg.message),
+    };
 
-    const body = msg.message?.conversation ||
-                  msg.message?.extendedTextMessage?.text ||
-                  msg.message?.imageMessage?.caption ||
-                  msg.message?.videoMessage?.caption || '';
+    if (!groupSettings.antilink) {
+      dump.decision = 'skip: antilink-off';
+      writeAntilinkDebug(dump);
+      return;
+    }
 
-    const linkPattern = /https?:\/\/[^\s]+|t\.me\/[^\s]+|wa\.me\/[^\s]+|chat\.whatsapp\.com\/[^\s]+/i;
+    if (!hasLink) {
+      dump.decision = 'skip: no-link-detected';
+      writeAntilinkDebug(dump);
+      console.log('[ANTILINK DEBUG] no link detected');
+      console.log('[ANTILINK DEBUG] keys:', dump.rawMessageKeys.join(', ') || '(none)');
+      console.log('[ANTILINK DEBUG] oldBody:', JSON.stringify(dump.oldBody));
+      console.log('[ANTILINK DEBUG] collectedText:', JSON.stringify(collectedText));
+      return;
+    }
 
-    // Check for any links (with or without protocol)
-    if (linkPattern.test(body)) {
-              const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata);
-      const senderIsOwner = isOwner(sender);
+    const senderIsAdmin = await isAdmin(sock, sender, from, groupMetadata)
+      || await isAdmin(sock, mentionJid, from, groupMetadata);
+    const senderIsOwner = isOwner(sender) || isOwner(mentionJid);
+    dump.senderIsAdmin = senderIsAdmin;
+    dump.senderIsOwner = senderIsOwner;
+    // Group admins can post links. Bot owners are NOT skipped — otherwise a
+    // second owner number used as a regular member can never be moderated.
+    if (senderIsAdmin) {
+      dump.decision = 'skip: sender-admin';
+      writeAntilinkDebug(dump);
+      console.log('[ANTILINK DEBUG]', dump.decision, 'sender=', sender, 'mentionJid=', mentionJid);
+      return;
+    }
 
-      if (senderIsAdmin || senderIsOwner) return;
+    const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
+    dump.botIsAdmin = botIsAdmin;
+    if (!botIsAdmin) {
+      dump.decision = 'skip: bot-not-admin';
+      writeAntilinkDebug(dump);
+      console.log('[ANTILINK DEBUG] bot is not admin in', from);
+      return;
+    }
 
-      const botIsAdmin = await isBotAdmin(sock, from, groupMetadata);
-      const action = (groupSettings.antilinkAction || 'delete').toLowerCase();
+    dump.decision = 'delete';
+    writeAntilinkDebug(dump);
+    console.log('[ANTILINK DEBUG] deleting link from', mentionJid, 'text=', JSON.stringify(collectedText.slice(0, 180)));
 
-      const senderNum = sender.split('@')[0];
+    const action = String(groupSettings.antilinkAction || 'delete').toLowerCase();
+    const senderNum = mentionUser(mentionJid);
+    const mentionTarget = mentionJid || sender;
+    const deleteKey = {
+      remoteJid: from,
+      fromMe: msg.key.fromMe || false,
+      id: msg.key.id,
+      participant: msg.key.participant || sender,
+    };
 
-      if (!botIsAdmin) {
-        // Bot needs admin to take any action — silently skip
-        return;
-      }
+    if (action === 'warn') {
+      const count = Number(database.addWarning(from, sender, 'Sent a link')) || 0;
+      const maxWarns = config.maxWarnings || 3;
+      try { await sock.sendMessage(from, { delete: deleteKey }); } catch (_) {}
 
-      if (action === 'warn') {
-        const warnData = database.addWarning(from, sender, 'Sent a link');
-        const maxWarns = config.maxWarnings || 3;
-        try { await sock.sendMessage(from, { delete: msg.key }); } catch (_) {}
-
-        if (warnData.count >= maxWarns) {
-          try {
-            await sock.groupParticipantsUpdate(from, [sender], 'remove');
-            await sock.sendMessage(from, {
-              text: `🔗 @${senderNum} has been removed.\n⚠️ Reached ${maxWarns}/${maxWarns} warnings for sending links.`,
-              mentions: [sender],
-            });
-            database.clearWarnings(from, sender);
-          } catch (e) { console.error('Failed to kick after max warns (antilink):', e); }
-        } else {
-          await sock.sendMessage(from, {
-            text: `🔗 @${senderNum} warned ⚠️\n\n📌 Reason: Sending links is not allowed\n⚠️ Warnings: ${warnData.count}/${maxWarns}\n\n_${maxWarns - warnData.count} more warning(s) before removal._`,
-            mentions: [sender],
-          });
-        }
-
-      } else if (action === 'kick') {
+      if (count >= maxWarns) {
         try {
-          await sock.sendMessage(from, { delete: msg.key });
           await sock.groupParticipantsUpdate(from, [sender], 'remove');
           await sock.sendMessage(from, {
-            text: `🔗 @${senderNum} has been removed for sending a link.`,
-            mentions: [sender],
+            text: `🔗 @${senderNum} has been removed.\n⚠️ Reached ${maxWarns}/${maxWarns} warnings for sending links.`,
+            mentions: [mentionTarget],
           });
-        } catch (e) { console.error('Failed to kick for antilink:', e); }
-
+          database.clearWarnings(from, sender);
+        } catch (e) { console.error('Failed to kick after max warns (antilink):', e); }
       } else {
-        // delete (default)
-        try {
-          await sock.sendMessage(from, { delete: msg.key });
-          await sock.sendMessage(from, {
-            text: `🔗 @${senderNum}'s message was deleted.\n📌 Reason: Links are not allowed in this group.`,
-            mentions: [sender],
-          });
-        } catch (e) { console.error('Failed to delete for antilink:', e); }
+        await sock.sendMessage(from, {
+          text: `🔗 @${senderNum} warned ⚠️\n\n📌 Reason: Sending links is not allowed\n⚠️ Warnings: ${count}/${maxWarns}\n\n_${maxWarns - count} more warning(s) before removal._`,
+          mentions: [mentionTarget],
+        });
       }
+
+    } else if (action === 'kick') {
+      try {
+        await sock.sendMessage(from, { delete: deleteKey });
+        await sock.groupParticipantsUpdate(from, [sender], 'remove');
+        await sock.sendMessage(from, {
+          text: `🔗 @${senderNum} has been removed for sending a link.`,
+          mentions: [mentionTarget],
+        });
+      } catch (e) { console.error('Failed to kick for antilink:', e); }
+
+    } else {
+      try {
+        await sock.sendMessage(from, { delete: deleteKey });
+        await sock.sendMessage(from, {
+          text: `🔗 @${senderNum}'s message was deleted.\n📌 Reason: Links are not allowed in this group.`,
+          mentions: [mentionTarget],
+        });
+      } catch (e) { console.error('Failed to delete for antilink:', e); }
     }
   } catch (error) {
     console.error('Error in antilink handler:', error);

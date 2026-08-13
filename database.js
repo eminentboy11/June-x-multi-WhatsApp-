@@ -1450,24 +1450,33 @@ const getStoredBotSettings = () => {
 };
 const getAllBotSettings = () => ({ ...BOT_SETTINGS_DEFAULTS, ...getStoredBotSettings() });
 const updateBotSettings = (updates) => { for (const [key, value] of Object.entries(updates)) setBotSetting(key, value); return true; };
-const VALID_BOT_MODES = ['public', 'groups', 'dms', 'silent'];
-const getBotMode = () => {
-  const mode = getBotSetting('mode') || 'public';
-  if (mode === 'private' || mode === 'restricted') return 'silent';
-  if (mode === 'group') return 'groups';
-  if (mode === 'pm') return 'dms';
-  return VALID_BOT_MODES.includes(mode) ? mode : 'public';
+// User-facing bot modes. Older SQLite rows may still store silent/groups/dms.
+const VALID_BOT_MODES = ['public', 'private', 'group', 'pm'];
+const BOT_MODE_ALIASES = Object.freeze({
+  public: 'public',
+  private: 'private',
+  group: 'group',
+  pm: 'pm',
+  silent: 'private',
+  restricted: 'private',
+  groups: 'group',
+  grp: 'group',
+  dms: 'pm',
+  dm: 'pm',
+  inbox: 'pm',
+  priv: 'private',
+  pub: 'public',
+});
+const normalizeBotMode = (mode) => {
+  const key = String(mode || '').trim().toLowerCase();
+  return BOT_MODE_ALIASES[key] || null;
 };
+const getBotMode = () => normalizeBotMode(getBotSetting('mode')) || 'public';
 const setBotMode = (mode) => {
-  const normalized = {
-    private: 'silent',
-    restricted: 'silent',
-    group: 'groups',
-    pm: 'dms',
-  }[mode] || mode;
-  if (!VALID_BOT_MODES.includes(normalized)) throw new Error(`Invalid mode: ${mode}`);
+  const normalized = normalizeBotMode(mode);
+  if (!normalized) throw new Error(`Invalid mode: ${mode}`);
   setBotSetting('mode', normalized);
-  return true;
+  return normalized;
 };
 
 // ── Login method metadata ──────────────────────────────────────────────────

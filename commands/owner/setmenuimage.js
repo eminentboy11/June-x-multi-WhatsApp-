@@ -1,31 +1,23 @@
+'use strict';
+
+/**
+ * Custom menu image command.
+ *
+ * The custom image is stored only in SQLite bot_settings as base64 data.
+ * Bundled images remain application defaults and are never overwritten.
+ */
+
 const config = require('../../config');
-const fs = require('fs');
-const path = require('path');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const https = require('https');
 const http = require('http');
 const db = require('../../database');
-const settings = require('../../utils/settings');
 
-const IMAGE_PATH         = path.join(__dirname, '../../utils/bot_image.jpg');
-const MENU1_PATH         = path.join(__dirname, '../../assets/menu1.jpg');
-const PERSIST_PATH       = path.join(__dirname, '../../data/custom_menu.jpg'); // survives resets
-const DEFAULT_IMAGE      = path.join(__dirname, '../../assets/menu2.jpg');     // always present, used for reset
-const MENU_SETTINGS_FILE = path.join(__dirname, '../../data/menuSettings.json');
-
-// Switch menu style to 3 (image + text + ad-reply) whenever a custom image is set
 function applyMenuStyle3() {
   try {
-    let current = {};
-    if (fs.existsSync(MENU_SETTINGS_FILE)) {
-      current = JSON.parse(fs.readFileSync(MENU_SETTINGS_FILE, 'utf8'));
-    }
-    current.menuStyle = '3';
-    fs.mkdirSync(path.dirname(MENU_SETTINGS_FILE), { recursive: true });
-    fs.writeFileSync(MENU_SETTINGS_FILE, JSON.stringify(current, null, 2));
-    settings.set('menuStyle', '3');
-  } catch (e) {
-    console.error('[setmenuimage] Could not auto-set menu style:', e.message);
+    db.updateMenuSettings({ menuStyle: '3' });
+  } catch (error) {
+    console.error('[setmenuimage] Could not auto-set menu style:', error.message);
   }
 }
 
@@ -38,7 +30,7 @@ function downloadFromUrl(url) {
       }
       if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`));
       const chunks = [];
-      res.on('data', c => chunks.push(c));
+      res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => resolve(Buffer.concat(chunks)));
       res.on('error', reject);
     }).on('error', reject);
@@ -46,57 +38,41 @@ function downloadFromUrl(url) {
 }
 
 async function saveImage(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new Error('Image data is empty.');
+  }
+
   let finalBuffer = buffer;
   try {
     const Jimp = require('jimp');
     const image = await Jimp.read(buffer);
     finalBuffer = await image.quality(90).getBufferAsync(Jimp.MIME_JPEG);
-  } catch {}
-  // Write to disk for immediate use
-  fs.writeFileSync(IMAGE_PATH, finalBuffer);
-  try { fs.mkdirSync(path.dirname(PERSIST_PATH), { recursive: true }); } catch {}
-  fs.writeFileSync(PERSIST_PATH, finalBuffer);   // persistent copy in data/
-  try { fs.writeFileSync(MENU1_PATH, finalBuffer); } catch {}
-  // Store image as base64 in database so it survives filesystem resets
-  const dataSaved = db.setBotSetting('menuImageData', finalBuffer.toString('base64'));
-  const flagSaved = db.setBotSetting('menuImageCustom', true);
-  if (!dataSaved || !flagSaved) throw new Error('Image written to disk but could not be saved to database — image may not restore after restart.');
+  } catch (_) {
+    // Keep the source buffer when optional image normalisation is unavailable.
+  }
+
+  const saved = db.setMenuImageData(finalBuffer.toString('base64'));
+  if (!saved) {
+    throw new Error('Could not save the custom menu image to SQLite.');
+  }
 }
 
 module.exports = {
   name: 'setmenuimage',
   aliases: ['setmenuimg', 'setbotimage', 'setbotimg', 'botimage', 'menuimage'],
   category: 'owner',
-  description: 'Set bot/menu image. Reply to image, send URL, @mention, or use "reset".',
+  description: 'Set the SQLite-backed menu image from an image, URL, or user profile',
   usage: '.setmenuimage (reply to image) | .setmenuimage <url> | .setmenuimage @user | .setmenuimage reset',
   ownerOnly: true,
 
   async execute(sock, msg, args, extra) {
     try {
       const chatId = extra.from;
-      const prefix = config.prefix || '';
+      const prefix = config.prefix || '.';
 
       if (args[0] && args[0].toLowerCase() === 'reset') {
-        try {
-          // Remove the persistent custom copy first
-          if (fs.existsSync(PERSIST_PATH)) fs.unlinkSync(PERSIST_PATH);
-          const cleared = db.setBotSetting('menuImageCustom', false);
-          db.setBotSetting('menuImageData', null);   // clear stored base64 to avoid stale data
-          if (!cleared) return extra.reply('❌ Reset failed: could not update settings database.');
-          // Restore default image from the permanent asset
-          if (fs.existsSync(DEFAULT_IMAGE)) {
-            const defaultBuf = fs.readFileSync(DEFAULT_IMAGE);
-            fs.writeFileSync(MENU1_PATH, defaultBuf);
-            fs.writeFileSync(IMAGE_PATH, defaultBuf);
-            return extra.reply('✅ Bot image has been reset to default.');
-          }
-          // Fallback: just delete if default asset is somehow missing
-          if (fs.existsSync(IMAGE_PATH)) fs.unlinkSync(IMAGE_PATH);
-          if (fs.existsSync(MENU1_PATH)) fs.unlinkSync(MENU1_PATH);
-          return extra.reply('✅ Bot image has been reset to default.');
-        } catch (e) {
-          return extra.reply(`❌ Reset failed: ${e.message}`);
-        }
+        db.clearMenuImageData();
+        return extra.reply('✅ Custom menu image removed. June X will use a bundled default image.');
       }
 
       if (args[0] && /^https?:\/\//i.test(args[0])) {
@@ -106,33 +82,33 @@ module.exports = {
           await saveImage(buffer);
           applyMenuStyle3();
           await extra.react('✅');
-          return extra.reply('✅ Bot image updated from URL! Menu style auto-set to Style 3.');
-        } catch (e) {
-          return extra.reply(`❌ Failed to download image: ${e.message}`);
+          return extra.reply('✅ Menu image saved to SQLite from URL! Menu style auto-set to Style 3.');
+        } catch (error) {
+          return extra.reply(`❌ Failed to download image: ${error.message}`);
         }
       }
 
       const mentioned = msg.message?.extendedTextMessage?.contextInfo?.mentionedJid;
-      if (mentioned && mentioned.length > 0) {
+      if (mentioned?.length) {
         await extra.react('⏳');
         try {
-          const ppUrl = await sock.profilePictureUrl(mentioned[0], 'image');
-          const buffer = await downloadFromUrl(ppUrl);
+          const profilePictureUrl = await sock.profilePictureUrl(mentioned[0], 'image');
+          const buffer = await downloadFromUrl(profilePictureUrl);
           await saveImage(buffer);
           applyMenuStyle3();
           await extra.react('✅');
-          return extra.reply('✅ Bot image set from mentioned user\'s profile picture! Menu style auto-set to Style 3.');
-        } catch {
-          return extra.reply('❌ Could not get profile picture of mentioned user. They may not have one set.');
+          return extra.reply('✅ Menu image saved to SQLite from the mentioned user\'s profile picture!');
+        } catch (_) {
+          return extra.reply('❌ Could not get the mentioned user\'s profile picture. They may not have one set.');
         }
       }
 
-      const ctx = msg.message?.extendedTextMessage?.contextInfo;
-      const quotedMsg = ctx?.quotedMessage;
+      const context = msg.message?.extendedTextMessage?.contextInfo;
+      const quotedMessage = context?.quotedMessage;
 
-      if (!quotedMsg) {
+      if (!quotedMessage) {
         return extra.reply(
-          `📷 *Set Bot Image*\n\n` +
+          `📷 *Set Menu Image*\n\n` +
           `*Methods:*\n` +
           `• Reply to an image: *${prefix}setmenuimage*\n` +
           `• From URL: *${prefix}setmenuimage <url>*\n` +
@@ -141,16 +117,15 @@ module.exports = {
         );
       }
 
-      const imageMsg = quotedMsg.imageMessage || quotedMsg.stickerMessage;
-      if (!imageMsg) {
+      const imageMessage = quotedMessage.imageMessage || quotedMessage.stickerMessage;
+      if (!imageMessage) {
         return extra.reply('❌ Reply to an *image* or *sticker*.');
       }
 
       await extra.react('⏳');
-
       const targetMessage = {
-        key: { remoteJid: chatId, id: ctx.stanzaId, participant: ctx.participant },
-        message: quotedMsg,
+        key: { remoteJid: chatId, id: context.stanzaId, participant: context.participant },
+        message: quotedMessage,
       };
 
       const mediaBuffer = await downloadMediaMessage(targetMessage, 'buffer', {}, {
@@ -165,10 +140,10 @@ module.exports = {
       await saveImage(mediaBuffer);
       applyMenuStyle3();
       await extra.react('✅');
-      await extra.reply('✅ Bot image updated! Menu style auto-set to Style 3.');
+      await extra.reply('✅ Menu image saved to SQLite! Menu style auto-set to Style 3.');
     } catch (error) {
       console.error('setmenuimage error:', error);
       await extra.reply(`❌ Error: ${error.message}`);
     }
-  }
+  },
 };

@@ -5,10 +5,10 @@
  * ║  SCOPE   : Admin — Group only                          ║
  * ╚════════════════════════════════════════════════════════╝
  *
- * Uses the same LID resolution strategy as antiforeign.js:
+ * Uses the shared SQLite-backed LID resolution strategy:
  *   1. p.phoneNumber from groupMetadata() (Baileys v7+)
  *   2. Baileys in-memory signalRepository.lidMapping
- *   3. lid-mapping-<user>_reverse.json on disk
+ *   3. SQLite lid_map persistence
  */
 
 const os   = require('os');

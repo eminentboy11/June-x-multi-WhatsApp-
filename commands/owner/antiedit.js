@@ -2,30 +2,12 @@
  * AntiEdit — catches message edits and reveals the original content.
  */
 
-const fs     = require('fs');
-const path   = require('path');
-const config = require(require('path').join(global.__ROOT__, 'config'));
+const database = require('../../database');
 
-const CONFIG_PATH = path.join(__dirname, '../../data/antiedit.json');
-
-function loadConfig() {
-    try {
-        if (!fs.existsSync(CONFIG_PATH)) fs.writeFileSync(CONFIG_PATH, JSON.stringify({ mode: 'off' }, null, 2));
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    } catch { return { mode: 'off' }; }
-}
-
-function saveConfig(cfg) {
-    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch {}
-}
-
-function getMode() {
-    return loadConfig().mode || 'off';
-}
-
-function setMode(mode) {
-    saveConfig({ mode });
-}
+// The mode is bot-wide and has one source of truth: SQLite bot_settings.
+const getMode = () => database.getAntieditMode();
+const setMode = (mode) => database.setAntieditMode(mode);
+const getTimezone = () => database.getBotSetting('timezone') || 'Africa/Nairobi';
 
 const messageStore = new Map();
 
@@ -102,7 +84,7 @@ async function handleAntiEdit(sock, updates) {
             const timestamp = original?.timestamp
                 ? new Date(original.timestamp * 1000).toLocaleString('en-GB', {
                     hour12: false,
-                    timeZone: config.timezone || 'Africa/Nairobi',
+                    timeZone: getTimezone(),
                     day: '2-digit', month: '2-digit', year: 'numeric',
                     hour: '2-digit', minute: '2-digit',
                   })

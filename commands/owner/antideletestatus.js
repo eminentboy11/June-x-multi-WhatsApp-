@@ -3,30 +3,16 @@
  *
  * All deleted statuses from any contact are forwarded to bot.user.id (self-chat).
  *
- * Config: data/antideletestatus.json  { "enabled": true | false }
+ * Config: SQLite bot_settings.antideleteStatus
  */
 
-const fs   = require('fs');
-const path = require('path');
+const database = require('../../database');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
-const CONFIG_PATH = path.join(__dirname, '../../data/antideletestatus.json');
+// ── SQLite configuration ─────────────────────────────────────────────────────
 
-// ── Config helpers ────────────────────────────────────────────────────────────
-
-function loadConfig() {
-    try {
-        if (!fs.existsSync(CONFIG_PATH))
-            fs.writeFileSync(CONFIG_PATH, JSON.stringify({ enabled: false }, null, 2));
-        return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-    } catch { return { enabled: false }; }
-}
-
-function saveConfig(cfg) {
-    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2)); } catch {}
-}
-
-function isEnabled() { return loadConfig().enabled === true; }
+const isEnabled = () => database.isAntideleteStatusEnabled();
+const getTimezone = () => database.getBotSetting('timezone') || 'Africa/Nairobi';
 
 // ── In-memory status store ────────────────────────────────────────────────────
 // Map<msgId, entry>  — statuses all share jid = 'status@broadcast'
@@ -109,7 +95,7 @@ async function sendRecoveredStatus(sock, targetJid, stored) {
 
     const timestamp = stored.timestamp
         ? new Date(stored.timestamp * 1000).toLocaleString('en-GB', {
-            hour12: false, timeZone: 'Africa/Nairobi',
+            hour12: false, timeZone: getTimezone(),
             day: '2-digit', month: '2-digit', year: 'numeric',
             hour: '2-digit', minute: '2-digit',
           })
@@ -223,9 +209,9 @@ module.exports = {
     async execute(sock, msg, args, extra) {
         const { reply } = extra;
         const sub = (args[0] || '').toLowerCase();
-        const cfg = loadConfig();
+        const enabled = isEnabled();
 
-        const statusLabel = () => cfg.enabled
+        const statusLabel = () => enabled
             ? '✅ ON — deleted statuses → bot self-chat'
             : '❌ OFF';
 
@@ -242,12 +228,12 @@ module.exports = {
         }
 
         if (sub === 'on') {
-            saveConfig({ enabled: true });
-            return reply('✅ *Anti-Delete Status* activated .');
+            database.setAntideleteStatusEnabled(true);
+            return reply('✅ *Anti-Delete Status* activated.');
         }
 
         if (sub === 'off') {
-            saveConfig({ enabled: false });
+            database.setAntideleteStatusEnabled(false);
             return reply('❌ *Anti-Delete Status* deactivated.');
         }
 

@@ -16,7 +16,7 @@ function getMode() {
 }
 
 function setMode(mode) {
-  db.setBotMode(mode);
+  return db.setBotMode(mode);
 }
 
 function getModeLabel() {
@@ -24,7 +24,10 @@ function getModeLabel() {
     public:  '🌐 Public',
     private: '🔒 Private',
     group:   '👥 Group Only',
-    pm:      '💬 PM Only'
+    pm:      '💬 PM Only',
+    silent:  '🔒 Private',
+    groups:  '👥 Group Only',
+    dms:     '💬 PM Only',
   };
   return labels[getMode()] || '🌐 Public';
 }

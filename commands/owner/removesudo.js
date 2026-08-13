@@ -1,23 +1,10 @@
 const database = require('../../database');
 const config = require('../../config');
+const { resolvePhone } = require('../../utils/jidHelper');
 
-function resolveToPhone(jid) {
-    if (!jid) return null;
-    const raw = jid.split('@')[0].split(':')[0];
-    if (jid.includes('@lid')) {
-        const fs = require('fs');
-        const path = require('path');
-        const sessionPath = path.join(__dirname, '../../', config.sessionName || 'session');
-        const revFile = path.join(sessionPath, `lid-mapping-${raw}_reverse.json`);
-        if (fs.existsSync(revFile)) {
-            try {
-                const pn = JSON.parse(fs.readFileSync(revFile, 'utf8').trim());
-                if (pn) return String(pn);
-            } catch (_) {}
-        }
-        return null;
-    }
-    return raw;
+async function resolveToPhone(sock, jid) {
+    const phone = await resolvePhone(sock, jid);
+    return phone ? String(phone).replace(/\D/g, '') : null;
 }
 
 module.exports = {
@@ -64,7 +51,7 @@ module.exports = {
             );
         }
 
-        let number = resolveToPhone(targetJid);
+        let number = await resolveToPhone(sock, targetJid);
 
         if (!number) {
             const rawLid = targetJid.split('@')[0].split(':')[0];

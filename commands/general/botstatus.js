@@ -1,5 +1,6 @@
 const os = require('os');
 const config = require('../../config');
+const database = require('../../database');
 const { sendButtons }  = require('gifted-btns');
 const { applyFont }    = require('../../utils/fontConverter');
 const { loadCommands } = require('../../utils/commandLoader');
@@ -75,6 +76,7 @@ module.exports = {
             const ownerName  = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName;
             const cmdCount   = extra.getCommandCount ? extra.getCommandCount() : 'N/A';
             const speedMs    = Date.now() - (msg.messageTimestamp * 1000);
+            const autoDownloadStatus = database.getAutoDownloadStatusSettings();
             const { getModeLabel } = require('../../utils/botMode');
 
             const text = applyFont(
@@ -103,7 +105,7 @@ module.exports = {
                 `➥ Auto Typing   ➜ ${config.autoTyping    ? '✅' : '❌'}\n` +
                 `➥ Auto React    ➜ ${config.autoReact     ? '✅' : '❌'} (${config.autoReactMode || 'bot'})\n` +
                 `➥ Auto Sticker  ➜ ${config.autoSticker   ? '✅' : '❌'}\n` +
-                `➥ Auto Download ➜ ${config.autoDownload  ? '✅' : '❌'}\n\n` +
+                `➥ Auto Download ➜ ${autoDownloadStatus.enabled ? `✅ (${autoDownloadStatus.mode})` : '❌'}\n\n` +
 
                 `┗━━━━━━━━━━━━━━━━`
             );
