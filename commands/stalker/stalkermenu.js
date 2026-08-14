@@ -2,7 +2,7 @@ const config = require('../../config');
 const getBotName = () => config.botName;
 
 module.exports = {
-  name: 'stalkermenu',
+  name: 'stalkercmd',
   aliases: ['smenu', 'stalkermenu', 'stalkercmds'],
   description: 'Shows all Stalker commands',
   category: 'Stalker Commands',
