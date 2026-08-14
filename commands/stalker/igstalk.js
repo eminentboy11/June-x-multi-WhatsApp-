@@ -1,17 +1,17 @@
-const axios = require('axios');
-const config = require('../../config');
-const APIs = require('../../utils/api');
-const getFooter = () => `Powered by ${config.botName}`;
+import axios from 'axios';
+import { getBotName } from '../../lib/botname.js';
+import { getOwnerName, getFooter} from '../../lib/menuHelper.js';
 
-module.exports = {
+const GIFTED_API = 'https://api.giftedtech.co.ke/api/stalk/igstalk';
+
+export default {
   name: 'igstalk',
   aliases: ['instastalk', 'iginfo', 'instagramstalk'],
   description: 'Stalk an Instagram user profile',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, extra) {
+  async execute(sock, m, args, prefix) {
     const jid = m.key.remoteJid;
-    const prefix = config.prefix || '.';
 
     if (!args || !args[0]) {
       return sock.sendMessage(jid, {
@@ -23,7 +23,16 @@ module.exports = {
     await sock.sendMessage(jid, { react: { text: '🔍', key: m.key } });
 
     try {
-      const d = await APIs.stalkInstagram(username);
+      const res = await axios.get(globalThis._apiOverrides?.['igstalk'] || GIFTED_API, {
+        params: { apikey: 'gifted', username },
+        timeout: 20000
+      });
+
+      if (!res.data?.success || !res.data?.result) {
+        throw new Error('User not found');
+      }
+
+      const d = res.data.result;
 
       let avatarBuffer = null;
       if (d.avatar) {
@@ -33,7 +42,7 @@ module.exports = {
         } catch {}
       }
 
-      const caption = `╭─⌈ 📸 *INSTAGRAM PROFILE* ⌋\n│\n├─⊷ *👤 Full Name:* ${d.full_name || 'N/A'}\n├─⊷ *🏷️ Username:* @${d.username || username}\n├─⊷ *📝 Bio:* ${d.description || 'N/A'}\n├─⊷ *📸 Posts:* ${d.posts || '0'}\n├─⊷ *👥 Followers:* ${d.followers || '0'}\n├─⊷ *👤 Following:* ${d.following || '0'}\n├─⊷ *🔒 Private:* ${d.is_private ? 'Yes' : 'No'}\n│\n╰───────────────\n> 🐺 *${config.botName} STALKER*`;
+      const caption = `╭─⌈ 📸 *INSTAGRAM PROFILE* ⌋\n│\n├─⊷ *👤 Full Name:* ${d.full_name || 'N/A'}\n├─⊷ *🏷️ Username:* @${d.username || username}\n├─⊷ *📝 Bio:* ${d.description || 'N/A'}\n├─⊷ *📸 Posts:* ${d.posts || '0'}\n├─⊷ *👥 Followers:* ${d.followers || '0'}\n├─⊷ *👤 Following:* ${d.following || '0'}\n├─⊷ *🔒 Private:* ${d.is_private ? 'Yes' : 'No'}\n│\n╰───────────────\n> 🐺 *${getBotName()} STALKER*`;
 
       if (avatarBuffer) {
         await sock.sendMessage(jid, { image: avatarBuffer, caption }, { quoted: m });

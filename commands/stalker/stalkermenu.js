@@ -1,13 +1,12 @@
-const config = require('../../config');
-const getBotName = () => config.botName;
+import { sendSubMenu, getBotName } from '../../lib/menuHelper.js';
 
-module.exports = {
+export default {
   name: 'stalkermenu',
   aliases: ['smenu', 'stalkermenu', 'stalkercmds'],
   description: 'Shows all Stalker commands',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, extra) {
+  async execute(sock, m, args, PREFIX) {
     const jid = m.key.remoteJid;
     const botName = getBotName();
 
@@ -53,6 +52,6 @@ module.exports = {
 │
 ╰─⊷`;
 
-    await sock.sendMessage(jid, { text: commandsText }, { quoted: m });
+    await sendSubMenu(sock, jid, '🕵️ Stalker Menu', commandsText, m, PREFIX);
   }
 };

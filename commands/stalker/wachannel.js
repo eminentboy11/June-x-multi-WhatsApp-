@@ -1,17 +1,17 @@
-const axios = require('axios');
-const config = require('../../config');
-const APIs = require('../../utils/api');
-const getFooter = () => `Powered by ${config.botName}`;
+import axios from 'axios';
+import { getBotName } from '../../lib/botname.js';
+import { getOwnerName } from '../../lib/menuHelper.js';
 
-module.exports = {
+const GIFTED_API = 'https://api.giftedtech.co.ke/api/stalk/wachannel';
+
+export default {
   name: 'wachannel',
   aliases: ['channelstalk', 'wachannelstalk', 'wacs'],
   description: 'Stalk a WhatsApp Channel',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, extra) {
+  async execute(sock, m, args, prefix) {
     const jid = m.key.remoteJid;
-    const prefix = config.prefix || '.';
 
     if (!args || !args[0]) {
       return sock.sendMessage(jid, {
@@ -23,7 +23,16 @@ module.exports = {
     await sock.sendMessage(jid, { react: { text: '🔍', key: m.key } });
 
     try {
-      const { followers, img, description } = await APIs.stalkWachannel(url);
+      const res = await axios.get(GIFTED_API, {
+        params: { apikey: 'gifted', url },
+        timeout: 20000
+      });
+
+      if (!res.data?.success || !res.data?.result) {
+        throw new Error('Channel not found or invalid URL');
+      }
+
+      const { followers, img, description } = res.data.result;
 
       let profileBuffer = null;
       if (img) {
@@ -33,7 +42,7 @@ module.exports = {
         } catch {}
       }
 
-      const caption = `╭─⌈ 📢 *WHATSAPP CHANNEL INFO* ⌋\n│\n├─⊷ *👥 Followers:* ${followers || 'N/A'}\n├─⊷ *📝 Description:*\n│  └⊷ ${description || 'N/A'}\n├─⊷ *🔗 URL:* ${url}\n│\n╰───────────────\n> 🐺 *${config.botName} STALKER*`;
+      const caption = `╭─⌈ 📢 *WHATSAPP CHANNEL INFO* ⌋\n│\n├─⊷ *👥 Followers:* ${followers || 'N/A'}\n├─⊷ *📝 Description:*\n│  └⊷ ${description || 'N/A'}\n├─⊷ *🔗 URL:* ${url}\n│\n╰───────────────\n> 🐺 *${getBotName()} STALKER*`;
 
       if (profileBuffer) {
         await sock.sendMessage(jid, { image: profileBuffer, caption }, { quoted: m });

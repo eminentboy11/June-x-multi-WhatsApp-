@@ -1,19 +1,17 @@
-const axios = require('axios');
-const config = require('../../config');
-const APIs = require('../../utils/api');
+import axios from 'axios';
+import { getOwnerName, getFooter} from '../../lib/menuHelper.js';
 
+const XWOLF_API = 'https://apis.xwolf.space/api/stalk/github';
 const DEFAULT_USER = 'WOLFTECH-Ke';
-const getFooter = () => `Powered by ${config.botName}`;
 
-module.exports = {
+export default {
   name: 'gitstalk',
   aliases: ['githubstalk', 'ghstalk'],
   description: 'Stalk a GitHub user profile',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, extra) {
+  async execute(sock, m, args, prefix) {
     const jid = m.key.remoteJid;
-    const prefix = config.prefix || '.';
 
     if (!args || !args[0]) {
       return sock.sendMessage(jid, {
@@ -31,7 +29,12 @@ module.exports = {
     await sock.sendMessage(jid, { react: { text: '🔍', key: m.key } });
 
     try {
-      const raw = await APIs.stalkGitHub(username);
+      const res = await axios.get(XWOLF_API, {
+        params: { username },
+        timeout: 20000
+      });
+
+      const raw = res.data;
       const d = raw?.result || raw?.data || raw;
 
       if (!d || (!d.login && !d.username)) {
@@ -52,7 +55,10 @@ module.exports = {
       }
 
       if (avatarBuffer) {
-        await sock.sendMessage(jid, { image: avatarBuffer, caption: jsonCaption }, { quoted: m });
+        await sock.sendMessage(jid, {
+          image: avatarBuffer,
+          caption: jsonCaption
+        }, { quoted: m });
       } else {
         await sock.sendMessage(jid, { text: jsonCaption }, { quoted: m });
       }
