@@ -1,21 +1,27 @@
-import axios from 'axios';
-import { getBotName } from '../../lib/botname.js';
-import { getOwnerName, getFooter} from '../../lib/menuHelper.js';
+const config = require('../../config');
+const APIs = require('../../utils/api');
+const getFooter = () => `Powered by ${config.botName}`;
 
-const GIFTED_API = 'https://api.giftedtech.co.ke/api/stalk/npmstalk';
-
-export default {
+module.exports = {
   name: 'npmstalk',
   aliases: ['npminfo', 'npmlookup', 'pkgstalk'],
   description: 'Look up an NPM package',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, prefix) {
+  async execute(sock, m, args, extra) {
     const jid = m.key.remoteJid;
+    const prefix = config.prefix || '.';
 
     if (!args || !args[0]) {
       return sock.sendMessage(jid, {
-        text: `╭─⌈ 🔍 *NPM PACKAGE STALKER* ⌋\n│\n├─⊷ *${prefix}npmstalk <package name>*\n│  └⊷ Look up an NPM package\n│\n├─⊷ *Example:*\n│  └⊷ ${prefix}npmstalk express\n│  └⊷ ${prefix}npmstalk gifted-btns\n│\n╰⊷ ${getFooter(m.key.participant || m.key.remoteJid)}`
+        text:
+          `┏━━『 🔍 NPM PACKAGE STALKER 』━━\n` +
+          `➥ Command    ➜ ${prefix}npmstalk <package name>\n` +
+          `➥ Usage      ➜ Look up an NPM package\n` +
+          `➥ Example    ➜ ${prefix}npmstalk express\n` +
+          `➥ Example    ➜ ${prefix}npmstalk gifted-btns\n` +
+          `➥ Powered By ➜ ${config.botName}\n` +
+          `┗━━━━━━━━━━━━━━━━`
       }, { quoted: m });
     }
 
@@ -23,16 +29,7 @@ export default {
     await sock.sendMessage(jid, { react: { text: '🔍', key: m.key } });
 
     try {
-      const res = await axios.get(globalThis._apiOverrides?.['npmstalk'] || GIFTED_API, {
-        params: { apikey: 'gifted', packagename },
-        timeout: 25000
-      });
-
-      if (!res.data?.success || !res.data?.result) {
-        throw new Error('Package not found on NPM');
-      }
-
-      const d = res.data.result;
+      const d = await APIs.stalkNpm(packagename);
 
       const name = d.name || packagename;
       const version = d.version || d['dist-tags']?.latest || 'N/A';
@@ -45,7 +42,21 @@ export default {
       const created = d.created || d.time?.created ? new Date(d.created || d.time.created).toLocaleDateString() : 'N/A';
       const modified = d.modified || d.time?.modified ? new Date(d.modified || d.time?.modified).toLocaleDateString() : 'N/A';
 
-      const caption = `╭─⌈ 📦 *NPM PACKAGE INFO* ⌋\n│\n├─⊷ *📦 Package:* ${name}\n├─⊷ *🔢 Version:* ${version}\n├─⊷ *📝 Description:* ${description}\n├─⊷ *👤 Author:* ${author}\n├─⊷ *📄 License:* ${license}\n├─⊷ *🏷️ Keywords:* ${keywords}${downloads !== 'N/A' ? `\n├─⊷ *📊 Downloads:* ${downloads}` : ''}\n├─⊷ *📅 Created:* ${created}\n├─⊷ *🔄 Updated:* ${modified}\n├─⊷ *🌐 Homepage:* ${homepage}\n│\n╰───────────────\n> 🐺 *${getBotName()} STALKER*`;
+      let caption =
+        `┏━━『 📦 NPM PACKAGE INFO 』━━\n` +
+        `➥ Package    ➜ ${name}\n` +
+        `➥ Version    ➜ ${version}\n` +
+        `➥ Description ➜ ${description}\n` +
+        `➥ Author     ➜ ${author}\n` +
+        `➥ License    ➜ ${license}\n` +
+        `➥ Keywords   ➜ ${keywords}`;
+      if (downloads !== 'N/A') caption += `\n➥ Downloads  ➜ ${downloads}`;
+      caption +=
+        `\n➥ Created    ➜ ${created}\n` +
+        `➥ Updated    ➜ ${modified}\n` +
+        `➥ Homepage   ➜ ${homepage}\n` +
+        `➥ Powered By ➜ ${config.botName}\n` +
+        `┗━━━━━━━━━━━━━━━━`;
 
       await sock.sendMessage(jid, { text: caption }, { quoted: m });
       await sock.sendMessage(jid, { react: { text: '✅', key: m.key } });

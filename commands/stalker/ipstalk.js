@@ -1,21 +1,26 @@
-import axios from 'axios';
-import { getBotName } from '../../lib/botname.js';
-import { getOwnerName, getFooter} from '../../lib/menuHelper.js';
+const config = require('../../config');
+const APIs = require('../../utils/api');
+const getFooter = () => `Powered by ${config.botName}`;
 
-const GIFTED_API = 'https://api.giftedtech.co.ke/api/stalk/ipstalk';
-
-export default {
+module.exports = {
   name: 'ipstalk',
   aliases: ['ipinfo2', 'iplookup', 'iptrack'],
   description: 'Look up information about an IP address',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, prefix) {
+  async execute(sock, m, args, extra) {
     const jid = m.key.remoteJid;
+    const prefix = config.prefix || '.';
 
     if (!args || !args[0]) {
       return sock.sendMessage(jid, {
-        text: `╭─⌈ 🔍 *IP STALKER* ⌋\n│\n├─⊷ *${prefix}ipstalk <IP address>*\n│  └⊷ Look up IP address info\n│\n├─⊷ *Example:*\n│  └⊷ ${prefix}ipstalk 41.90.70.195\n│\n╰⊷ ${getFooter(m.key.participant || m.key.remoteJid)}`
+        text:
+          `┏━━『 🔍 IP STALKER 』━━\n` +
+          `➥ Command    ➜ ${prefix}ipstalk <IP address>\n` +
+          `➥ Usage      ➜ Look up IP address info\n` +
+          `➥ Example    ➜ ${prefix}ipstalk 41.90.70.195\n` +
+          `➥ Powered By ➜ ${config.botName}\n` +
+          `┗━━━━━━━━━━━━━━━━`
       }, { quoted: m });
     }
 
@@ -23,18 +28,19 @@ export default {
     await sock.sendMessage(jid, { react: { text: '🔍', key: m.key } });
 
     try {
-      const res = await axios.get(globalThis._apiOverrides?.['ipstalk'] || GIFTED_API, {
-        params: { apikey: 'gifted', address },
-        timeout: 20000
-      });
+      const d = await APIs.stalkIp(address);
 
-      if (!res.data?.success || !res.data?.result) {
-        throw new Error('Could not retrieve IP information');
-      }
-
-      const d = res.data.result;
-
-      const caption = `╭─⌈ 🌐 *IP ADDRESS INFO* ⌋\n│\n├─⊷ *🔢 IP:* ${address}\n├─⊷ *🌍 Country:* ${d.country || 'N/A'}\n├─⊷ *🗺️ Continent:* ${d.continent || 'N/A'}\n├─⊷ *📌 Country Code:* ${d.countryCode || 'N/A'}\n├─⊷ *📡 ASN:* ${d.asn || 'N/A'}\n├─⊷ *🏢 ISP/AS Name:* ${d.asName || 'N/A'}\n├─⊷ *🌐 AS Domain:* ${d.asDomain || 'N/A'}${d.continentCode ? `\n├─⊷ *🗺️ Continent Code:* ${d.continentCode}` : ''}\n│\n╰───────────────\n> 🐺 *${getBotName()} STALKER*`;
+      let caption =
+        `┏━━『 🌐 IP ADDRESS INFO 』━━\n` +
+        `➥ IP         ➜ ${address}\n` +
+        `➥ Country    ➜ ${d.country || 'N/A'}\n` +
+        `➥ Continent  ➜ ${d.continent || 'N/A'}\n` +
+        `➥ Country Code ➜ ${d.countryCode || 'N/A'}\n` +
+        `➥ ASN        ➜ ${d.asn || 'N/A'}\n` +
+        `➥ ISP/AS Name ➜ ${d.asName || 'N/A'}\n` +
+        `➥ AS Domain  ➜ ${d.asDomain || 'N/A'}`;
+      if (d.continentCode) caption += `\n➥ Continent Code ➜ ${d.continentCode}`;
+      caption += `\n➥ Powered By ➜ ${config.botName}\n┗━━━━━━━━━━━━━━━━`;
 
       await sock.sendMessage(jid, { text: caption }, { quoted: m });
       await sock.sendMessage(jid, { react: { text: '✅', key: m.key } });

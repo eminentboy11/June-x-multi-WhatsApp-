@@ -1,57 +1,28 @@
-import { sendSubMenu, getBotName } from '../../lib/menuHelper.js';
+const config = require('../../config');
+const getBotName = () => config.botName;
 
-export default {
-  name: 'stalkercmd',
+module.exports = {
+  name: 'stalkermenu',
   aliases: ['smenu', 'stalkermenu', 'stalkercmds'],
   description: 'Shows all Stalker commands',
   category: 'Stalker Commands',
 
-  async execute(sock, m, args, PREFIX) {
+  async execute(sock, m, args, extra) {
     const jid = m.key.remoteJid;
     const botName = getBotName();
 
-    const commandsText = `╭─⊷ *📢 WHATSAPP CHANNEL*
-│
-│  • wachannel <URL>
-│
-╰─⊷
+    const commandsText =
+      `┏━━『 🕵️ STALKER COMMANDS 』━━\n` +
+      `➥ WhatsApp Channel ➜ wachannel <URL>\n` +
+      `➥ TikTok           ➜ tiktokstalk <username>\n` +
+      `➥ Twitter/X        ➜ twitterstalk <username>\n` +
+      `➥ IP Address       ➜ ipstalk <IP>\n` +
+      `➥ Instagram        ➜ igstalk <username>\n` +
+      `➥ NPM Package      ➜ npmstalk <package>\n` +
+      `➥ GitHub           ➜ gitstalk <username>\n` +
+      `➥ Powered By       ➜ ${botName}\n` +
+      `┗━━━━━━━━━━━━━━━━`;
 
-╭─⊷ *🎵 TIKTOK*
-│
-│  • tiktokstalk <username>
-│
-╰─⊷
-
-╭─⊷ *🐦 TWITTER/X*
-│
-│  • twitterstalk <username>
-│
-╰─⊷
-
-╭─⊷ *🌐 IP ADDRESS*
-│
-│  • ipstalk <IP>
-│
-╰─⊷
-
-╭─⊷ *📸 INSTAGRAM*
-│
-│  • igstalk <username>
-│
-╰─⊷
-
-╭─⊷ *📦 NPM PACKAGE*
-│
-│  • npmstalk <package>
-│
-╰─⊷
-
-╭─⊷ *🐙 GITHUB*
-│
-│  • gitstalk <username>
-│
-╰─⊷`;
-
-    await sendSubMenu(sock, jid, '🕵️ Stalker Menu', commandsText, m, PREFIX);
+    await sock.sendMessage(jid, { text: commandsText }, { quoted: m });
   }
 };

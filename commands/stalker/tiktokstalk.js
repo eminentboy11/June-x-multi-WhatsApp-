@@ -1,71 +1,27 @@
-import axios from 'axios';
-import { getBotName } from '../../lib/botname.js';
-import { getOwnerName, getFooter} from '../../lib/menuHelper.js';
+const axios = require('axios');
+const config = require('../../config');
+const APIs = require('../../utils/api');
+const getFooter = () => `Powered by ${config.botName}`;
 
-const API_PRIMARY  = 'https://apis.xwolf.space/api/stalk/tiktok';
-const API_FALLBACK = 'https://api.giftedtech.co.ke/api/stalk/tiktokstalk';
-
-async function fetchProfile(username) {
-    // ── Primary: xwolf API ──────────────────────────────────────────
-    try {
-        const res = await axios.get(API_PRIMARY, {
-            params: { username },
-            timeout: 15000
-        });
-        const d = res.data;
-        if (d?.success && d?.username) {
-            return {
-                name:       d.nickname  || d.username,
-                username:   d.username,
-                bio:        d.bio       || 'N/A',
-                avatar:     d.avatar    || null,
-                followers:  d.followers ?? 0,
-                following:  d.following ?? 0,
-                likes:      d.likes     ?? 0,
-                videos:     d.videos    ?? null,
-                verified:   d.verified  ?? false,
-                private:    d.privateAccount ?? false,
-                profileUrl: d.profileUrl || null,
-                source:     'xwolf'
-            };
-        }
-    } catch {}
-
-    // ── Fallback: giftedtech API ────────────────────────────────────
-    const res = await axios.get(API_FALLBACK, {
-        params: { apikey: 'gifted', username },
-        timeout: 20000
-    });
-    if (!res.data?.success || !res.data?.result) throw new Error('User not found');
-    const d = res.data.result;
-    return {
-        name:       d.name     || d.username,
-        username:   d.username || username,
-        bio:        d.bio      || 'N/A',
-        avatar:     d.avatar   || null,
-        followers:  d.followers ?? 0,
-        following:  d.following ?? 0,
-        likes:      d.likes     ?? 0,
-        videos:     null,
-        verified:   d.verified  ?? false,
-        private:    d.private   ?? false,
-        profileUrl: d.website?.link || null,
-        source:     'gifted'
-    };
-}
-
-export default {
+module.exports = {
     name: 'tiktokstalk',
     aliases: ['ttstalk', 'tikstalk', 'tiktokinfo'],
     description: 'Stalk a TikTok user profile',
     category: 'Stalker Commands',
 
-    async execute(sock, m, args, prefix) {
+    async execute(sock, m, args, extra) {
         const jid = m.key.remoteJid;
+        const prefix = config.prefix || '.';
 
         if (!args || !args[0]) {
             return sock.sendMessage(jid, {
-                text: `╭─⌈ 🔍 *TIKTOK STALKER* ⌋\n│\n├─⊷ *${prefix}tiktokstalk <username>*\n│  └⊷ Stalk a TikTok profile\n│\n├─⊷ *Example:*\n│  └⊷ ${prefix}tiktokstalk maskedwolf908\n│\n╰───────────────\n> *${getBotName()} STALKER*`
+                text:
+                    `┏━━『 🔍 TIKTOK STALKER 』━━\n` +
+                    `➥ Command    ➜ ${prefix}tiktokstalk <username>\n` +
+                    `➥ Usage      ➜ Stalk a TikTok profile\n` +
+                    `➥ Example    ➜ ${prefix}tiktokstalk tiktokuser\n` +
+                    `➥ Powered By ➜ ${config.botName}\n` +
+                    `┗━━━━━━━━━━━━━━━━`
             }, { quoted: m });
         }
 
@@ -73,7 +29,7 @@ export default {
         await sock.sendMessage(jid, { react: { text: '🔍', key: m.key } });
 
         try {
-            const d = await fetchProfile(username);
+            const d = await APIs.stalkTikTok(username);
 
             let avatarBuffer = null;
             if (d.avatar) {
@@ -84,20 +40,19 @@ export default {
             }
 
             const lines = [
-                `╭─⌈ 🎵 *TIKTOK PROFILE* ⌋`,
-                `│`,
-                `├─⊷ *👤 Name:* ${d.name}`,
-                `├─⊷ *🏷️ Username:* @${d.username}`,
-                `├─⊷ *📝 Bio:* ${d.bio}`,
-                `├─⊷ *👥 Followers:* ${Number(d.followers).toLocaleString()}`,
-                `├─⊷ *👤 Following:* ${Number(d.following).toLocaleString()}`,
-                `├─⊷ *❤️ Likes:* ${Number(d.likes).toLocaleString()}`,
+                `┏━━『 🎵 TIKTOK PROFILE 』━━`,
+                `➥ Name       ➜ ${d.name}`,
+                `➥ Username   ➜ @${d.username}`,
+                `➥ Bio        ➜ ${d.bio}`,
+                `➥ Followers  ➜ ${Number(d.followers).toLocaleString()}`,
+                `➥ Following  ➜ ${Number(d.following).toLocaleString()}`,
+                `➥ Likes      ➜ ${Number(d.likes).toLocaleString()}`,
             ];
-            if (d.videos !== null) lines.push(`├─⊷ *🎬 Videos:* ${d.videos}`);
-            lines.push(`├─⊷ *✅ Verified:* ${d.verified ? 'Yes ✔️' : 'No'}`);
-            lines.push(`├─⊷ *🔒 Private:* ${d.private ? 'Yes' : 'No'}`);
-            if (d.profileUrl) lines.push(`├─⊷ *🔗 Profile:* ${d.profileUrl}`);
-            lines.push(`│`, `╰⊷ ${getFooter(m.key.participant || m.key.remoteJid)}`, `> 🐺 *${getBotName()} STALKER*`);
+            if (d.videos !== null) lines.push(`➥ Videos     ➜ ${d.videos}`);
+            lines.push(`➥ Verified   ➜ ${d.verified ? 'Yes ✔️' : 'No'}`);
+            lines.push(`➥ Private    ➜ ${d.private ? 'Yes' : 'No'}`);
+            if (d.profileUrl) lines.push(`➥ Profile    ➜ ${d.profileUrl}`);
+            lines.push(`➥ Powered By ➜ ${config.botName}`, `┗━━━━━━━━━━━━━━━━`);
 
             const caption = lines.join('\n');
 
