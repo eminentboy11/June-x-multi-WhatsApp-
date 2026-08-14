@@ -2167,6 +2167,65 @@ async function restoreFromMongo() {
   return result;
 }
 
+// ─── Database Reset ────────────────────────────────────────────────────────────
+// Wipes every bot-data table locally AND the matching remote mirror records, so
+// the reset survives a restart (the remote restore only fills "missing" local
+// rows and would otherwise re-seed deleted data on reboot).
+async function clearRemoteData(includeSession = false) {
+  const kinds = [
+    'bot-setting', 'group-settings', 'group-stat', 'user', 'warning',
+    'moderator', 'muted-user', 'kv', 'antidelete-message',
+    'antidelete-status', 'chat-profile', 'lid-map',
+  ];
+  const details = [];
+  let remoteCleared = false;
+  for (const kind of kinds) {
+    try {
+      const r1 = await mongoAdapter.clearKind(kind);
+      if (r1 && r1.ok) remoteCleared = true;
+      details.push(`mongo:${kind}=${r1 ? r1.deleted : 'n/a'}`);
+    } catch (_) { details.push(`mongo:${kind}=err`); }
+    try {
+      const r2 = await pgAdapter.clearKind(kind);
+      if (r2 && r2.ok) remoteCleared = true;
+      details.push(`pg:${kind}=${r2 ? r2.deleted : 'n/a'}`);
+    } catch (_) { details.push(`pg:${kind}=err`); }
+  }
+  if (includeSession) {
+    try { await clearRemoteAuthState(); remoteCleared = true; } catch (_) {}
+  }
+  return { remoteCleared, details };
+}
+
+async function resetDatabase(opts = {}) {
+  const includeSession = !!opts.includeSession;
+  const tables = [
+    'warnings', 'moderators', 'muted_users', 'kv_store',
+    'antidelete_messages', 'antidelete_statuses', 'status_downloads',
+    'group_stats', 'groups', 'users', 'chat_profiles', 'lid_map',
+    'runtime_telemetry', 'bot_settings', 'remote_sync_queue',
+  ];
+  if (includeSession) {
+    tables.push('session', 'session_creds', 'session_keys', 'session_auth_meta');
+  }
+  const localCleared = [];
+  if (db) {
+    const tx = db.transaction(() => {
+      for (const t of tables) {
+        try {
+          db.prepare(`DELETE FROM ${t}`).run();
+          localCleared.push(t);
+        } catch (_) { /* table may not exist in this schema variant */ }
+      }
+    });
+    tx();
+  }
+  const remote = await clearRemoteData(includeSession);
+  try { requestBackup('reset-database'); } catch (_) {}
+  try { vacuumDatabase(); } catch (_) {}
+  return { localCleared, includeSession, remote };
+}
+
 module.exports = {
   ready,
   getGroupSettings, updateGroupSettings, getUser, updateUser,
@@ -2202,6 +2261,7 @@ module.exports = {
   getRemoteAuthMirrorStatus, scheduleRemoteAuthMirror, flushRemoteAuthMirror,
   mirrorRemoteAuthState, restoreRemoteAuthState, clearRemoteAuthState,
   restoreFromPostgres, restoreFromMongo,
+  resetDatabase,
   getPostgresStatus: pgAdapter.getStatus, getMongoStatus: mongoAdapter.getStatus,
   getBotId: pgAdapter.getBotId,
 };

@@ -546,6 +546,38 @@ async function close() {
   try { await activePool.end(); } catch (_) {}
 }
 
+const KIND_TABLE = {
+  'bot-setting':        { table: 'bot_configs',        where: 'bot_id = $1 AND key != $2', extra: [LEGACY_AUTH_RECORD_KEY] },
+  'group-settings':     { table: 'group_features',      where: "bot_id = $1 AND feature = 'group-settings'", extra: [] },
+  'group-stat':         { table: 'group_stats',         where: 'bot_id = $1', extra: [] },
+  'user':               { table: 'users',               where: 'bot_id = $1', extra: [] },
+  'warning':            { table: 'warnings',            where: 'bot_id = $1', extra: [] },
+  'moderator':          { table: 'sudoers',             where: 'bot_id = $1', extra: [] },
+  'muted-user':         { table: 'muted_users',         where: 'bot_id = $1', extra: [] },
+  'kv':                 { table: 'kv_store',            where: 'bot_id = $1', extra: [] },
+  'antidelete-message': { table: 'antidelete_messages', where: 'bot_id = $1', extra: [] },
+  'antidelete-status':  { table: 'antidelete_statuses', where: 'bot_id = $1', extra: [] },
+  'chat-profile':       { table: 'chatbot_profiles',    where: 'bot_id = $1', extra: [] },
+  'lid-map':            { table: 'lid_map',             where: 'bot_id = $1', extra: [] },
+};
+
+// Bulk-delete every remote record of a given kind for the active bot.
+// Used by the database reset so the remote mirror does not re-seed local data
+// on the next restart (remote restore only fills "missing" local rows).
+async function clearKind(kind) {
+  if (!ready || !pool) return { ok: false, reason: 'unavailable' };
+  const spec = KIND_TABLE[kind];
+  if (!spec) return { ok: false, reason: 'unknown-kind' };
+  try {
+    const params = [activeBotId, ...(spec.extra || [])];
+    const res = await query(`DELETE FROM ${spec.table} WHERE ${spec.where}`, params);
+    return { ok: true, deleted: res?.rowCount || 0 };
+  } catch (error) {
+    lastError = error?.message || String(error);
+    return { ok: false, reason: lastError };
+  }
+}
+
 module.exports = {
   init,
   query,
@@ -573,4 +605,5 @@ module.exports = {
   deleteAuthState,
   deleteLegacyAuthRecord,
   restoreIntoSQLite,
+  clearKind,
 };

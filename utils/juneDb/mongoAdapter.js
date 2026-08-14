@@ -458,6 +458,26 @@ async function close() {
   try { await activeClient.close(); } catch (_) {}
 }
 
+function regexEscape(str) {
+  return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Bulk-delete every remote record of a given kind for the active bot.
+// Used by the database reset so the remote mirror does not re-seed local data
+// on the next restart (remote restore only fills "missing" local rows).
+async function clearKind(kind) {
+  if (!ready || !collection()) return { ok: false, reason: 'unavailable' };
+  try {
+    const prefix = '^' + regexEscape(encodeURIComponent(kind)) +
+      '\\|' + regexEscape(encodeURIComponent(activeBotId || '')) + '\\|';
+    const res = await collection().deleteMany({ _id: { $regex: prefix } });
+    return { ok: true, deleted: res?.deletedCount || 0 };
+  } catch (error) {
+    lastError = error?.message || String(error);
+    return { ok: false, reason: lastError };
+  }
+}
+
 module.exports = {
   init,
   close,
@@ -484,4 +504,5 @@ module.exports = {
   deleteAuthState,
   deleteLegacyAuthRecord,
   restoreIntoSQLite,
+  clearKind,
 };
