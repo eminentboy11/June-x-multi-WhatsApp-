@@ -49,9 +49,10 @@ module.exports = {
             let botMode = '🌐 Public';
             try { botMode = require('../../utils/botMode').getModeLabel(); } catch (_) {}
 
-            let presenceMode = 'off';
-            try { presenceMode = require('../../utils/presenceSettings').getMode(); } catch (_) {}
-            const presenceLabel = { typing: '⌨️ typing', recording: '🎙️ recording', recordtype: '🎙️⌨️ record+type', off: 'off' }[presenceMode] || presenceMode;
+            let _pres = { pm: 'off', group: 'off' };
+            try { _pres = require('../../utils/presenceSettings').getModes(); } catch (_) {}
+            const _presMap = { typing: '⌨️ typing', recording: '🎙️ recording', recordtype: '🎙️⌨️ record+type', off: 'off' };
+            const _presLabel = (m) => _presMap[m] || m;
 
             const autoReadMode   = database.getBotSetting('autoReadMode')   || 'off';
             const autoReact      = database.getBotSetting('autoReact')      || false;
@@ -107,7 +108,8 @@ module.exports = {
                 `🔹 *botmode* : ${botMode}\n` +
                 `🔹 *selfmode* : ${flag(selfMode)}\n` +
                 `🔹 *alwaysonline* : ${flag(alwaysOnline)}\n` +
-                `🔹 *presence* : ${presenceLabel}\n` +
+                `🔹 *presence (pm)*     : ${_presLabel(_pres.pm)}\n` +
+                `🔹 *presence (group)*  : ${_presLabel(_pres.group)}\n` +
                 `🔹 *readreceipts* : ${rrLabel}\n` +
                 `🔹 *autoread* : ${autoReadMode}\n` +
                 `🔹 *autoreact* : ${flag(autoReact)}${autoReact ? ` — ${autoReactMode}` : ''}\n` +

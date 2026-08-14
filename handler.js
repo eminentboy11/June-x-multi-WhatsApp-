@@ -716,8 +716,8 @@ const handleMessage = async (sock, msg) => {
     // ── Presence on ANY incoming message (DM or group, never bot's own) ──────
     if (!msg.key.fromMe) {
       try {
-        const { getMode } = require('./utils/presenceSettings');
-        const _pm = getMode();
+        const { getModeFor } = require('./utils/presenceSettings');
+        const _pm = getModeFor(from);
         if (_pm === 'recording' || _pm === 'recordtype') {
           sock.sendPresenceUpdate('recording', from).catch(() => {});
         } else if (_pm === 'typing') {
@@ -1322,8 +1322,8 @@ const handleMessage = async (sock, msg) => {
 
     // Auto presence indicators — read from database/bot-settings.json via presenceSettings
     try {
-      const { getMode } = require('./utils/presenceSettings');
-      const presenceMode = getMode();
+      const { getModeFor } = require('./utils/presenceSettings');
+      const presenceMode = getModeFor(from);
       if (presenceMode === 'recordtype') {
         await sock.sendPresenceUpdate('recording', from);
         await new Promise(r => setTimeout(r, 1500));
@@ -1333,10 +1333,6 @@ const handleMessage = async (sock, msg) => {
         await sock.sendPresenceUpdate('recording', from);
         await new Promise(r => setTimeout(r, 1000));
       } else if (presenceMode === 'typing') {
-        await sock.sendPresenceUpdate('composing', from);
-        await new Promise(r => setTimeout(r, 800));
-      } else if (config.autoTyping) {
-        // legacy config.js flag fallback
         await sock.sendPresenceUpdate('composing', from);
         await new Promise(r => setTimeout(r, 800));
       }

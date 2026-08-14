@@ -244,7 +244,10 @@ function normalizeStartupPostgres(postgres = {}) {
 function getStartupToggleState() {
     const db = juneDatabase
     const statusSettings = db.loadSettings?.() || {}
-    const presenceMode = db.getBotSetting?.('presenceMode') || 'off'
+    const _presence = (() => { try { return require('./utils/presenceSettings').getModes(); } catch (_) { return { pm: 'off', group: 'off' }; } })();
+    const _anyTyping = _presence.pm === 'typing' || _presence.group === 'typing';
+    const _anyRecording = _presence.pm === 'recording' || _presence.group === 'recording' || _presence.pm === 'recordtype' || _presence.group === 'recordtype';
+    const _anyRecordType = _presence.pm === 'recordtype' || _presence.group === 'recordtype';
     const autoReact = (() => {
         try {
             return Boolean(require('./utils/autoReact').load().enabled)
@@ -262,9 +265,9 @@ function getStartupToggleState() {
     return {
         autoStatusView: Boolean(statusSettings.enabled),
         autoStatusReact: Boolean(statusSettings.react),
-        autoTyping: presenceMode === 'typing',
-        autoRecording: presenceMode === 'recording',
-        autoRecordType: presenceMode === 'recordtype',
+        autoTyping: _anyTyping,
+        autoRecording: _anyRecording,
+        autoRecordType: _anyRecordType,
         autoDownload,
         alwaysOnline: Boolean(db.getBotSetting?.('alwaysOnline')),
         antideleteStatus,
@@ -427,9 +430,12 @@ async function applyPersistedRuntimeSettings() {
             }
         }
         // Restore presence flags so .botstatus/.getsettings reflect the correct state
-        if (all.presenceMode === 'typing')     config.autoTyping     = true;
-        if (all.presenceMode === 'recording')  config.autoRecording  = true;
-        if (all.presenceMode === 'recordtype') { config.autoRecording = true; config.autoRecordType = true; }
+        try {
+          const _m = require('./utils/presenceSettings').getModes();
+          config.autoTyping = _m.pm === 'typing' || _m.group === 'typing';
+          config.autoRecording = _m.pm === 'recording' || _m.group === 'recording' || _m.pm === 'recordtype' || _m.group === 'recordtype';
+          config.autoRecordType = _m.pm === 'recordtype' || _m.group === 'recordtype';
+        } catch (_) {}
 
         // Custom menu images stay in SQLite and are decoded directly by
         // commands/general/menu.js when a menu is sent. Do not rebuild or
