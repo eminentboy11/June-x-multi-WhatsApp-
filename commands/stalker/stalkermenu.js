@@ -1,7 +1,7 @@
 import { sendSubMenu, getBotName } from '../../lib/menuHelper.js';
 
 export default {
-  name: 'stalkermenu',
+  name: 'stalkercmd',
   aliases: ['smenu', 'stalkermenu', 'stalkercmds'],
   description: 'Shows all Stalker commands',
   category: 'Stalker Commands',
