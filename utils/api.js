@@ -331,7 +331,82 @@ const APIs = {
     } catch {
       throw new Error('TikTok download failed');
     }
-  }
+  },
+
+  // ─── Stalker Profiles ──────────────────────────────────────────
+  stalkGitHub: async (username) => {
+    const res = await api.get('https://apis.xwolf.space/api/stalk/github', { params: { username }, timeout: 20000 });
+    const raw = res.data;
+    const d = raw?.result || raw?.data || raw;
+    if (!d || (!d.login && !d.username)) throw new Error('User not found on GitHub');
+    return raw;
+  },
+
+  stalkInstagram: async (username) => {
+    const res = await api.get(globalThis._apiOverrides?.['igstalk'] || 'https://api.giftedtech.co.ke/api/stalk/igstalk', {
+      params: { apikey: 'gifted', username }, timeout: 20000
+    });
+    if (!res.data?.success || !res.data?.result) throw new Error('User not found');
+    return res.data.result;
+  },
+
+  stalkIp: async (address) => {
+    const res = await api.get(globalThis._apiOverrides?.['ipstalk'] || 'https://api.giftedtech.co.ke/api/stalk/ipstalk', {
+      params: { apikey: 'gifted', address }, timeout: 20000
+    });
+    if (!res.data?.success || !res.data?.result) throw new Error('Could not retrieve IP information');
+    return res.data.result;
+  },
+
+  stalkNpm: async (packagename) => {
+    const res = await api.get(globalThis._apiOverrides?.['npmstalk'] || 'https://api.giftedtech.co.ke/api/stalk/npmstalk', {
+      params: { apikey: 'gifted', packagename }, timeout: 25000
+    });
+    if (!res.data?.success || !res.data?.result) throw new Error('Package not found on NPM');
+    return res.data.result;
+  },
+
+  stalkTikTok: async (username) => {
+    try {
+      const res = await api.get('https://apis.xwolf.space/api/stalk/tiktok', { params: { username }, timeout: 15000 });
+      const d = res.data;
+      if (d?.success && d?.username) {
+        return {
+          name: d.nickname || d.username, username: d.username, bio: d.bio || 'N/A',
+          avatar: d.avatar || null, followers: d.followers ?? 0, following: d.following ?? 0,
+          likes: d.likes ?? 0, videos: d.videos ?? null, verified: d.verified ?? false,
+          private: d.privateAccount ?? false, profileUrl: d.profileUrl || null, source: 'xwolf'
+        };
+      }
+    } catch {}
+    const res = await api.get('https://api.giftedtech.co.ke/api/stalk/tiktokstalk', {
+      params: { apikey: 'gifted', username }, timeout: 20000
+    });
+    if (!res.data?.success || !res.data?.result) throw new Error('User not found');
+    const d = res.data.result;
+    return {
+      name: d.name || d.username, username: d.username || username, bio: d.bio || 'N/A',
+      avatar: d.avatar || null, followers: d.followers ?? 0, following: d.following ?? 0,
+      likes: d.likes ?? 0, videos: null, verified: d.verified ?? false,
+      private: d.private ?? false, profileUrl: d.website?.link || null, source: 'gifted'
+    };
+  },
+
+  stalkTwitter: async (username) => {
+    const res = await api.get(globalThis._apiOverrides?.['twitterstalk'] || 'https://api.giftedtech.co.ke/api/stalk/twitterstalk', {
+      params: { apikey: 'gifted', username }, timeout: 25000
+    });
+    if (!res.data?.success || !res.data?.result) throw new Error('User not found or Twitter API unavailable');
+    return res.data.result;
+  },
+
+  stalkWachannel: async (url) => {
+    const res = await api.get('https://api.giftedtech.co.ke/api/stalk/wachannel', {
+      params: { apikey: 'gifted', url }, timeout: 20000
+    });
+    if (!res.data?.success || !res.data?.result) throw new Error('Channel not found or invalid URL');
+    return res.data.result;
+  },
 
 };
 
