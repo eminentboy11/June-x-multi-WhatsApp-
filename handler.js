@@ -6,43 +6,44 @@ const config = require('./config');
 const database = require('./database');
 const { loadCommands, watchCommands } = require('./utils/commandLoader');
 const { addMessage, getActiveUsers, getInactiveUsers } = require('./utils/groupstats');
+const { scopedMap, scopedState } = require('./utils/botContext');
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 
 // Group metadata cache to prevent rate limiting
-const groupMetadataCache = new Map();
+// (per-bot scoped: admin status / metadata differ per connected account)
+const groupMetadataCache = scopedMap(() => new Map());
 const CACHE_TTL = 300000; // 5 minute cache (was 1 min)
 
 // Bot-admin status cache — avoids live API call on every message
-const botAdminCache = new Map();
+const botAdminCache = scopedMap(() => new Map());
 const BOT_ADMIN_TTL = 120000; // 2 minutes
 
-// Settings caches — avoids disk reads on every message
-let _arSettingsCache   = null;
-let _arSettingsExpiry  = 0;
+// Settings caches — avoids disk reads on every message (per-bot scoped)
+const _arCache = scopedState('autoReactSettings');
 const SETTINGS_CACHE_TTL = 8000; // 8 seconds
 
 function getCachedArSettings() {
-  if (_arSettingsCache && Date.now() < _arSettingsExpiry) return _arSettingsCache;
+  if (_arCache.value && Date.now() < _arCache.expiry) return _arCache.value;
   try {
-    _arSettingsCache = require('./utils/autoReact').load();
-  } catch { _arSettingsCache = { enabled: false, mode: 'bot' }; }
-  _arSettingsExpiry = Date.now() + SETTINGS_CACHE_TTL;
-  return _arSettingsCache;
+    _arCache.value = require('./utils/autoReact').load();
+  } catch { _arCache.value = { enabled: false, mode: 'bot' }; }
+  _arCache.expiry = Date.now() + SETTINGS_CACHE_TTL;
+  return _arCache.value;
 }
 
 // Invalidate settings caches when commands change them (called by set commands)
 global.invalidateSettingsCache = () => {
-  _arSettingsCache  = null;
-  botAdminCache.clear();
+  _arCache.clearAllBots();
+  botAdminCache.clearAllBots();
 };
 
 // ── ViewOnce Reveal Cache ────────────────────────────────────────────────────
 // Stores recently-seen view-once messages so emoji reactions can look them up.
 // Key: message ID (string)   Value: { msg, expires }
-const voCache = new Map();
+const voCache = scopedMap(() => new Map());
 const VO_CACHE_TTL = 10 * 60 * 1000; // keep entries for 10 minutes
 
 // Resolve the bot's own JID once, consistently, wherever we need to DM ourselves.
@@ -280,17 +281,20 @@ const isSudo = (sender) => {
 // Alias for backward compat
 const isMod = isSudo;
 
-// LID mapping cache
-const lidMappingCache = new Map();
+// LID mapping cache (per-bot scoped: LID↔PN pairs differ per account)
+const lidMappingCache = scopedMap(() => new Map());
 
-// Periodically evict old groupMetadataCache entries (every 10 minutes)
+// Periodically evict old groupMetadataCache entries (every 10 minutes) —
+// across every bot's cache.
 setInterval(() => {
   const now = Date.now();
-  for (const [key, val] of groupMetadataCache) {
-    if (now - val.timestamp > 10 * 60 * 1000) groupMetadataCache.delete(key);
-  }
-  // Clear lid mapping cache completely every 10 minutes to prevent unbounded growth
-  lidMappingCache.clear();
+  groupMetadataCache.pruneAllBots((map) => {
+    for (const [key, val] of map) {
+      if (now - val.timestamp > 10 * 60 * 1000) map.delete(key);
+    }
+  });
+  // Clear lid mapping caches completely every 10 minutes to prevent unbounded growth
+  lidMappingCache.clearAllBots();
 }, 10 * 60 * 1000);
 
 // Helper to normalize JID to just the number part
@@ -2559,6 +2563,7 @@ module.exports = {
   handleAntiMedia,
   handleAntibug,
   initializeAntiCall,
+  getCachedArSettings,
   isOwner,
   isAdmin,
   isBotAdmin,

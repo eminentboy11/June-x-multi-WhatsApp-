@@ -12,16 +12,19 @@
  */
 
 const database = require('../database');
+const { scopedMap, runInBot } = require('./botContext');
 
 const FLUSH_INTERVAL_MS = 5_000;
 
+// All caches are per-bot scoped: group activity is tracked independently for
+// each connected session (see utils/botContext AsyncLocalStorage routing).
 // Map<groupId, Map<YYYY-MM-DD, { total, users, hours }>>
-const cache = new Map();
+const cache = scopedMap(() => new Map());
 // Map<groupId, Set<YYYY-MM-DD>> — records awaiting the next SQLite save.
-const dirtyDays = new Map();
+const dirtyDays = scopedMap(() => new Map());
 // Only needed for the tiny startup window before database.ready resolves.
-const preReadyDays = new Map();
-const fullyLoadedGroups = new Set();
+const preReadyDays = scopedMap(() => new Map());
+const fullyLoadedGroups = scopedMap(() => new Set());
 
 let databaseReady = false;
 let flushInProgress = false;
@@ -169,56 +172,64 @@ function loadAllGroupDays(groupId) {
 }
 
 function reconcilePreReadyDays() {
-  if (!databaseReady || preReadyDays.size === 0) return;
+  if (!databaseReady) return;
 
-  for (const [groupId, dates] of preReadyDays) {
-    const days = getGroupDays(groupId);
+  preReadyDays.forEachBot((dates, botId) => {
+    runInBot(botId, () => {
+      for (const [groupId, daySet] of dates) {
+        const days = getGroupDays(groupId);
 
-    for (const date of dates) {
-      const inMemory = days.get(date);
-      if (!inMemory) continue;
+        for (const date of daySet) {
+          const inMemory = days.get(date);
+          if (!inMemory) continue;
 
-      try {
-        const stored = database.getGroupStat(groupId, date);
-        if (stored !== null) days.set(date, mergeStats(stored, inMemory));
-      } catch (error) {
-        reportDatabaseError(error);
+          try {
+            const stored = database.getGroupStat(groupId, date);
+            if (stored !== null) days.set(date, mergeStats(stored, inMemory));
+          } catch (error) {
+            reportDatabaseError(error);
+          }
+        }
       }
-    }
-  }
-
-  preReadyDays.clear();
+      dates.clear();
+    });
+  });
 }
 
 function flushGroupStats() {
-  if (!databaseReady || flushInProgress || dirtyDays.size === 0) return 0;
+  if (!databaseReady || flushInProgress) return 0;
 
   flushInProgress = true;
   let saved = 0;
 
   try {
-    for (const [groupId, dates] of [...dirtyDays.entries()]) {
-      const days = getGroupDays(groupId);
+    // Flush each bot's dirty stats into that bot's own database.
+    dirtyDays.forEachBot((dates, botId) => {
+      runInBot(botId, () => {
+        for (const [groupId, daySet] of [...dates.entries()]) {
+          const days = getGroupDays(groupId);
 
-      for (const date of [...dates]) {
-        const stat = days.get(date);
-        if (!stat) {
-          dates.delete(date);
-          continue;
+          for (const date of [...daySet]) {
+            const stat = days.get(date);
+            if (!stat) {
+              daySet.delete(date);
+              continue;
+            }
+
+            try {
+              database.saveGroupStat(groupId, date, stat);
+              daySet.delete(date);
+              saved += 1;
+            } catch (error) {
+              // Keep the record dirty; the next scheduled flush retries it.
+              reportDatabaseError(error);
+            }
+          }
+
+          if (daySet.size === 0) dates.delete(groupId);
         }
-
-        try {
-          database.saveGroupStat(groupId, date, stat);
-          dates.delete(date);
-          saved += 1;
-        } catch (error) {
-          // Keep the record dirty; the next scheduled flush retries it.
-          reportDatabaseError(error);
-        }
-      }
-
-      if (dates.size === 0) dirtyDays.delete(groupId);
-    }
+      });
+    });
   } finally {
     flushInProgress = false;
   }

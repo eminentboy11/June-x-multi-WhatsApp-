@@ -1,0 +1,22 @@
+{
+  "sessions": [
+    {
+      "id": "main",
+      "name": "June Main",
+      "phone": "",
+      "sessionId": "JUNE-MD:~<base64-session-here>"
+    },
+    {
+      "id": "backup",
+      "name": "June Backup",
+      "phone": "254700000000",
+      "sessionId": ""
+    },
+    {
+      "id": "third",
+      "name": "June Third",
+      "phone": "",
+      "sessionId": "Ultra-X:~<base64-session-here>"
+    }
+  ]
+}

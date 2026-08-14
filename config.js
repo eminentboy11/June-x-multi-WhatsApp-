@@ -1,4 +1,22 @@
-module.exports = {
+/**
+ * June X Config — multi-session aware.
+ *
+ * The static object below is the BASE configuration (identical to the
+ * original single-session config.js). Each running bot session gets its own
+ * copy created with createBotConfig(), so per-bot settings (prefix, botName,
+ * timezone, owner numbers, toggles…) never leak between sessions.
+ *
+ * `require('./config')` returns a Proxy that forwards every property read /
+ * write to the config of the CURRENTLY EXECUTING bot (see utils/botContext).
+ * This keeps every existing `config.prefix` usage in commands working
+ * unchanged, while resolving per bot.
+ */
+
+'use strict';
+
+const { getCurrentBotId, DEFAULT_BOT_ID } = require('./utils/botContext');
+
+const baseConfig = {
     ownerNumber: ['254798570132','254792021944','2348072642047'],
     ownerName: ['supreme', 'Odofin', 'ˢᵘᵖʳᵉᵐᵉ ᴸᵒʳᵈ'],
     
@@ -125,3 +143,94 @@ module.exports = {
       youtube: 'http://youtube.com/@suprem_e_lord'
     }
 };
+
+// ─── Per-bot config registry ──────────────────────────────────────────────────
+
+const botConfigs = new Map(); // botId -> config object
+
+function cloneConfig() {
+    return JSON.parse(JSON.stringify(baseConfig));
+}
+
+/**
+ * Create a fresh, independent config object for one bot session.
+ * Overrides (prefix, botName, timezone, owner…) are applied on top.
+ */
+function createBotConfig(overrides = {}) {
+    const cfg = cloneConfig();
+    for (const [key, value] of Object.entries(overrides || {})) {
+        if (value !== null && value !== undefined) cfg[key] = value;
+    }
+    return cfg;
+}
+
+function registerBotConfig(botId, cfg) {
+    botConfigs.set(String(botId), cfg);
+    return cfg;
+}
+
+function unregisterBotConfig(botId) {
+    botConfigs.delete(String(botId));
+}
+
+function getBotConfig(botId) {
+    return botConfigs.get(String(botId)) || baseConfig;
+}
+
+function hasBotConfig(botId) {
+    return botConfigs.has(String(botId));
+}
+
+function getBaseConfig() {
+    return baseConfig;
+}
+
+// ─── Context-aware Proxy ───────────────────────────────────────────────────────
+
+function resolveConfig() {
+    return botConfigs.get(getCurrentBotId()) || baseConfig;
+}
+
+// Separate target object so proxy statics never pollute baseConfig.
+const proxy = new Proxy(Object.create(null), {
+    get(_target, prop) {
+        if (prop === '__baseConfig') return baseConfig;
+        if (prop === '__createBotConfig') return createBotConfig;
+        if (prop === '__registerBotConfig') return registerBotConfig;
+        if (prop === '__unregisterBotConfig') return unregisterBotConfig;
+        if (prop === '__getBotConfig') return getBotConfig;
+        if (prop === '__getBaseConfig') return getBaseConfig;
+        return resolveConfig()[prop];
+    },
+    set(_target, prop, value) {
+        // Statics land on the target, never on a bot config or the base.
+        if (typeof prop === 'string' && prop.startsWith('__')) {
+            _target[prop] = value;
+            return true;
+        }
+        const cfg = botConfigs.get(getCurrentBotId());
+        if (cfg) cfg[prop] = value;
+        else baseConfig[prop] = value; // no bot context yet — mutate the base
+        return true;
+    },
+    has(_target, prop) {
+        return prop in resolveConfig();
+    },
+    ownKeys() {
+        return Reflect.ownKeys(resolveConfig());
+    },
+    getOwnPropertyDescriptor(_target, prop) {
+        return Object.getOwnPropertyDescriptor(resolveConfig(), prop);
+    },
+});
+
+// Statics used by tooling / tests without triggering bot resolution.
+proxy.__baseConfig = baseConfig;
+proxy.__createBotConfig = createBotConfig;
+proxy.__registerBotConfig = registerBotConfig;
+proxy.__unregisterBotConfig = unregisterBotConfig;
+proxy.__getBotConfig = getBotConfig;
+proxy.__getBaseConfig = getBaseConfig;
+proxy.__DEFAULT_BOT_ID = DEFAULT_BOT_ID;
+
+module.exports = proxy;

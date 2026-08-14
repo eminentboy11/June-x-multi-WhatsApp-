@@ -1,6 +1,26 @@
 /**
- * A WhatsApp Bot
+ * June X Ultra — Multi-Session WhatsApp Bot
  * Built on Baileys | Inspired by JUNE-X structure
+ *
+ * MULTI-SESSION CORE
+ * ------------------
+ * This build runs any number of WhatsApp sessions inside ONE process:
+ *   - each session is a BotInstance (utils/sessionManager) with its own
+ *     socket, reconnect state machine, intervals, message store and status
+ *     queues;
+ *   - each session has its own SQLite database file (june-<botId>.db), so
+ *     Signal auth keys, KV data (notes, settings, warnings…) and remote
+ *     mirrors are fully isolated per bot;
+ *   - commands/config/database reads are routed per bot through
+ *     utils/botContext AsyncLocalStorage — command modules are untouched.
+ *
+ * Sessions are defined via:
+ *   JUNE_SESSIONS env  (JSON array or { "sessions": [...] })
+ *   sessions.json      (same shape)
+ *   legacy SESSION_ID  (single session, id = JUNE_BOT_ID/BOT_ID/OWNER_NUMBER)
+ *
+ * Entry shape: { "id": "main", "name": "June Main", "phone": "2547…",
+ *                "sessionId": "JUNE-MD:~<base64>" }
  */
 // ─── Suppress pg SSL compatibility warning ──────────────────────────
 process.on('warning', (warning) => {
@@ -121,6 +141,11 @@ const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
 const { applyFont } = require('./utils/fontConverter')
+const { runInBot, DEFAULT_BOT_ID } = require('./utils/botContext')
+const {
+    SessionManager,
+    loadSessionRegistry,
+} = require('./utils/sessionManager')
 const {
     atomicWriteFile,
     createDiskManager,
@@ -241,8 +266,7 @@ function normalizeStartupPostgres(postgres = {}) {
     return { ...postgres, status: 'disabled', label: 'not set' }
 }
 
-function getStartupToggleState() {
-    const db = juneDatabase
+function getStartupToggleState(db) {
     const statusSettings = db.loadSettings?.() || {}
     const _presence = (() => { try { return require('./utils/presenceSettings').getModes(); } catch (_) { return { pm: 'off', group: 'off' }; } })();
     const _anyTyping = _presence.pm === 'typing' || _presence.group === 'typing';
@@ -252,7 +276,7 @@ function getStartupToggleState() {
         try {
             return Boolean(require('./utils/autoReact').load().enabled)
         } catch (_) {
-            return Boolean(db.getBotSetting?.('autoReact') ?? config.autoReact)
+            return Boolean(db.getBotSetting?.('autoReact'))
         }
     })()
     // Auto-download status has one source of truth: SQLite bot_settings.
@@ -282,10 +306,11 @@ function printStartupReport(data = {}) {
     const platform = data.platform || os.platform();
     const mode = String(data.mode || 'public').toUpperCase();
     const commandCount = data.commandCount ?? '—';
-    
+    const botLabel = data.botLabel || 'JUNE X';
+
     // Get database info
     const dbInfo = data.databaseInfo || getExternalDatabaseStatus();
-    
+
     // Build database rows
     let databaseRows = [
         startupHeading('DATABASE'),
@@ -294,7 +319,7 @@ function printStartupReport(data = {}) {
         startupRow('Schema', data.schemaVersion ? `v${data.schemaVersion}` : '—'),
         startupRow('Integrity', data.integrityLabel || 'passed', data.integrityStatus || 'passed'),
     ];
-    
+
     // Show both available remote adapters while none is configured. Once a
     // remote database is configured, show only the configured adapter(s).
     const configuredExternal = (dbInfo.databases || []).filter((entry) => entry.configured)
@@ -316,11 +341,11 @@ function printStartupReport(data = {}) {
             ));
         }
     }
-    
+
     const lines = [
         `┌${'─'.repeat(48- 2)}┐`,
         `┃${chalk.cyan('┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓').padEnd(10 - 1)}┃`,
-        `┃${chalk.white.bold('        🤖 JUNE X (•ˇ_ˇ•) ULTRA STARTING...').padEnd(66 - 1)}┃`,
+        `┃${chalk.white.bold(`        🤖 ${startupFit(botLabel, 32)} STARTING...`).padEnd(66 - 1)}┃`,
         `┃${chalk.cyan('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛').padEnd(10 - 1)}┃`,
         `├${'─'.repeat(48 - 2)}┤`,
         startupHeading('SYSTEM'),
@@ -365,10 +390,10 @@ function printStartupReport(data = {}) {
   `│  ${chalk.gray('─'.repeat(49- 4))}`,
         `┗${'━'.repeat(46)}┛`,
     ];
-    
+
     //console.clear();
     console.log(lines.join('\n'));
-    
+
     // Log actual remote adapter state without exposing connection strings.
     const configuredExternalForLog = (dbInfo.databases || []).filter((entry) => entry.configured)
     const connectedExternal = configuredExternalForLog.filter((entry) => entry.connected)
@@ -383,31 +408,6 @@ function printStartupReport(data = {}) {
     }
 }
 
-// ─── Global Flags ─────────────────────────────────────────────────────────────
-
-global.isBotConnected = false
-global.connectDebounceTimeout = null
-global.errorRetryCount = 0
-    
-global.isReconnecting = false   // Guard: prevents concurrent reconnect loops
-global._consecutive500Count = 0  // Guard: only clear session after 3 real 500s in a row
-global._conflictCount = 0       // Consecutive 409/440 device-conflict reconnects
-global._lastConflictLogTime = 0 // Track when we last logged a conflict
-global._suppressedConflictCount = 0 // Count suppressed messages
-global._conflictSummaryTimer = null // Timer for summary message    
-global._reconnectTimer = null
-global._shutdownRequested = false
-global.startupReportPrinted = false
-global.startupStartedAt = Date.now()
-
-// Track active intervals so we can clear them on reconnect
-global._activeIntervals = []
-
-// ─── Dashboard state ──────────────────────────────────────────────────
-global.botState   = 'disconnected'
-global.currentSock = null
-global.connectedAt = null
-
 // ─── Paths ────────────────────────────────────────────────────────────────────
 
 global.__CORE__ = __dirname
@@ -415,43 +415,6 @@ global.__ROOT__ = __dirname
 
 const config = require('./config')
 
-// ─── Apply Persisted Runtime Settings ─────────────────────────────────────────
-// Database access must happen after juneDatabase.ready resolves. Keeping this
-// at module scope races the async sql.js fallback and leaves stmts undefined.
-async function applyPersistedRuntimeSettings() {
-    try {
-        await juneDatabase.ready;
-        const db = juneDatabase;
-        const all = db.getAllBotSettings();
-        // Apply ALL stored settings that directly match a config key.
-        for (const [key, value] of Object.entries(all)) {
-            if (key in config && value !== null && value !== undefined) {
-                config[key] = value;
-            }
-        }
-        // Restore presence flags so .botstatus/.getsettings reflect the correct state
-        try {
-          const _m = require('./utils/presenceSettings').getModes();
-          config.autoTyping = _m.pm === 'typing' || _m.group === 'typing';
-          config.autoRecording = _m.pm === 'recording' || _m.group === 'recording' || _m.pm === 'recordtype' || _m.group === 'recordtype';
-          config.autoRecordType = _m.pm === 'recordtype' || _m.group === 'recordtype';
-        } catch (_) {}
-
-        // Custom menu images stay in SQLite and are decoded directly by
-        // commands/general/menu.js when a menu is sent. Do not rebuild or
-        // maintain a persistent runtime image copy here.
-    } catch (e) {
-        log(`[ SETTINGS ] Could not load runtime settings: ${e.message}`, 'yellow');
-    }
-}
-
-// Loaded only after database.ready in main(), because command modules may read
-// database-backed settings during require-time.
-let handler = null
-const { saveSession, getSession, clearSession } = juneDatabase
-
-const sessionDir = path.join(__dirname, config.sessionName || 'session')
-const credsPath = path.join(sessionDir, 'creds.json')
 const envPath = path.join(process.cwd(), '.env')
 // Login metadata and session-ID fingerprints are stored in SQLite metadata.
 // Raw SESSION_ID values remain environment-only secrets.
@@ -465,6 +428,10 @@ if (!fs.existsSync(envPath)) {
         '',
         '# Optional: override bot port (default 5000)',
         '# PORT=5000',
+        '',
+        '# ── Multi-session (optional) ──────────────────────────────────',
+        '# Define more sessions with JUNE_SESSIONS JSON or sessions.json:',
+        '# JUNE_SESSIONS=[{"id":"second","name":"June Backup","sessionId":"JUNE-MD:~...","phone":""}]',
     ].join('\n')
     atomicWriteFile(envPath, defaultEnv, 'utf8')
     log('[ .env ] No .env file found — created with default template.', 'green')
@@ -494,66 +461,38 @@ const _rawSessionID = readSessionIDFromEnv()
 // value intentionally leaves Heroku/Replit/Railway environment secrets intact.
 if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
-// ─── Session Error Counter Helpers ───────────────────────────────────────────
-// The retry state is stored in SQLite KV through database.js. No session error
-// counter file is read or written.
+// ─── Session manager ──────────────────────────────────────────────────────────
 
-function getPersistedSessionErrorState() {
-    try {
-        return juneDatabase.getSessionErrorState()
-    } catch (error) {
-        log(`Error loading session retry state: ${error.message}`, 'red', true)
-        return { count: 0, last_error_timestamp: 0 }
-    }
-}
-
-function setPersistedSessionErrorState(state) {
-    try {
-        return juneDatabase.setSessionErrorState(state)
-    } catch (error) {
-        log(`Error saving session retry state: ${error.message}`, 'red', true)
-        return { count: 0, last_error_timestamp: 0 }
-    }
-}
-
-function clearPersistedSessionErrorState() {
-    try {
-        juneDatabase.clearSessionErrorState()
-        return true
-    } catch (error) {
-        log(`Failed to clear session retry state: ${error.message}`, 'red', true)
-        return false
-    }
-}
+const sessionManager = new SessionManager()
 
 // ─── Cleanup Functions ────────────────────────────────────────────────────────
 
-function clearSessionFiles() {
+function clearSessionFiles(bot) {
     try {
-        log('[ CLEARING ] session folder...', 'blue')
-        if (fs.existsSync(sessionDir)) {
-            const quarantinePath = `${sessionDir}.quarantine-${Date.now()}`
+        log(`[ CLEARING:${bot.id} ] session folder...`, 'blue')
+        if (fs.existsSync(bot.sessionDir)) {
+            const quarantinePath = `${bot.sessionDir}.quarantine-${Date.now()}`
             try {
-                fs.renameSync(sessionDir, quarantinePath)
-                log(`[ SESSION ] Previous auth preserved at ${path.basename(quarantinePath)}.`, 'yellow')
+                fs.renameSync(bot.sessionDir, quarantinePath)
+                log(`[ SESSION:${bot.id} ] Previous auth preserved at ${path.basename(quarantinePath)}.`, 'yellow')
             } catch (renameError) {
-                log(`[ SESSION ] Could not quarantine old auth: ${renameError.message}`, 'yellow')
-                rmSync(sessionDir, { recursive: true, force: true })
+                log(`[ SESSION:${bot.id} ] Could not quarantine old auth: ${renameError.message}`, 'yellow')
+                rmSync(bot.sessionDir, { recursive: true, force: true })
             }
         }
-        juneDatabase.clearStoredLoginMethod()
-        clearPersistedSessionErrorState()
-        global.errorRetryCount = 0
-        clearSession()
-        clearSQLiteAuth(juneDatabase._db, 'session-cleared')
+        bot.db.clearStoredLoginMethod()
+        bot.db.clearSessionErrorState()
+        bot.errorRetryCount = 0
+        bot.db.clearSession()
+        clearSQLiteAuth(bot.db._db, 'session-cleared')
         // A deliberate local logout/session clear must not leave an older
         // remote auth state behind in the external mirror.
-        juneDatabase.clearRemoteAuthState()
-        clearSessionIdFingerprint()
-        juneDatabase.markDatabaseDirty('session-cleared')
-        log('[ SESSION ] files cleared successfully.', 'green')
+        bot.db.clearRemoteAuthState()
+        clearSessionIdFingerprint(bot)
+        bot.db.markDatabaseDirty('session-cleared')
+        log(`[ SESSION:${bot.id} ] files cleared successfully.`, 'green')
     } catch (e) {
-        log(`Failed to clear session files: ${e.message}`, 'red', true)
+        log(`Failed to clear session files (${bot.id}): ${e.message}`, 'red', true)
     }
 }
 
@@ -593,11 +532,17 @@ function cleanupJunkFiles(sock) {
 let diskManager = null
 function runEmergencyCleanup({ aggressive = false } = {}) {
     // Anti-delete records are SQLite-backed and bounded by database maintenance.
-    try { juneDatabase.pruneAntideleteData?.() } catch (_) {}
+    for (const bot of sessionManager.list()) {
+        try { bot.db.pruneAntideleteData?.() } catch (_) {}
+    }
     try { cleanupJunkFiles(null) } catch (_) {}
-    try { cleanupExpiredSessionQuarantines('low-disk cleanup') } catch (_) {}
+    for (const bot of sessionManager.list()) {
+        try { cleanupExpiredSessionQuarantines(bot, 'low-disk cleanup') } catch (_) {}
+    }
     try { handler?.cleanupRuntimeCaches?.(aggressive) } catch (_) {}
-    try { Promise.resolve(juneDatabase.flushBackup?.()).catch(() => {}) } catch (_) {}
+    for (const bot of sessionManager.list()) {
+        try { Promise.resolve(bot.db.flushBackup?.()).catch(() => {}) } catch (_) {}
+    }
 }
 
 diskManager = createDiskManager({
@@ -609,7 +554,7 @@ diskManager = createDiskManager({
 })
 global.diskManager = diskManager
 
-// ─── Readline ─────────────────────────────────────────────────────────────────
+// ─── Readline (interactive login for the default session) ────────────────────
 
 const rl = process.stdin.isTTY
     ? readline.createInterface({ input: process.stdin, output: process.stdout })
@@ -618,32 +563,18 @@ const question = (text) => rl
     ? new Promise(resolve => rl.question(text, resolve))
     : Promise.resolve('')
 
-// ─── Session Helpers ──────────────────────────────────────────────────────────
+// ─── Session Helpers (per bot) ────────────────────────────────────────────────
 
-async function saveLoginMethod(method) {
-    return juneDatabase.setStoredLoginMethod(method)
-}
-
-async function getLastLoginMethod() {
-    return juneDatabase.getStoredLoginMethod()
-}
-
-function clearLoginMethod() {
-    return juneDatabase.clearStoredLoginMethod()
-}
-
-function sessionExists() {
-    return fs.existsSync(credsPath)
-}
+const sessionExists = (bot) => fs.existsSync(bot.credsPath)
 
 function fingerprintSessionId(sessionId) {
     return crypto.createHash('sha256').update(String(sessionId)).digest('hex')
 }
 
-function hasUsableFileSession() {
-    if (!sessionExists()) return false
+function hasUsableFileSession(bot) {
+    if (!sessionExists(bot)) return false
     try {
-        const creds = JSON.parse(fs.readFileSync(credsPath, 'utf8'))
+        const creds = JSON.parse(fs.readFileSync(bot.credsPath, 'utf8'))
         return !!(creds && typeof creds === 'object' && (
             creds.noiseKey ||
             creds.signedIdentityKey ||
@@ -655,47 +586,47 @@ function hasUsableFileSession() {
     }
 }
 
-function rememberSessionIdFingerprint(fingerprint) {
+function rememberSessionIdFingerprint(bot, fingerprint) {
     if (!fingerprint) return false
 
-    setSessionIdFingerprint(juneDatabase._db, fingerprint)
-    const persisted = getSessionIdFingerprint(juneDatabase._db)
+    setSessionIdFingerprint(bot.db._db, fingerprint)
+    const persisted = getSessionIdFingerprint(bot.db._db)
     if (persisted !== fingerprint) {
         // Never print the fingerprint itself. The presence check is enough to
         // diagnose persistence without exposing any session-derived value.
-        log('[ AUTH META ] SESSION_ID fingerprint could not be verified in SQLite.', 'red', true)
+        log(`[ AUTH META:${bot.id} ] SESSION_ID fingerprint could not be verified in SQLite.`, 'red', true)
         return false
     }
 
-    juneDatabase.markDatabaseDirty('session-id-fingerprint')
-    log('[ AUTH META ] SESSION_ID fingerprint saved in SQLite.', 'green')
+    bot.db.markDatabaseDirty('session-id-fingerprint')
+    log(`[ AUTH META:${bot.id} ] SESSION_ID fingerprint saved in SQLite.`, 'green')
     return true
 }
 
-function clearSessionIdFingerprint() {
-    setSessionIdFingerprint(juneDatabase._db, null)
-    juneDatabase.markDatabaseDirty('session-id-fingerprint-cleared')
+function clearSessionIdFingerprint(bot) {
+    setSessionIdFingerprint(bot.db._db, null)
+    bot.db.markDatabaseDirty('session-id-fingerprint-cleared')
 }
 
-function markSessionIdFingerprintRevoked(fingerprint) {
+function markSessionIdFingerprintRevoked(bot, fingerprint) {
     if (!fingerprint) return
-    setSessionIdRevokedFingerprint(juneDatabase._db, fingerprint)
-    juneDatabase.markDatabaseDirty('session-id-revoked')
+    setSessionIdRevokedFingerprint(bot.db._db, fingerprint)
+    bot.db.markDatabaseDirty('session-id-revoked')
 }
 
-function clearRevokedSessionIdFingerprint() {
-    setSessionIdRevokedFingerprint(juneDatabase._db, null)
-    juneDatabase.markDatabaseDirty('session-id-revocation-cleared')
+function clearRevokedSessionIdFingerprint(bot) {
+    setSessionIdRevokedFingerprint(bot.db._db, null)
+    bot.db.markDatabaseDirty('session-id-revocation-cleared')
 }
 
-function cleanupExpiredSessionQuarantines(source = 'startup') {
-    const result = cleanupSessionQuarantines(sessionDir)
+function cleanupExpiredSessionQuarantines(bot, source = 'startup') {
+    const result = cleanupSessionQuarantines(bot.sessionDir)
     if (result.removed.length > 0) {
         const details = []
         if (result.removedByRetention) details.push(`${result.removedByRetention} expired`)
         if (result.removedByLimit) details.push(`${result.removedByLimit} over limit`)
         log(
-            `[ SESSION ] Removed ${result.removed.length} quarantine(s) during ${source}${details.length ? ` (${details.join(', ')})` : ''}.`,
+            `[ SESSION:${bot.id} ] Removed ${result.removed.length} quarantine(s) during ${source}${details.length ? ` (${details.join(', ')})` : ''}.`,
             'yellow'
         )
     }
@@ -704,16 +635,16 @@ function cleanupExpiredSessionQuarantines(source = 'startup') {
 
 // A new SESSION_ID deliberately replaces file auth once. The old directory is
 // preserved as a short-lived quarantine backup, never deleted during the swap.
-function quarantineCurrentSessionForReplacement() {
-    if (!fs.existsSync(sessionDir)) return null
+function quarantineCurrentSessionForReplacement(bot) {
+    if (!fs.existsSync(bot.sessionDir)) return null
     try {
-        const entries = fs.readdirSync(sessionDir)
+        const entries = fs.readdirSync(bot.sessionDir)
         if (entries.length === 0) {
-            fs.rmSync(sessionDir, { recursive: true, force: true })
+            fs.rmSync(bot.sessionDir, { recursive: true, force: true })
             return null
         }
-        const quarantinedPath = `${sessionDir}.quarantine-${Date.now()}`
-        fs.renameSync(sessionDir, quarantinedPath)
+        const quarantinedPath = `${bot.sessionDir}.quarantine-${Date.now()}`
+        fs.renameSync(bot.sessionDir, quarantinedPath)
         return quarantinedPath
     } catch (error) {
         throw new Error(`Could not preserve the current session directory: ${error.message}`)
@@ -725,26 +656,37 @@ function quarantineCurrentSessionForReplacement() {
 
 const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'June::~']
 
-async function checkAndHandleSessionFormat() {
-    const sessionId = process.env.SESSION_ID
-    if (sessionId && sessionId.trim() !== '') {
-        if (!VALID_PREFIXES.some(p => sessionId.trim().startsWith(p))) {
-            log(chalk.black.bgYellowBright('[ERROR]: Invalid SESSION_ID format.'), 'white')
-            log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", "June-Ultra:~", or "June::~".'), 'white')
-            log(chalk.black.bgYellowBright('Please fix your SESSION_ID and restart. Exiting in 20 seconds...'), 'white')
+function validateSessionIdFormat(sessionId) {
+    const value = String(sessionId || '').trim()
+    if (!value) return true // absence is fine — handled by the login flow
+    return VALID_PREFIXES.some(p => value.startsWith(p))
+}
 
+async function checkAndHandleSessionFormat(bot) {
+    const sessionId = String(bot.sessionId || '').trim()
+    if (sessionId && !validateSessionIdFormat(sessionId)) {
+        log(chalk.black.bgYellowBright(`[ERROR:${bot.id}] Invalid SESSION_ID format.`), 'white')
+        log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", "June-Ultra:~", or "June::~".'), 'white')
+        const isSoloLegacySession = sessionManager.list().length === 1 && bot.id === DEFAULT_BOT_ID
+        if (isSoloLegacySession) {
+            log(chalk.black.bgYellowBright('Please fix your SESSION_ID and restart. Exiting in 20 seconds...'), 'white')
             await delay(20000)
             process.exit(1)
         }
+        log(`[ SESSION:${bot.id} ] Skipping this session; fix its sessionId in sessions.json / JUNE_SESSIONS.`, 'red', true)
+        bot.botState = 'needs-login'
+        bot.lastError = 'Invalid SESSION_ID format'
+        return false
     }
+    return true
 }
 
 // ─── Download Session from SESSION_ID ─────────────────────────────────────────
 
-async function downloadSessionData() {
-    await fs.promises.mkdir(sessionDir, { recursive: true })
-    if (!fs.existsSync(credsPath) && global.SESSION_ID) {
-        const sid = global.SESSION_ID
+async function downloadSessionData(bot) {
+    await fs.promises.mkdir(bot.sessionDir, { recursive: true })
+    if (!fs.existsSync(bot.credsPath) && bot.sessionId) {
+        const sid = bot.sessionId
         let sessionData
 
         const prefixMap = [
@@ -761,55 +703,93 @@ async function downloadSessionData() {
         // Validate that the decoded content is valid JSON before writing
         JSON.parse(sessionData.toString('utf8'))
 
-        atomicWriteFile(credsPath, sessionData)
-        log('✅ Session saved from SESSION_ID successfully.', 'green')
+        atomicWriteFile(bot.credsPath, sessionData)
+        log(`✅ [${bot.id}] Session saved from SESSION_ID successfully.`, 'green')
     }
 }
 
 // ─── Restore Session from Database ────────────────────────────────────────────
 
-async function restoreSessionFromDB() {
-    if (sessionExists()) return false // already on disk, nothing to do
-    const b64 = getSession()
+async function restoreSessionFromDB(bot) {
+    if (sessionExists(bot)) return false // already on disk, nothing to do
+    const b64 = bot.db.getSession()
     if (!b64) return false
     try {
-        await fs.promises.mkdir(sessionDir, { recursive: true })
+        await fs.promises.mkdir(bot.sessionDir, { recursive: true })
         const data = Buffer.from(b64, 'base64')
         JSON.parse(data.toString('utf8')) // validate
-        atomicWriteFile(credsPath, data)
+        atomicWriteFile(bot.credsPath, data)
         return true
     } catch (e) {
-        log(`⚠️ DB session restore failed`, 'yellow')
-        clearSession()
+        log(`⚠️ DB session restore failed (${bot.id})`, 'yellow')
+        bot.db.clearSession()
         return false
     }
 }
 
-
-let _lastSessionExport = 0
 const SESSION_EXPORT_INTERVAL_MS = 30 * 60 * 1000
 // A configured SESSION_ID is an input/provisioning secret, not a value that
 // should silently mutate after every creds.update. Explicitly opt in only when
-// a deployment genuinely needs to export a refreshed file session to .env.
+// a deployment genuinely needs to export a refreshed file session.
 const SESSION_ENV_EXPORT_ENABLED = /^(1|true|yes|on)$/i.test(
     String(process.env.JUNE_EXPORT_SESSION_TO_ENV || '')
 )
 
-async function autoExportSessionToEnv(force = false) {
+function buildSessionIdFromCreds(bot) {
+    const credsJson = fs.readFileSync(bot.credsPath, 'utf8')
+    JSON.parse(credsJson) // validate — throws if corrupt
+    const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
+    return `Ultra-X:~${base64}`
+}
+
+// Registry sessions keep their refreshed sessionId inside sessions.json, the
+// legacy default session keeps the .env SESSION_ID export behaviour.
+function exportSessionToRegistry(bot, force = false) {
     if (!SESSION_ENV_EXPORT_ENABLED) return
+    try {
+        const now = Date.now()
+        if (!force && (now - bot._lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
+        if (!fs.existsSync(bot.credsPath)) return
+
+        const sessionID = buildSessionIdFromCreds(bot)
+        if (bot.sessionId === sessionID) {
+            bot._lastSessionExport = now
+            return
+        }
+
+        const { SESSIONS_FILE, loadRegistryFromFile } = require('./utils/sessionManager')
+        let entries = null
+        try { entries = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')) } catch (_) {}
+        if (!entries) return
+        const list = Array.isArray(entries) ? entries : (entries.sessions || [])
+        const target = list.find((entry) => String(entry.id) === String(bot.id))
+        if (!target) return
+
+        global._suppressEnvWatcherUntil = Date.now() + 3000
+        target.sessionId = sessionID
+        atomicWriteFile(SESSIONS_FILE, JSON.stringify(entries, null, 2))
+        bot.sessionId = sessionID
+        rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
+        bot._lastSessionExport = now
+        log(`[ SESSION:${bot.id} ] Session export completed; registry updated.`, 'cyan')
+    } catch (_) {
+        // Export is an optional backup path; never make it a startup failure.
+    }
+}
+
+async function autoExportSessionToEnv(bot, force = false) {
+    if (!SESSION_ENV_EXPORT_ENABLED) return
+    if (bot.id !== DEFAULT_BOT_ID) return exportSessionToRegistry(bot, force)
 
     try {
         const now = Date.now()
-        if (!force && (now - _lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
-        if (!fs.existsSync(credsPath)) return
+        if (!force && (now - bot._lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
+        if (!fs.existsSync(bot.credsPath)) return
 
-        const credsJson = fs.readFileSync(credsPath, 'utf8')
-        JSON.parse(credsJson) // validate — throws if corrupt
-        const base64 = Buffer.from(credsJson, 'utf8').toString('base64')
-        const sessionID = `Ultra-X:~${base64}`
+        const sessionID = buildSessionIdFromCreds(bot)
 
         if (process.env.SESSION_ID?.trim() === sessionID) {
-            _lastSessionExport = now
+            bot._lastSessionExport = now
             return
         }
 
@@ -820,7 +800,7 @@ async function autoExportSessionToEnv(force = false) {
             // intentionally contains SESSION_ID=. The platform value must be
             // changed through the platform's secret UI, not at runtime.
             if (/^SESSION_ID=\s*$/m.test(envContent)) {
-                _lastSessionExport = now
+                bot._lastSessionExport = now
                 return
             }
 
@@ -830,8 +810,9 @@ async function autoExportSessionToEnv(force = false) {
                 : envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
             atomicWriteFile(envPath, updatedContent)
             process.env.SESSION_ID = sessionID
-            rememberSessionIdFingerprint(fingerprintSessionId(sessionID))
-            _lastSessionExport = now
+            bot.sessionId = sessionID
+            rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
+            bot._lastSessionExport = now
             log('[ SESSION_ID ] Session export completed; SQLite fingerprint updated.', 'cyan')
         }
     } catch (_) {
@@ -839,24 +820,34 @@ async function autoExportSessionToEnv(force = false) {
     }
 }
 
-// ─── Login Method Selector ────────────────────────────────────────────────────
+// ─── Login Method Selector (per bot) ──────────────────────────────────────────
 
-async function getLoginMethod() {
-    const lastMethod = await getLastLoginMethod()
-    if (lastMethod && sessionExists()) {
+async function getLoginMethod(bot) {
+    const lastMethod = await bot.db.getStoredLoginMethod()
+    if (lastMethod && sessionExists(bot)) {
         return lastMethod
     }
 
-    if (!sessionExists() && lastMethod) {
-        clearLoginMethod()
+    if (!sessionExists(bot) && lastMethod) {
+        bot.db.clearStoredLoginMethod()
     }
 
-    if (!process.stdin.isTTY) {
-        log('❌ No SESSION_ID found and no TTY available for interactive login.', 'red')
-        process.exit(1)
+    // Headless platforms and additional registry sessions are non-interactive.
+    if (!process.stdin.isTTY || !bot.interactive) {
+        if (bot.sessionId) {
+            await bot.db.setStoredLoginMethod('session')
+            return 'session'
+        }
+        if (bot.phone) {
+            await bot.db.setStoredLoginMethod('number')
+            return 'number'
+        }
+        bot.botState = 'needs-login'
+        log(`[ SESSION:${bot.id} ] No sessionId or phone configured. Add one to sessions.json (or JUNE_SESSIONS) to connect this session.`, 'red', true)
+        return null
     }
 
-    log('Choose Any WhatsApp Login method:', 'green')
+    log(`Choose Any WhatsApp Login method (session: ${bot.name}):`, 'green')
     log('1. ✓Enter Session ID', 'yellow')
     log('2. ✓Enter Phone Number', 'yellow')
 
@@ -874,37 +865,37 @@ async function getLoginMethod() {
             process.exit(1)
         }
 
-        global.SESSION_ID = sessionId
-        await saveLoginMethod('session')
+        bot.sessionId = sessionId
+        await bot.db.setStoredLoginMethod('session')
         return 'session'
     } else if (choice === '2') {
         log('\nEnter your WhatsApp phone number with country code.', 'green')
         log('Example: 2547xxxxxxxx', 'green')
         let phone = await question(chalk.greenBright('\nYour phone number: '))
         phone = phone.trim().replace(/[^0-9]/g, '')
-        if (phone.length < 7) { log('Invalid phone number.', 'red'); return getLoginMethod() }
-        global.phoneNumber = phone
-        await saveLoginMethod('number')
+        if (phone.length < 7) { log('Invalid phone number.', 'red'); return getLoginMethod(bot) }
+        bot.phone = phone
+        await bot.db.setStoredLoginMethod('number')
         return 'number'
     } else {
         log('Invalid option! Please choose 1 or 2.', 'red')
-        return getLoginMethod()
+        return getLoginMethod(bot)
     }
 }
 
 // ─── Request Pairing Code ─────────────────────────────────────────────────────
 
-async function requestPairingCode(socket) {
+async function requestPairingCode(socket, bot) {
     try {
-        log('Waiting 3 seconds for socket to stabilize...', 'yellow')
+        log(`Waiting 3 seconds for socket to stabilize... (${bot.id})`, 'yellow')
         await delay(3000)
-        let code = await socket.requestPairingCode(global.phoneNumber)
+        let code = await socket.requestPairingCode(bot.phone)
         code = code?.match(/.{1,4}/g)?.join('-') || code
-        log(chalk.black.bgCyanBright(`\n🔑 Your Pairing Code: ${code}\n`), 'white')
+        log(chalk.black.bgCyanBright(`\n🔑 [${bot.id}] Your Pairing Code: ${code}\n`), 'white')
         log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
         return true
     } catch (e) {
-        log(`Failed to get pairing code: ${e.message}`, 'red', true)
+        log(`Failed to get pairing code (${bot.id}): ${e.message}`, 'red', true)
         return false
     }
 }
@@ -927,20 +918,21 @@ function detectPlatform() {
   }
 }
 
-async function sendWelcomeMessage(sock) {
-    if (global.isBotConnected) return
+async function sendWelcomeMessage(sock, bot) {
+    if (bot.isBotConnected) return
     await delay(1500)
     try {
-        if (!sock.user || global.isBotConnected) return
-        global.isBotConnected = true
+        if (!sock.user || bot.isBotConnected) return
+        bot.isBotConnected = true
         const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net'
-        const prefix = config.prefix === '' ? 'none' : (config.prefix || '.')
+        const prefix = bot.config.prefix === '' ? 'none' : (bot.config.prefix || '.')
         const platform = detectPlatform()
-        const ownerName = Array.isArray(config.ownerName) ? config.ownerName[0] : config.ownerName
+        const ownerName = Array.isArray(bot.config.ownerName) ? bot.config.ownerName[0] : bot.config.ownerName
 
         const welcomeText = applyFont(
 `┏━━━━━━✧ CONNECTED ✧━━━━━━━
-┃✧ Bot: ${config.botName}
+┃✧ Bot: ${bot.config.botName}
+┃✧ Session: ${bot.name}
 ┃✧ Prefix: [ ${prefix} ]
 ┃✧ Owner: ${ownerName}
 ┃✧ Platform: ${platform}
@@ -954,65 +946,65 @@ async function sendWelcomeMessage(sock) {
 
         await sock.sendMessage(botJid, { text: welcomeText })
 
-        clearPersistedSessionErrorState()
-        global.errorRetryCount = 0
+        bot.db.clearSessionErrorState()
+        bot.errorRetryCount = 0
     } catch (e) {
-        log(`Welcome message error: ${e.message}`, 'red', true)
-        global.isBotConnected = false
+        log(`Welcome message error (${bot.id}): ${e.message}`, 'red', true)
+        bot.isBotConnected = false
     }
 }
 
-// ─── 408 Timeout Error Handler ────────────────────────────────────────────────
+// ─── 408 Timeout Error Handler (per bot) ──────────────────────────────────────
 
-async function handle408Error(statusCode) {
+async function handle408Error(bot, statusCode) {
     if (statusCode !== DisconnectReason.connectionTimeout) return false
 
-    global.errorRetryCount++
+    bot.errorRetryCount++
     const MAX_RETRIES = 10
-    const errorState = getPersistedSessionErrorState()
-    errorState.count = global.errorRetryCount
+    const errorState = bot.db.getSessionErrorState()
+    errorState.count = bot.errorRetryCount
     errorState.last_error_timestamp = Date.now()
-    setPersistedSessionErrorState(errorState)
+    bot.db.setSessionErrorState(errorState)
 
-    log(`Connection Timeout (408). Retry ${global.errorRetryCount}/${MAX_RETRIES}`, 'yellow')
+    log(`Connection Timeout (408) [${bot.id}]. Retry ${bot.errorRetryCount}/${MAX_RETRIES}`, 'yellow')
 
-    if (global.errorRetryCount >= MAX_RETRIES) {
-        log(chalk.black.bgYellowBright(`[MAX TIMEOUTS] ${MAX_RETRIES} reached. Waiting 60s before next attempt...`), 'white')
-        clearPersistedSessionErrorState()
-        global.errorRetryCount = 0
+    if (bot.errorRetryCount >= MAX_RETRIES) {
+        log(chalk.black.bgYellowBright(`[MAX TIMEOUTS:${bot.id}] ${MAX_RETRIES} reached. Waiting 60s before next attempt...`), 'white')
+        bot.db.clearSessionErrorState()
+        bot.errorRetryCount = 0
         await delay(60000)
     }
     return true
 }
 
-// ─── Session Integrity Check ──────────────────────────────────────────────────
+// ─── Session Integrity Check (per bot) ────────────────────────────────────────
 
-async function checkSessionIntegrityAndClean() {
-    const folderExists = fs.existsSync(sessionDir)
-    const validSession = sessionExists()
+async function checkSessionIntegrityAndClean(bot) {
+    const folderExists = fs.existsSync(bot.sessionDir)
+    const validSession = sessionExists(bot)
     if (folderExists && !validSession) {
-        if (hasVerifiedSQLiteAuth(juneDatabase._db)) {
-            const files = fs.readdirSync(sessionDir)
+        if (hasVerifiedSQLiteAuth(bot.db._db)) {
+            const files = fs.readdirSync(bot.sessionDir)
             if (files.length > 0) {
-                const quarantinePath = `${sessionDir}.incomplete-${Date.now()}`
+                const quarantinePath = `${bot.sessionDir}.incomplete-${Date.now()}`
                 try {
-                    fs.renameSync(sessionDir, quarantinePath)
-                    log(`[ SESSION ] Incomplete session folder preserved at ${path.basename(quarantinePath)}.`, 'yellow')
+                    fs.renameSync(bot.sessionDir, quarantinePath)
+                    log(`[ SESSION:${bot.id} ] Incomplete session folder preserved at ${path.basename(quarantinePath)}.`, 'yellow')
                 } catch (_) {}
             }
             return
         }
-        clearSessionFiles()
-        log('Cleanup done. Waiting 3 seconds...', 'yellow')
+        clearSessionFiles(bot)
+        log(`Cleanup done (${bot.id}). Waiting 3 seconds...`, 'yellow')
         await delay(3000)
     }
 }
 
-// ─── .env File Watcher ────────────────────────────────────────────────────────
+// ─── .env / sessions.json File Watcher ────────────────────────────────────────
 
 function checkEnvStatus() {
     try {
-        log('[ WATCHER ] Monitoring .env for changes...', 'green')
+        log('[ WATCHER ] Monitoring .env and sessions.json for changes...', 'green')
         global._envWatcher = fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (filename && eventType === 'change') {
                 // Suppress restart when we ourselves wrote the session update.
@@ -1025,50 +1017,57 @@ function checkEnvStatus() {
                 process.exit(1)
             }
         })
+        const { SESSIONS_FILE } = require('./utils/sessionManager')
+        if (fs.existsSync(SESSIONS_FILE)) {
+            fs.watch(SESSIONS_FILE, { persistent: false }, (eventType, filename) => {
+                if (filename && eventType === 'change') {
+                    if (global._suppressEnvWatcherUntil && Date.now() < global._suppressEnvWatcherUntil) {
+                        return
+                    }
+                    log(chalk.black.bgBlueBright('[SESSIONS CHANGED] Restarting to apply new session registry...'), 'white')
+                    process.exit(1)
+                }
+            })
+        }
     } catch (e) {
         log(`⚠️ .env watcher failed: ${e.message}`, 'yellow')
     }
 }
 
-// ─── In-memory Message Store ──────────────────────────────────────────────────
+// ─── In-memory Message Store (per bot) ────────────────────────────────────────
 
-const store = {
-    messages: new Map(),
-    maxPerChat: 20,
-    bind(ev) {
-        ev.on('messages.upsert', ({ messages }) => {
-            for (const msg of messages) {
-                if (!msg.key?.id) continue
-                const jid = msg.key.remoteJid
-                if (!store.messages.has(jid)) store.messages.set(jid, new Map())
-                const chat = store.messages.get(jid)
-                chat.set(msg.key.id, msg)
-                if (chat.size > store.maxPerChat) {
-                    chat.delete(chat.keys().next().value)
+function createMessageStore() {
+    const store = {
+        messages: new Map(),
+        maxPerChat: 20,
+        bind(ev) {
+            ev.on('messages.upsert', ({ messages }) => {
+                for (const msg of messages) {
+                    if (!msg.key?.id) continue
+                    const jid = msg.key.remoteJid
+                    if (!store.messages.has(jid)) store.messages.set(jid, new Map())
+                    const chat = store.messages.get(jid)
+                    chat.set(msg.key.id, msg)
+                    if (chat.size > store.maxPerChat) {
+                        chat.delete(chat.keys().next().value)
+                    }
                 }
-            }
-        })
-    },
-    async loadMessage(jid, id) {
-        return store.messages.get(jid)?.get(id) || null
+            })
+        },
+        async loadMessage(jid, id) {
+            return store.messages.get(jid)?.get(id) || null
+        }
     }
+    return store
 }
-
-// ─── Deduplication ────────────────────────────────────────────────────────────
-
-const processedMessages = new Set()
-setInterval(() => processedMessages.clear(), 5 * 60 * 1000)
-
-
-
 
 // ─── Database Type Detection ──────────────────────────────────────────────
 
 // ─── Get External Database Status ──────────────────────────────────────────
 
-function getExternalDatabaseStatus() {
-    const postgres = pgAdapter.getStatus?.() || {}
-    const mongo = mongoAdapter.getStatus?.() || {}
+function getExternalDatabaseStatus(pg = pgAdapter, mongo = mongoAdapter) {
+    const postgres = pg.getStatus?.() || {}
+    const mongoStatus = mongo.getStatus?.() || {}
     const databases = [
         {
             name: 'PostgreSQL',
@@ -1078,9 +1077,9 @@ function getExternalDatabaseStatus() {
         },
         {
             name: 'MongoDB',
-            configured: Boolean(mongo.configured || String(process.env.MONGODB_URI || process.env.MONGO_URL || '').trim()),
-            connected: mongo.available === true,
-            error: mongo.lastError ? 'connection unavailable' : null,
+            configured: Boolean(mongoStatus.configured || String(process.env.MONGODB_URI || process.env.MONGO_URL || '').trim()),
+            connected: mongoStatus.available === true,
+            error: mongoStatus.lastError ? 'connection unavailable' : null,
         },
     ]
 
@@ -1117,8 +1116,6 @@ const isSystemJid = (jid) => !jid ||
     jid.includes('@newsletter')
 
 
-// ─── Start Bot (Main Socket) ──────────────────────────────────────────────────
-
 // ─── Baileys Version Cache ────────────────────────────────────────────────────
 // Fetch the WA version once per process. Reconnect loops reuse the cached
 // value so startup/reconnect never blocks on a remote network request.
@@ -1136,71 +1133,80 @@ async function getBaileysVersion() {
     return _baileysVersionCache
 }
 
-async function startJunexBot() {
-    if (global._shutdownRequested) return null
+// ─── Shared handler instance ──────────────────────────────────────────────────
+let handler = null
+
+// ─── Global flags that remain process-wide ────────────────────────────────────
+global._shutdownRequested = false
+global._shutdownPromise = null
+global._envWatcher = null
+global._suppressEnvWatcherUntil = 0
+
+// ─── Start Bot Socket (per session) ───────────────────────────────────────────
+
+async function startBotSocket(bot) {
+    if (bot._shutdownRequested) return null
     // Reconnects must not leave the previous Baileys socket alive. A stale
     // socket can keep emitting updates and create the same duplicate-session
     // pressure as a second deployed bot instance.
-    const previousSock = global.currentSock
+    const previousSock = bot.sock
     if (previousSock) {
-        global.currentSock = null
+        bot.sock = null
         try { previousSock.ev?.removeAllListeners?.() } catch (_) {}
         try { previousSock.ws?.close?.() } catch (_) {}
         try { previousSock.end?.(new Error('replaced by reconnect')) } catch (_) {}
         await delay(250)
     }
-    if (global._activeIntervals && global._activeIntervals.length > 0) {
-        global._activeIntervals.forEach(id => clearInterval(id))
-        global._activeIntervals = []
-        log('[ CLEANUP ] Cleared stale intervals from previous connection.', 'yellow')
-    }
+    for (const interval of bot._activeIntervals || []) clearInterval(interval)
+    bot._activeIntervals = []
+    log(`[ CLEANUP:${bot.id} ] Cleared stale intervals from previous connection.`, 'yellow')
 
     const version = await getBaileysVersion()
-    const authStatsBeforeStart = getSQLiteAuthStats(juneDatabase._db)
-    if (authStatsBeforeStart.pendingFileMigration && fs.existsSync(sessionDir)) {
+    const authStatsBeforeStart = getSQLiteAuthStats(bot.db._db)
+    if (authStatsBeforeStart.pendingFileMigration && fs.existsSync(bot.sessionDir)) {
         try {
-            const finalized = await finalizePendingFileMigration(juneDatabase._db, sessionDir, {
-                onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+            const finalized = await finalizePendingFileMigration(bot.db._db, bot.sessionDir, {
+                onMutation: (reason) => bot.db.markDatabaseDirty(reason),
             })
             if (finalized.ok) {
-                log(`[ AUTH ] Finalized pending file-auth migration; session folder quarantined.`, 'green')
+                log(`[ AUTH:${bot.id} ] Finalized pending file-auth migration; session folder quarantined.`, 'green')
             }
         } catch (error) {
-            log(`[ AUTH ] Pending file-auth migration deferred: ${error.message}`, 'yellow')
+            log(`[ AUTH:${bot.id} ] Pending file-auth migration deferred: ${error.message}`, 'yellow')
             log('[ AUTH ] Continuing with the previously verified SQLite snapshot.', 'yellow')
         }
     }
-    const authValidation = await validateSQLiteAuth(juneDatabase._db, {
-        onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+    const authValidation = await validateSQLiteAuth(bot.db._db, {
+        onMutation: (reason) => bot.db.markDatabaseDirty(reason),
     })
     if (authValidation.repairedLidMappings > 0) {
         const count = authValidation.repairedLidMappings
-        log(`[ AUTH ] Repaired ${count} malformed auxiliary LID mapping ${count === 1 ? 'row' : 'rows'}; valid Signal auth preserved.`, 'yellow')
+        log(`[ AUTH:${bot.id} ] Repaired ${count} malformed auxiliary LID mapping ${count === 1 ? 'row' : 'rows'}; valid Signal auth preserved.`, 'yellow')
         // Persist the repaired snapshot immediately. Otherwise a process
         // crash before the normal debounce window could restore the old bad
         // LID row from the database backup on the next boot.
         try {
-            await juneDatabase.createBackup?.()
+            await bot.db.createBackup?.()
             log('[ AUTH ] Cleaned auth backup written; invalid LID mappings will not be restored.', 'cyan')
         } catch (backupError) {
             log(`[ AUTH ] Could not flush cleaned auth backup yet: ${backupError.message}`, 'yellow')
         }
     }
     if (authValidation.wasVerified && !authValidation.ok) {
-        log(`[ AUTH ] ❌ SQLite startup validation failed: ${authValidation.reason}`, 'red', true)
+        log(`[ AUTH:${bot.id} ] ❌ SQLite startup validation failed: ${authValidation.reason}`, 'red', true)
         log('[ AUTH ] Recovery required: restore the last valid database backup or perform an explicit re-pair.', 'yellow')
         throw new Error(`AUTH_STARTUP_VALIDATION_FAILED: ${authValidation.reason}`)
     }
 
     let authState
     try {
-        if (!hasVerifiedSQLiteAuth(juneDatabase._db)) {
-            await fs.promises.mkdir(sessionDir, { recursive: true })
+        if (!hasVerifiedSQLiteAuth(bot.db._db)) {
+            await fs.promises.mkdir(bot.sessionDir, { recursive: true })
         }
-        authState = await useSQLiteAuthState(juneDatabase._db, sessionDir, {
+        authState = await useSQLiteAuthState(bot.db._db, bot.sessionDir, {
             allowFresh: true,
             allowFreshAfterInvalid: authStatsBeforeStart.invalidReason === 'session-cleared',
-            onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+            onMutation: (reason) => bot.db.markDatabaseDirty(reason),
         })
     } catch (authError) {
         if (!authError.message?.startsWith('AUTH_MIGRATION_NO_KEY_FILES') &&
@@ -1208,12 +1214,13 @@ async function startJunexBot() {
             throw authError
         }
         //log('[ AUTH ] Only legacy creds.json is available; using file auth until Signal keys exist.', 'yellow')
-        await fs.promises.mkdir(sessionDir, { recursive: true })
-        const fileState = await useMultiFileAuthState(sessionDir)
-        authState = { ...fileState, source: 'files', stats: getSQLiteAuthStats(juneDatabase._db) }
+        await fs.promises.mkdir(bot.sessionDir, { recursive: true })
+        const fileState = await useMultiFileAuthState(bot.sessionDir)
+        authState = { ...fileState, source: 'files', stats: getSQLiteAuthStats(bot.db._db) }
     }
     const { state, saveCreds } = authState
-    log(`[ AUTH ] ${authState.source === 'sqlite' ? 'SQLite' : 'file'} auth active (${authState.stats.totalKeys} signal key rows in SQLite).`, 'cyan')
+    bot.authState = authState
+    log(`[ AUTH:${bot.id} ] ${authState.source === 'sqlite' ? 'SQLite' : 'file'} auth active (${authState.stats.totalKeys} signal key rows in SQLite).`, 'cyan')
     const msgRetryCounterCache = new NodeCache()
     let fileMigrationInFlight = null
     let fileMigrationComplete = false
@@ -1225,28 +1232,28 @@ async function startJunexBot() {
     )
     const tryMigrateFileAuth = async (trigger) => {
         if (authState.source !== 'files' || fileMigrationComplete) return null
-        const currentStats = getSQLiteAuthStats(juneDatabase._db)
+        const currentStats = getSQLiteAuthStats(bot.db._db)
         if (currentStats.verified && !currentStats.pendingFileMigration) return null
         if (fileMigrationBlockedReason) return null
         if (fileMigrationInFlight) return fileMigrationInFlight
         fileMigrationInFlight = (async () => {
             try {
-                const result = await migrateFilesToSQLite(juneDatabase._db, sessionDir, {
+                const result = await migrateFilesToSQLite(bot.db._db, bot.sessionDir, {
                     replace: true,
                     quarantine: false,
-                    onMutation: (reason) => juneDatabase.markDatabaseDirty(reason),
+                    onMutation: (reason) => bot.db.markDatabaseDirty(reason),
                 })
                 authState.stats = result.stats
                 fileMigrationComplete = true
                 fileMigrationBlockedReason = null
-                log(`[ AUTH ] File-auth snapshot migrated to SQLite after ${trigger}; quarantine will complete on the next start.`, 'green')
+                log(`[ AUTH:${bot.id} ] File-auth snapshot migrated to SQLite after ${trigger}; quarantine will complete on the next start.`, 'green')
                 return result
             } catch (error) {
                 if (error.message?.startsWith('AUTH_MIGRATION_NO_VALID_KEY_FILES')) {
                     fileMigrationBlockedReason = error.message
-                    log(`[ AUTH ] File-auth SQLite migration paused: ${error.message}`, 'yellow')
+                    log(`[ AUTH:${bot.id} ] File-auth SQLite migration paused: ${error.message}`, 'yellow')
                 } else if (!error.message?.startsWith('AUTH_MIGRATION_NO_KEY_FILES')) {
-                    log(`[ AUTH ] File-auth migration after ${trigger} failed: ${error.message}`, 'yellow')
+                    log(`[ AUTH:${bot.id} ] File-auth migration after ${trigger} failed: ${error.message}`, 'yellow')
                 }
                 return null
             } finally {
@@ -1263,11 +1270,14 @@ async function startJunexBot() {
         if (credsUpdateMigrationTimer) clearTimeout(credsUpdateMigrationTimer)
         credsUpdateMigrationTimer = setTimeout(() => {
             credsUpdateMigrationTimer = null
-            if (global._shutdownRequested || global.currentSock !== sock) return
+            if (bot._shutdownRequested || bot.sock !== sock) return
             void tryMigrateFileAuth('creds-update')
         }, CREDS_UPDATE_MIGRATION_DELAY_MS)
         credsUpdateMigrationTimer.unref?.()
     }
+
+    const store = createMessageStore()
+    bot.store = store
 
     const sock = makeWASocket({
         version,
@@ -1301,22 +1311,23 @@ async function startJunexBot() {
 
     store.bind(sock.ev)
     sock.botStore = store
-    global.currentSock = sock
+    bot.sock = sock
+    bot.botState = 'connecting'
 
     // ── Connection Updates ──────────────────────────────────────────────────────
     let _pairingCodeRequested = false
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', (update) => runInBot(bot.id, async () => {
         const { connection, lastDisconnect, qr } = update
 
         // ── Pairing code flow: intercept QR and request a code instead ──────────
-        if (qr && global.phoneNumber && !_pairingCodeRequested) {
+        if (qr && bot.phone && !_pairingCodeRequested) {
             _pairingCodeRequested = true
-            await requestPairingCode(sock)
+            await requestPairingCode(sock, bot)
         }
 
         if (connection === 'close') {
-            global.isBotConnected = false
-            global.botState = 'connecting'
+            bot.isBotConnected = false
+            bot.botState = 'connecting'
             const statusCode = lastDisconnect?.error?.output?.statusCode
             const disconnectMessage = String(
                 lastDisconnect?.error?.message ||
@@ -1330,30 +1341,30 @@ async function startJunexBot() {
                 (statusCode === DisconnectReason.loggedOut || statusCode === 401)
 
             if (loggedOut) {
-                log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session...`), 'white')
+                log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session (${bot.id})...`), 'white')
                 // Remember only a hash so an expired SESSION_ID cannot cause an
                 // endless file-download/relogin loop on the next startup.
-                const configuredSessionId = process.env.SESSION_ID?.trim()
+                const configuredSessionId = String(bot.sessionId || '').trim()
                 if (configuredSessionId && VALID_PREFIXES.some((prefix) => configuredSessionId.startsWith(prefix))) {
-                    markSessionIdFingerprintRevoked(fingerprintSessionId(configuredSessionId))
+                    markSessionIdFingerprintRevoked(bot, fingerprintSessionId(configuredSessionId))
                 }
-                global.botState = 'disconnected'
-                global.connectedAt = null
-                clearSessionFiles()
-                log('Session cleared. Returning to login menu in 10 seconds...', 'yellow')
+                bot.botState = 'disconnected'
+                bot.connectedAt = null
+                clearSessionFiles(bot)
+                log(`Session cleared (${bot.id}). Returning to login flow in 10 seconds...`, 'yellow')
                 for (let i = 10; i > 0; i--) {
-                    log(`Restarting login in ${i}s...`, 'cyan')
+                    log(`Restarting login in ${i}s... (${bot.id})`, 'cyan')
                     await delay(1000)
                 }
-                log('Restarting login flow...', 'green')
-                return main()
+                log(`Restarting login flow... (${bot.id})`, 'green')
+                return bootBot(bot)
             } else {
-                if (global.isReconnecting) {
+                if (bot.isReconnecting) {
                     return
                 }
-                global.isReconnecting = true
+                bot.isReconnecting = true
 
-                const is408 = await handle408Error(statusCode)
+                const is408 = await handle408Error(bot, statusCode)
 
                 let waitMs
                 // Conflict branches already provide a throttled reconnect message.
@@ -1361,26 +1372,26 @@ async function startJunexBot() {
                 let showConnectionClosedLog = true
                 if (is408) {
                     // 408 timeout — exponential backoff capped at 60s
-                    waitMs = Math.min(5000 * Math.pow(2, Math.min(global.errorRetryCount, 3)), 60000)
+                    waitMs = Math.min(5000 * Math.pow(2, Math.min(bot.errorRetryCount, 3)), 60000)
                 } else if (statusCode === 503) {
                     // 503 Service Unavailable — WhatsApp servers overloaded.
-                    global.errorRetryCount++
-                    setPersistedSessionErrorState({
-                        count: global.errorRetryCount,
+                    bot.errorRetryCount++
+                    bot.db.setSessionErrorState({
+                        count: bot.errorRetryCount,
                         last_error_timestamp: Date.now(),
                     })
-                    waitMs = Math.min(30000 * global.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
-                    log(chalk.black.bgYellowBright(`[503] WhatsApp servers unavailable. Retry ${global.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
+                    waitMs = Math.min(30000 * bot.errorRetryCount, 300000) // 30s, 60s, 90s … max 5 min
+                    log(chalk.black.bgYellowBright(`[503:${bot.id}] WhatsApp servers unavailable. Retry ${bot.errorRetryCount} — waiting ${waitMs / 1000}s...`), 'white')
                 } else if (statusCode === 500) {
                     //Error 500
-                    global._consecutive500Count = (global._consecutive500Count || 0) + 1
-                    if (global._consecutive500Count >= 3) {
-                        log(chalk.white.bgRedBright(`[500×${global._consecutive500Count}] Persistent server errors. Preserving verified auth state...`), 'white')
-                        global._consecutive500Count = 0
+                    bot._consecutive500Count = (bot._consecutive500Count || 0) + 1
+                    if (bot._consecutive500Count >= 3) {
+                        log(chalk.white.bgRedBright(`[500×${bot._consecutive500Count}:${bot.id}] Persistent server errors. Preserving verified auth state...`), 'white')
+                        bot._consecutive500Count = 0
                         log('[500] Keeping the verified SQLite auth state; this may be a transient server error.', 'yellow')
                         waitMs = 8000
                     } else {
-                        log(chalk.black.bgYellowBright(`[500] WhatsApp error (attempt ${global._consecutive500Count}/3). Retrying without clearing session...`), 'white')
+                        log(chalk.black.bgYellowBright(`[500:${bot.id}] WhatsApp error (attempt ${bot._consecutive500Count}/3). Retrying without clearing session...`), 'white')
                         waitMs = 10000
                     }
                 } else if (statusCode === 409 || statusCode === 440 || isConflict401) {
@@ -1390,43 +1401,43 @@ async function startJunexBot() {
                     // The conflict branch below emits a throttled status line,
                     // so suppress the generic reconnect line for this cycle.
                     showConnectionClosedLog = false
-                    global._conflictCount = (global._conflictCount || 0) + 1
+                    bot._conflictCount = (bot._conflictCount || 0) + 1
                     const now = Date.now()
-                    const lastLogTime = global._lastConflictLogTime || 0
+                    const lastLogTime = bot._lastConflictLogTime || 0
                     const SUPPRESS_WINDOW = 3 * 60 * 1000 // 3 minutes
                     const shouldLog = (now - lastLogTime) > SUPPRESS_WINDOW
-                    
-                    if (global._conflictCount >= 10) {
+
+                    if (bot._conflictCount >= 10) {
                         waitMs = 300000
                         if (shouldLog) {
-                            log(`[ CONFLICT ] Persistent device conflict (${statusCode} × ${global._conflictCount}). Waiting 5 minutes; close other WhatsApp bot instances.`, 'yellow')
-                            global._lastConflictLogTime = now
-                            global._suppressedConflictCount = 0
+                            log(`[ CONFLICT:${bot.id} ] Persistent device conflict (${statusCode} × ${bot._conflictCount}). Waiting 5 minutes; close other WhatsApp bot instances.`, 'yellow')
+                            bot._lastConflictLogTime = now
+                            bot._suppressedConflictCount = 0
                         } else {
-                            global._suppressedConflictCount++
+                            bot._suppressedConflictCount++
                         }
-                        global._conflictCount = 0
+                        bot._conflictCount = 0
                     } else {
-                        waitMs = Math.min(8000 + (global._conflictCount * 5000), 120000)
-                        
+                        waitMs = Math.min(8000 + (bot._conflictCount * 5000), 120000)
+
                         if (shouldLog) {
                             // Initial message: show reconnection timing
-                            log(`[ CONFLICT ] WhatsApp session replaced (${statusCode}). Reconnecting in ${waitMs / 1000}s.`, 'yellow')
-                            global._lastConflictLogTime = now
-                            global._suppressedConflictCount = 0
-                            
+                            log(`[ CONFLICT:${bot.id} ] WhatsApp session replaced (${statusCode}). Reconnecting in ${waitMs / 1000}s.`, 'yellow')
+                            bot._lastConflictLogTime = now
+                            bot._suppressedConflictCount = 0
+
                             // Set up summary message after suppress window ends
-                            if (global._conflictSummaryTimer) clearTimeout(global._conflictSummaryTimer)
-                            global._conflictSummaryTimer = setTimeout(() => {
-                                if (global._suppressedConflictCount > 0) {
-                                    log(`[ CONFLICT ] Repeated ${statusCode} conflicts suppressed — ${global._suppressedConflictCount} reconnect attempts.`, 'yellow')
+                            if (bot._conflictSummaryTimer) clearTimeout(bot._conflictSummaryTimer)
+                            bot._conflictSummaryTimer = setTimeout(() => {
+                                if (bot._suppressedConflictCount > 0) {
+                                    log(`[ CONFLICT:${bot.id} ] Repeated ${statusCode} conflicts suppressed — ${bot._suppressedConflictCount} reconnect attempts.`, 'yellow')
                                 }
-                                global._suppressedConflictCount = 0
-                                global._conflictSummaryTimer = null
+                                bot._suppressedConflictCount = 0
+                                bot._conflictSummaryTimer = null
                             }, SUPPRESS_WINDOW)
                         } else {
                             // Inside suppress window: just increment counter silently
-                            global._suppressedConflictCount++
+                            bot._suppressedConflictCount++
                         }
                     }
                 } else {
@@ -1434,139 +1445,141 @@ async function startJunexBot() {
                 }
 
                 if (showConnectionClosedLog) {
-                    log(`Connection closed (${statusCode}). Reconnecting in ${waitMs / 1000}s...`, 'yellow')
+                    log(`Connection closed (${statusCode}) [${bot.id}]. Reconnecting in ${waitMs / 1000}s...`, 'yellow')
                 }
                 await new Promise(resolve => {
-                    global._reconnectTimer = setTimeout(resolve, waitMs)
-                    global._reconnectTimer.unref?.()
+                    bot._reconnectTimer = setTimeout(resolve, waitMs)
+                    bot._reconnectTimer.unref?.()
                 })
-                global._reconnectTimer = null
-                if (global._shutdownRequested) {
-                    global.isReconnecting = false
+                bot._reconnectTimer = null
+                if (bot._shutdownRequested) {
+                    bot.isReconnecting = false
                     return
                 }
-                global.isReconnecting = false
+                bot.isReconnecting = false
                 try {
-                    await startJunexBot()
+                    await startBotSocket(bot)
                 } catch (error) {
                     const message = String(error?.message || error || 'unknown startup error')
                     const authFailure = message.includes('AUTH_STARTUP_VALIDATION_FAILED')
-                    global.botState = 'connecting'
+                    bot.botState = 'connecting'
                     if (authFailure) {
-                        log(`[ AUTH ] Reconnect stopped safely: ${message.replace(/^AUTH_STARTUP_VALIDATION_FAILED:\s*/, '')}`, 'yellow')
+                        log(`[ AUTH:${bot.id} ] Reconnect stopped safely: ${message.replace(/^AUTH_STARTUP_VALIDATION_FAILED:\s*/, '')}`, 'yellow')
                         log('[ AUTH ] No auth data was cleared. Restore a known-good backup or explicitly re-pair to recover.', 'yellow')
                     } else {
                         const retryMs = 30000
-                        log(`[ RECONNECT ] Startup retry failed safely: ${message}`, 'yellow')
+                        log(`[ RECONNECT:${bot.id} ] Startup retry failed safely: ${message}`, 'yellow')
                         log(`[ RECONNECT ] Retrying in ${retryMs / 1000}s...`, 'yellow')
-                        global._reconnectTimer = setTimeout(() => {
-                            global._reconnectTimer = null
-                            void startJunexBot().catch(retryError => {
-                                log(`[ RECONNECT ] Retry stopped safely: ${retryError?.message || retryError}`, 'yellow')
+                        bot._reconnectTimer = setTimeout(() => {
+                            bot._reconnectTimer = null
+                            void startBotSocket(bot).catch(retryError => {
+                                log(`[ RECONNECT:${bot.id} ] Retry stopped safely: ${retryError?.message || retryError}`, 'yellow')
                             })
                         }, retryMs)
-                        global._reconnectTimer.unref?.()
+                        bot._reconnectTimer.unref?.()
                     }
                 }
             }
         } else if (connection === 'open') {
-            global.isReconnecting = false
-            global.errorRetryCount = 0
-            clearPersistedSessionErrorState()
-            global._consecutive500Count = 0  // Clear the 500 guard on successful connect
-            global._conflictCount = 0
-            
+            bot.isReconnecting = false
+            bot.errorRetryCount = 0
+            bot.db.clearSessionErrorState()
+            bot._consecutive500Count = 0  // Clear the 500 guard on successful connect
+            bot._conflictCount = 0
+
             // Clear conflict summary timer and show success
-            if (global._conflictSummaryTimer) {
-                clearTimeout(global._conflictSummaryTimer)
-                global._conflictSummaryTimer = null
+            if (bot._conflictSummaryTimer) {
+                clearTimeout(bot._conflictSummaryTimer)
+                bot._conflictSummaryTimer = null
             }
-            if (global._suppressedConflictCount > 0) {
-                log(`[ CONFLICT ] Connection restored successfully.`, 'green')
-                global._suppressedConflictCount = 0
+            if (bot._suppressedConflictCount > 0) {
+                log(`[ CONFLICT:${bot.id} ] Connection restored successfully.`, 'green')
+                bot._suppressedConflictCount = 0
             }
-            global._lastConflictLogTime = 0
-            
-            global.botState = 'connected'
-            global.connectedAt = Date.now()
+            bot._lastConflictLogTime = 0
+
+            bot.botState = 'connected'
+            bot.connectedAt = Date.now()
             // Drop only stale replay traffic for a brief, bounded period after
             // reconnect so WhatsApp backlog delivery cannot block live commands.
             replayDrain.markConnectionOpen()
-            global.phoneNumber = null  // Clear so reconnects don't re-request pairing code
+            bot.phone = ''  // Clear so reconnects don't re-request pairing code
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
+            bot.accountNumber = botNum
             await tryMigrateFileAuth('connection-open')
-            // Auto-export the session to .env so restarts never need re-login
-            autoExportSessionToEnv(true).catch(() => {})
+            // Auto-export the session to .env / registry so restarts never need re-login
+            autoExportSessionToEnv(bot, true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
-            global.newsletters = newsletters;
-            global.groupInvites = groupInvites;
+            bot.newsletters = newsletters;
+            bot.groupInvites = groupInvites;
 
             // Resolve the startup join result before printing the one-box report.
             // This keeps the connection summary complete and removes a duplicate
             // standalone "Group join failed" line below the box.
             let groupJoinLabel = 'Failed'
-let groupJoinStatus = 'warning'
+            let groupJoinStatus = 'warning'
 
-if (groupInvites.length > 0) {
-    const joinResults = await Promise.allSettled(
-        groupInvites.map(inv => sock.groupAcceptInvite(inv))
-    )
+            if (groupInvites.length > 0) {
+                const joinResults = await Promise.allSettled(
+                    groupInvites.map(inv => sock.groupAcceptInvite(inv))
+                )
 
-    const hasSuccess = joinResults.some(
-        result => result.status === 'fulfilled'
-    )
+                const hasSuccess = joinResults.some(
+                    result => result.status === 'fulfilled'
+                )
 
-    const errors = joinResults
-        .filter(result => result.status === 'rejected')
-        .map(result =>
-            String(
-                result.reason?.message ||
-                result.reason ||
-                'failed'
-            ).toLowerCase()
-        )
+                const errors = joinResults
+                    .filter(result => result.status === 'rejected')
+                    .map(result =>
+                        String(
+                            result.reason?.message ||
+                            result.reason ||
+                            'failed'
+                        ).toLowerCase()
+                    )
 
-    const alreadyJoined = errors.some(error =>
-        error.includes('already') ||
-        error.includes('conflict')
-    )
+                const alreadyJoined = errors.some(error =>
+                    error.includes('already') ||
+                    error.includes('conflict')
+                )
 
-    if (hasSuccess) {
-        groupJoinLabel = 'Connected'
-        groupJoinStatus = 'connected'
-    } else if (alreadyJoined) {
-        groupJoinLabel = 'Joined already'
-        groupJoinStatus = 'connected'
-    } else {
-        groupJoinLabel = 'Failed'
-        groupJoinStatus = 'warning'
-    }
-}
-           
-            if (!global.startupReportPrinted) {
-                const databaseHealth = juneDatabase.getDatabaseHealth()
-                const authStats = getSQLiteAuthStats(juneDatabase._db)
-                const postgres = pgAdapter.getStatus()
-                const mongo = mongoAdapter.getStatus()
-                const mode = juneDatabase.getBotMode?.() || 'public'
+                if (hasSuccess) {
+                    groupJoinLabel = 'Connected'
+                    groupJoinStatus = 'connected'
+                } else if (alreadyJoined) {
+                    groupJoinLabel = 'Joined already'
+                    groupJoinStatus = 'connected'
+                } else {
+                    groupJoinLabel = 'Failed'
+                    groupJoinStatus = 'warning'
+                }
+            }
+
+            if (!bot.startupReportPrinted) {
+                const databaseHealth = bot.db.getDatabaseHealth()
+                const authStats = getSQLiteAuthStats(bot.db._db)
+                const postgres = bot.pg.getStatus()
+                const mongo = bot.mongo.getStatus()
+                const mode = bot.db.getBotMode?.() || 'public'
                 const diskReport = diskManager?.getStatus?.() || {}
-                const toggles = getStartupToggleState()
-                const owner = Array.isArray(config.ownerName)
-                    ? config.ownerName[0]
-                    : (config.ownerName || 'configured')
-                const startupSeconds = ((Date.now() - global.startupStartedAt) / 1000).toFixed(2)
+                const toggles = getStartupToggleState(bot.db)
+                const owner = Array.isArray(bot.config.ownerName)
+                    ? bot.config.ownerName[0]
+                    : (bot.config.ownerName || 'configured')
+                const startupSeconds = ((Date.now() - bot.startupStartedAt) / 1000).toFixed(2)
 
                 printStartupReport({
-                    version: config.version,
+                    version: bot.config.version,
                     platform: os.platform(),
                     nodeVersion: process.version,
-                    prefix: config.prefix === '' ? 'none' : (config.prefix || '.'),
+                    prefix: bot.config.prefix === '' ? 'none' : (bot.config.prefix || '.'),
                     mode,
                     owner,
                     commandCount: cmdCount,
                     startupTime: `${startupSeconds}s`,
+                    botLabel: `${bot.config.botName} [${bot.name}]`,
                     sqliteLabel: databaseHealth.ok ? 'ready' : 'degraded',
                     sqliteStatus: databaseHealth.ok ? 'ready' : 'warning',
                     sqliteDriver: databaseHealth.driver || 'unknown',
@@ -1593,13 +1606,13 @@ if (groupInvites.length > 0) {
                     accountStatus: 'connected',
                     groupJoinLabel,
                     groupJoinStatus,
-                    databaseInfo: getExternalDatabaseStatus(),
+                    databaseInfo: getExternalDatabaseStatus(bot.pg, bot.mongo),
                 }, output => console.log(output))
-                global.startupReportPrinted = true
+                bot.startupReportPrinted = true
             }
-            if (!global.welcomeSent) {
-                global.welcomeSent = true
-                await sendWelcomeMessage(sock)
+            if (!bot.welcomeSent) {
+                bot.welcomeSent = true
+                await sendWelcomeMessage(sock, bot)
             }
             handler.initializeAntiCall(sock)
 
@@ -1626,34 +1639,29 @@ if (groupInvites.length > 0) {
                 }
             } catch (_) {}
         }
-    })
+    }))
 
     // ── Message Handler ────────────────────────────────────────────────────────
-    sock.ev.on('messages.upsert', async ({ messages, type }) => {
+    sock.ev.on('messages.upsert', ({ messages, type }) => runInBot(bot.id, async () => {
         if (type !== 'notify') return
         messages = messages.filter((msg) => !replayDrain.isReplayMessage(msg))
         if (messages.length === 0) return
 
         // ── Status Handler ─────────────────────────────────────────────────────
-        // shared settings module required once outside the loop for efficiency
-        const { loadSettings, pickEmoji } = require('./database')
+        // ALS-scoped: call through the database facade so each bot reads its own settings.
+        const loadSettings = () => require('./database').loadSettings();
+        const pickEmoji = (s) => require('./database').pickEmoji(s);
         const { handleAutoDownloadStatus } = require('./commands/owner/autodownloadstatus')
 
-        // ── Reaction queue: one at a time, properly spaced ──
-        if (!global._sReactQueue) {
-            global._sReactQueue = []
-            global._sReactQueueRunning = false
-        }
-
         function enqueueStatusReact(job) {
-            global._sReactQueue.push(job)
-            if (!global._sReactQueueRunning) runStatusReactQueue()
+            bot._sReactQueue.push(job)
+            if (!bot._sReactQueueRunning) runStatusReactQueue()
         }
 
         async function runStatusReactQueue() {
-            global._sReactQueueRunning = true
-            while (global._sReactQueue.length) {
-                const { sock, emoji, reactKey, normPart } = global._sReactQueue.shift()
+            bot._sReactQueueRunning = true
+            while (bot._sReactQueue.length) {
+                const { sock, emoji, reactKey, normPart } = bot._sReactQueue.shift()
                 try {
                     await sock.sendMessage('status@broadcast', {
                         react: { text: emoji, key: reactKey }
@@ -1662,7 +1670,7 @@ if (groupInvites.length > 0) {
                 // space out reactions — 2.5–4s between each, not concurrent
                 await new Promise(r => setTimeout(r, 2500 + Math.floor(Math.random() * 1500)))
             }
-            global._sReactQueueRunning = false
+            bot._sReactQueueRunning = false
         }
 
         for (const msg of messages) {
@@ -1685,11 +1693,10 @@ if (groupInvites.length > 0) {
 
             // Store status for .getsw command
             if (normPart && msg.message) {
-                if (!global.statusStore) global.statusStore = new Map()
-                const existing = global.statusStore.get(normPart) || []
+                const existing = bot.statusStore.get(normPart) || []
                 existing.push(msg)
                 if (existing.length > 20) existing.shift()
-                global.statusStore.set(normPart, existing)
+                bot.statusStore.set(normPart, existing)
             }
 
             // Auto-download status before anti-delete storage
@@ -1725,12 +1732,11 @@ if (groupInvites.length > 0) {
 
                 // Auto React — routed through the serialized queue, no inline setTimeout
                 if (s.react && normPart) {
-                    if (!global._sReactedIds) global._sReactedIds = new Set()
-                    if (!global._sReactedIds.has(msg.key.id)) {
-                        global._sReactedIds.add(msg.key.id)
+                    if (!bot._sReactedIds.has(msg.key.id)) {
+                        bot._sReactedIds.add(msg.key.id)
                         // Keep set bounded
-                        if (global._sReactedIds.size > 500) {
-                            global._sReactedIds.delete(global._sReactedIds.values().next().value)
+                        if (bot._sReactedIds.size > 500) {
+                            bot._sReactedIds.delete(bot._sReactedIds.values().next().value)
                         }
 
                         enqueueStatusReact({
@@ -1754,12 +1760,12 @@ if (groupInvites.length > 0) {
             if (!msg.message || !msg.key?.id) continue
             const from = msg.key.remoteJid
             if (!from || isSystemJid(from)) continue
-            if (processedMessages.has(msg.key.id)) continue
+            if (bot.processedMessages.has(msg.key.id)) continue
 
             const MESSAGE_AGE_LIMIT = 5 * 60 * 1000
             if (msg.messageTimestamp && (Date.now() - msg.messageTimestamp * 1000) > MESSAGE_AGE_LIMIT) continue
 
-            processedMessages.add(msg.key.id)
+            bot.processedMessages.add(msg.key.id)
 
             // Store message
             if (!store.messages.has(from)) store.messages.set(from, new Map())
@@ -1773,7 +1779,7 @@ if (groupInvites.length > 0) {
             // ── JUNE-X Style Message Log ────────────────────────────────────────
             if (msg.message) {
                 try {
-                    const tz = config.timezone || 'Africa/Nairobi'
+                    const tz = bot.config.timezone || 'Africa/Nairobi'
                     const mtype = Object.keys(msg.message)[0] || 'N/A'
                     const pushname = msg.pushName || 'N/A'
                     const body = msg.message?.conversation
@@ -1819,56 +1825,54 @@ if (groupInvites.length > 0) {
             // Handle command
             handler.handleMessage(sock, msg).catch(err => {
                 if (!err.message?.includes('rate-overlimit') && !err.message?.includes('not-authorized')) {
-                    log(`Message handler error: ${err.message}`, 'red', true)
+                    log(`Message handler error (${bot.id}): ${err.message}`, 'red', true)
                 }
             })
 
             // Note: antilink is handled inside handler.handleMessage via Promise.allSettled
         }
-    })
+    }))
 
     // ── Credentials + Group Events ─────────────────────────────────────────────
-    sock.ev.on('creds.update', async () => {
+    sock.ev.on('creds.update', () => runInBot(bot.id, async () => {
         await saveCreds()
         // Persist to database so session survives restarts without re-login
-        saveSession(credsPath)
-        if (authState.source === 'sqlite') juneDatabase.markDatabaseDirty('auth-creds')
+        bot.db.saveSession(bot.credsPath)
+        if (authState.source === 'sqlite') bot.db.markDatabaseDirty('auth-creds')
         // Wait briefly for Baileys to finish the credentials write before the
         // file-auth migration attempts to parse its JSON snapshot.
         scheduleCredsUpdateMigration()
         // Session export is disabled by default; this is a no-op unless the
         // owner explicitly enables JUNE_EXPORT_SESSION_TO_ENV.
-        autoExportSessionToEnv(false).catch(() => {})
-    })
+        autoExportSessionToEnv(bot, false).catch(() => {})
+    }))
 
     // ── Presence Tracker ───────────────────────────────────────────────────────
-    if (!global.presenceStore) global.presenceStore = {}
-
-    sock.ev.on('presence.update', ({ id, presences }) => {
+    sock.ev.on('presence.update', ({ id, presences }) => runInBot(bot.id, () => {
         try {
             for (const [jid, data] of Object.entries(presences)) {
-                global.presenceStore[jid] = {
+                bot.presenceStore[jid] = {
                     status: data.lastKnownPresence || 'unavailable',
                     lastSeen: data.lastSeen || null,
                     updatedAt: Date.now()
                 }
                 try {
-                    juneDatabase.recordRuntimeTelemetry('presence', jid, {
+                    bot.db.recordRuntimeTelemetry('presence', jid, {
                         chatId: id,
                         status: data.lastKnownPresence || 'unavailable',
                     })
                 } catch (_) {}
             }
         } catch (e) {
-            log(`[Presence] update error: ${e.message}`, 'yellow')
+            log(`[Presence:${bot.id}] update error: ${e.message}`, 'yellow')
         }
-    })
+    }))
 
-    sock.ev.on('group-participants.update', async (update) => {
+    sock.ev.on('group-participants.update', (update) => runInBot(bot.id, async () => {
         try { await handler.handleGroupUpdate(sock, update) } catch (e) {
-            log(`Group update error: ${e.message}`, 'red', true)
+            log(`Group update error (${bot.id}): ${e.message}`, 'red', true)
         }
-    })
+    }))
 
     // ── Newsletter Auto-React ───────────────────────────────────────────────────
     const NEWSLETTERS = [
@@ -1877,7 +1881,7 @@ if (groupInvites.length > 0) {
         '120363366284524544@newsletter',
     ];
     const _newsletterEmojis = ['❤️','💛','👍','💜','😮','🤍','💙'];
-    sock.ev.on('messages.upsert', async (mek) => {
+    sock.ev.on('messages.upsert', (mek) => runInBot(bot.id, async () => {
         try {
             const msg = mek.messages[0];
             if (!msg?.message || !msg?.key?.server_id) return;
@@ -1885,284 +1889,358 @@ if (groupInvites.length > 0) {
             const emoji = _newsletterEmojis[Math.floor(Math.random() * _newsletterEmojis.length)];
             await sock.newsletterReactMessage(msg.key.remoteJid, msg.key.server_id.toString(), emoji);
         } catch {}
-    })
+    }))
 
-    // ── Background Cleanup Intervals ───────────────────────────────────────────
+    // ── Background Cleanup Intervals (per bot) ─────────────────────────────────
 
     // Auth key files are live Signal state. Never delete them by age.
     // Only remove completed migration quarantines after the configured retention.
-    global._activeIntervals.push(setInterval(() => {
-        cleanupExpiredSessionQuarantines('scheduled cleanup')
+    bot._activeIntervals.push(setInterval(() => {
+        runInBot(bot.id, () => cleanupExpiredSessionQuarantines(bot, 'scheduled cleanup'))
     }, 6 * 60 * 60 * 1000))
 
     // Junk file cleanup (every 10 minutes)
-    global._activeIntervals.push(setInterval(() => cleanupJunkFiles(sock), 10 * 60 * 1000))
+    bot._activeIntervals.push(setInterval(() => cleanupJunkFiles(sock), 10 * 60 * 1000))
+
+    // Per-bot message dedupe set (cleared every 5 minutes)
+    bot._activeIntervals.push(setInterval(() => bot.processedMessages.clear(), 5 * 60 * 1000))
 
     return sock
 }
 
-// ─── Main Login Flow ──────────────────────────────────────────────────────────
+// ─── Per-session boot flow ────────────────────────────────────────────────────
 
-async function main() {
-    // The database uses async sql.js initialization when better-sqlite3 cannot
-    // load on an older VPS. Nothing may read settings/auth/schema before this.
-    await juneDatabase.ready
-    const configuredBotId = process.env.JUNE_BOT_ID || process.env.BOT_ID ||
-        process.env.OWNER_NUMBER || config.JUNE_BOT_ID || config.ownerNumber?.[0]
-    if (!process.env.JUNE_BOT_ID && !process.env.BOT_ID && !process.env.OWNER_NUMBER) {
-        pgAdapter.setBotId(configuredBotId)
-    }
-    mongoAdapter.setBotId(configuredBotId)
+async function bootBot(bot) {
+    return runInBot(bot.id, async () => {
+        await bot.db.ready
 
-    const [pgStatus, mongoStatus] = await Promise.all([
-        pgAdapter.init(),
-        mongoAdapter.init(),
-    ])
-    if (pgStatus.available) {
-        const restored = await juneDatabase.restoreFromPostgres()
-        if (restored.restored > 0) {
-            log(`[ PG ] Restored ${restored.restored} missing local database records.`, 'green')
-        }
-    }
-    if (mongoStatus.available) {
-        const restored = await juneDatabase.restoreFromMongo()
-        if (restored.restored > 0) {
-            log(`[ MONGO ] Restored ${restored.restored} missing local database records.`, 'green')
-        }
-    }
-
-    // Disaster recovery path: if this host lost its local auth database and
-    // has no usable file session, restore the direct remote auth state before
-    // normal SESSION_ID/session startup decisions run.
-    if (!hasVerifiedSQLiteAuth(juneDatabase._db) && !hasUsableFileSession()) {
-        const authRecovery = await juneDatabase.restoreRemoteAuthState()
-        if (authRecovery.restored) {
-            log(`[ AUTH MIRROR ] Restored ${authRecovery.source} auth state (${authRecovery.keyRows} key rows).`, 'green')
-        } else if (authRecovery.error) {
-            log('[ AUTH MIRROR ] Remote auth state was unavailable or invalid.', 'yellow')
-        }
-    }
-    if (hasVerifiedSQLiteAuth(juneDatabase._db)) {
-        // Ensure an already healthy deployment mirrors the current auth state
-        // without waiting for the next creds.update event.
-        if (juneDatabase.scheduleRemoteAuthMirror('startup')) {
-            log('[ AUTH MIRROR ] External auth state mirror scheduled.', 'cyan')
-        }
-    }
-
-    await applyPersistedRuntimeSettings()
-    if (!handler) handler = require('./handler')
-    diskManager.start()
-
-    // 0. Re-read SESSION_ID directly from .env every time main() runs so that
-    //    recursive calls (after logout) always see the latest value, and dotenvx
-    //    quirks (which mangle long base64 values) are bypassed entirely.
-    const _freshSessionID = readSessionIDFromEnv()
-    // Keep a platform-provided SESSION_ID when .env intentionally contains
-    // SESSION_ID= (the normal pattern for Heroku/Replit/Railway secrets).
-    if (_freshSessionID) process.env.SESSION_ID = _freshSessionID
-
-    // 1. Validate SESSION_ID format before doing anything
-    await checkAndHandleSessionFormat()
-
-    // 2. Restore the persisted retry counter from SQLite KV.
-    global.errorRetryCount = getPersistedSessionErrorState().count
-    log(`Initial 408 retry count: ${global.errorRetryCount}`, 'yellow')
-
-    cleanupExpiredSessionQuarantines('startup')
-
-    // 3. SESSION_ID is a provisioning/recovery source — never an unconditional
-    // override for a verified SQLite auth state. Store only an opaque SHA-256
-    // fingerprint so we can detect a genuinely changed SESSION_ID safely.
-    const envSessionID = process.env.SESSION_ID?.trim() || ''
-    const hasValidEnvSessionID = Boolean(
-        envSessionID && VALID_PREFIXES.some((prefix) => envSessionID.startsWith(prefix))
-    )
-    const sqliteAuthReady = hasVerifiedSQLiteAuth(juneDatabase._db)
-    const currentSessionFingerprint = hasValidEnvSessionID
-        ? fingerprintSessionId(envSessionID)
-        : null
-    // SQLite session_auth_meta is the sole persistent home for opaque SHA-256
-    // SESSION_ID fingerprints. The raw SESSION_ID remains environment-only.
-    const storedSessionFingerprints = [
-        getSessionIdFingerprint(juneDatabase._db),
-    ].filter(Boolean)
-    const revokedSessionFingerprints = [
-        getSessionIdRevokedFingerprint(juneDatabase._db),
-    ].filter(Boolean)
-    const sameSessionId = Boolean(
-        currentSessionFingerprint && storedSessionFingerprints.includes(currentSessionFingerprint)
-    )
-    const sessionIdChanged = Boolean(
-        currentSessionFingerprint &&
-        storedSessionFingerprints.length > 0 &&
-        !sameSessionId
-    )
-    const sessionIdRevoked = Boolean(
-        currentSessionFingerprint && revokedSessionFingerprints.includes(currentSessionFingerprint)
-    )
-    const usableFileSession = hasUsableFileSession()
-
-    log(`[ SESSION_ID ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
-
-    if (sessionIdRevoked) {
-        log('[ SESSION_ID ] This SESSION_ID was logged out by WhatsApp. Add a fresh SESSION_ID, then restart.', 'red', true)
-        checkEnvStatus()
-        return
-    }
-
-    // A fingerprint mismatch is a warning, not permission to destroy a usable
-    // file session. Auto-exported creds can legitimately change the raw backup
-    // SESSION_ID over time. Preserve usable auth and refresh the SQLite metadata;
-    // an owner can use JUNE_FORCE_SESSION_BOOTSTRAP=true for an intentional
-    // replacement.
-    const forceSessionBootstrap = /^(1|true|yes|on)$/i.test(
-        String(process.env.JUNE_FORCE_SESSION_BOOTSTRAP || '')
-    )
-    const shouldBootstrapFromSessionId = hasValidEnvSessionID && (
-        forceSessionBootstrap ||
-        (!sqliteAuthReady && !usableFileSession)
-    )
-
-    if (shouldBootstrapFromSessionId) {
-        global.SESSION_ID = envSessionID
-        const replacingFileSession =
-            (forceSessionBootstrap && sessionExists()) ||
-            (!usableFileSession && sessionExists())
-
-        if (replacingFileSession) {
-            const reason = forceSessionBootstrap
-                ? 'a forced SESSION_ID bootstrap'
-                : 'an unusable existing file session'
-            log(`[ SESSION_ID ] Applying ${reason} — preserving prior file auth first.`, 'yellow')
-            const oldSessionPath = quarantineCurrentSessionForReplacement()
-            if (oldSessionPath) {
-                log(`[ SESSION ] Previous file auth preserved at ${path.basename(oldSessionPath)}.`, 'yellow')
-            }
-        } else {
-            log('[ SESSION_ID MODE ] No usable local auth found — bootstrapping from SESSION_ID.', 'white')
-        }
-
-        if (!sessionExists()) {
-            log('[ SESSION_ID ] Writing creds.json from SESSION_ID...', 'magenta')
-            await fs.promises.mkdir(sessionDir, { recursive: true })
-            try {
-                await downloadSessionData()
-                if (!hasUsableFileSession()) {
-                    throw new Error('creds.json was not written or is invalid after SESSION_ID bootstrap')
-                }
-                log('[ SESSION_ID ] ✅ Session bootstrap saved successfully.', 'green')
-            } catch (e) {
-                log(`[ SESSION_ID ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
-                log('Retrying in 5 seconds...', 'yellow')
-                await delay(5000)
-                return main()
+        // 0. Re-read SESSION_ID directly from .env every time the default
+        //    session boots so recursive calls (after logout) always see the
+        //    latest value, and dotenvx quirks (which mangle long base64
+        //    values) are bypassed entirely.
+        if (bot.id === DEFAULT_BOT_ID) {
+            const _freshSessionID = readSessionIDFromEnv()
+            // Keep a platform-provided SESSION_ID when .env intentionally
+            // contains SESSION_ID= (the normal pattern for Heroku/Replit/Railway).
+            if (_freshSessionID) {
+                process.env.SESSION_ID = _freshSessionID
+                bot.sessionId = _freshSessionID
             }
         }
 
-        invalidateSQLiteAuth(
-            juneDatabase._db,
-            forceSessionBootstrap ? 'session-id-forced-bootstrap' : 'session-id-bootstrap'
+        // 1. Validate SESSION_ID format before doing anything
+        const formatOk = await checkAndHandleSessionFormat(bot)
+        if (!formatOk) return null
+
+        // 2. Restore the persisted retry counter from SQLite KV.
+        bot.errorRetryCount = bot.db.getSessionErrorState().count
+        log(`Initial 408 retry count (${bot.id}): ${bot.errorRetryCount}`, 'yellow')
+
+        cleanupExpiredSessionQuarantines(bot, 'startup')
+
+        // 3. SESSION_ID is a provisioning/recovery source — never an unconditional
+        // override for a verified SQLite auth state. Store only an opaque SHA-256
+        // fingerprint so we can detect a genuinely changed SESSION_ID safely.
+        const envSessionID = String(bot.sessionId || '').trim()
+        const hasValidEnvSessionID = Boolean(
+            envSessionID && VALID_PREFIXES.some((prefix) => envSessionID.startsWith(prefix))
         )
-        rememberSessionIdFingerprint(currentSessionFingerprint)
-        clearRevokedSessionIdFingerprint()
-        await saveLoginMethod('session')
-        log('[ SESSION_ID ] Connecting...', 'cyan')
-        await startJunexBot()
-        checkEnvStatus()
-        return
-    }
+        const sqliteAuthReady = hasVerifiedSQLiteAuth(bot.db._db)
+        const currentSessionFingerprint = hasValidEnvSessionID
+            ? fingerprintSessionId(envSessionID)
+            : null
+        // SQLite session_auth_meta is the sole persistent home for opaque SHA-256
+        // SESSION_ID fingerprints. The raw SESSION_ID remains environment-only.
+        const storedSessionFingerprints = [
+            getSessionIdFingerprint(bot.db._db),
+        ].filter(Boolean)
+        const revokedSessionFingerprints = [
+            getSessionIdRevokedFingerprint(bot.db._db),
+        ].filter(Boolean)
+        const sameSessionId = Boolean(
+            currentSessionFingerprint && storedSessionFingerprints.includes(currentSessionFingerprint)
+        )
+        const sessionIdChanged = Boolean(
+            currentSessionFingerprint &&
+            storedSessionFingerprints.length > 0 &&
+            !sameSessionId
+        )
+        const sessionIdRevoked = Boolean(
+            currentSessionFingerprint && revokedSessionFingerprints.includes(currentSessionFingerprint)
+        )
+        const usableFileSession = hasUsableFileSession(bot)
 
-    if (hasValidEnvSessionID && sqliteAuthReady) {
-        if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
-            clearRevokedSessionIdFingerprint()
+        log(`[ SESSION_ID:${bot.id} ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
+
+        if (sessionIdRevoked) {
+            log(`[ SESSION_ID:${bot.id} ] This SESSION_ID was logged out by WhatsApp. Add a fresh SESSION_ID, then restart.`, 'red', true)
+            bot.botState = 'needs-login'
+            return null
         }
-        if (!sameSessionId) {
-            // Upgrade path for an existing verified June X installation.
-            rememberSessionIdFingerprint(currentSessionFingerprint)
-            log('[ AUTH ] Linked the existing verified SQLite auth to the configured SESSION_ID fingerprint.', 'cyan')
-        }
-        log('[ AUTH ] Verified SQLite auth found; SESSION_ID is retained only as a recovery backup.', 'green')
-    } else if (hasValidEnvSessionID && usableFileSession) {
-        // The file session is usable. If fingerprint metadata is absent (for
-        // example after the move from marker files to session_auth_meta), adopt
-        // this session instead of quarantining and recreating it.
-        if (!sameSessionId && currentSessionFingerprint) {
-            if (sessionIdChanged) {
-                log('[ SESSION_ID ] Configured fingerprint differs; retaining usable file auth. Set JUNE_FORCE_SESSION_BOOTSTRAP=true only for an intentional replacement.', 'yellow')
+
+        // A fingerprint mismatch is a warning, not permission to destroy a usable
+        // file session. Auto-exported creds can legitimately change the raw backup
+        // SESSION_ID over time. Preserve usable auth and refresh the SQLite metadata;
+        // an owner can use JUNE_FORCE_SESSION_BOOTSTRAP=true for an intentional
+        // replacement.
+        const forceSessionBootstrap = /^(1|true|yes|on)$/i.test(
+            String(process.env.JUNE_FORCE_SESSION_BOOTSTRAP || '')
+        )
+        const shouldBootstrapFromSessionId = hasValidEnvSessionID && (
+            forceSessionBootstrap ||
+            (!sqliteAuthReady && !usableFileSession)
+        )
+
+        if (shouldBootstrapFromSessionId) {
+            const replacingFileSession =
+                (forceSessionBootstrap && sessionExists(bot)) ||
+                (!usableFileSession && sessionExists(bot))
+
+            if (replacingFileSession) {
+                const reason = forceSessionBootstrap
+                    ? 'a forced SESSION_ID bootstrap'
+                    : 'an unusable existing file session'
+                log(`[ SESSION_ID:${bot.id} ] Applying ${reason} — preserving prior file auth first.`, 'yellow')
+                const oldSessionPath = quarantineCurrentSessionForReplacement(bot)
+                if (oldSessionPath) {
+                    log(`[ SESSION:${bot.id} ] Previous file auth preserved at ${path.basename(oldSessionPath)}.`, 'yellow')
+                }
+            } else {
+                log(`[ SESSION_ID MODE:${bot.id} ] No usable local auth found — bootstrapping from SESSION_ID.`, 'white')
             }
-            const saved = rememberSessionIdFingerprint(currentSessionFingerprint)
-            if (saved) {
-                log('[ SESSION_ID ] Existing file auth adopted; fingerprint recorded in SQLite.', 'green')
+
+            if (!sessionExists(bot)) {
+                log(`[ SESSION_ID:${bot.id} ] Writing creds.json from SESSION_ID...`, 'magenta')
+                await fs.promises.mkdir(bot.sessionDir, { recursive: true })
+                try {
+                    await downloadSessionData(bot)
+                    if (!hasUsableFileSession(bot)) {
+                        throw new Error('creds.json was not written or is invalid after SESSION_ID bootstrap')
+                    }
+                    log(`[ SESSION_ID:${bot.id} ] ✅ Session bootstrap saved successfully.`, 'green')
+                } catch (e) {
+                    bot._bootstrapRetries = (bot._bootstrapRetries || 0) + 1
+                    const multiSession = sessionManager.list().length > 1
+                    // Legacy single-session keeps the original retry-forever
+                    // behaviour. In multi-session mode a broken session id
+                    // must not spam logs forever — park the session instead.
+                    if (!bot.interactive && (multiSession || bot._bootstrapRetries >= 3)) {
+                        log(`[ SESSION_ID:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
+                        log(`[ SESSION:${bot.id} ] Marked as needs-login — fix its sessionId in sessions.json / JUNE_SESSIONS, then restart.`, 'yellow')
+                        bot.botState = 'needs-login'
+                        return null
+                    }
+                    log(`[ SESSION_ID:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
+                    log('Retrying in 5 seconds...', 'yellow')
+                    await delay(5000)
+                    return bootBot(bot)
+                }
+            }
+
+            invalidateSQLiteAuth(
+                bot.db._db,
+                forceSessionBootstrap ? 'session-id-forced-bootstrap' : 'session-id-bootstrap'
+            )
+            rememberSessionIdFingerprint(bot, currentSessionFingerprint)
+            clearRevokedSessionIdFingerprint(bot)
+            await bot.db.setStoredLoginMethod('session')
+            log(`[ SESSION_ID:${bot.id} ] Connecting...`, 'cyan')
+            return startBotSocket(bot)
+        }
+
+        if (hasValidEnvSessionID && sqliteAuthReady) {
+            if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
+                clearRevokedSessionIdFingerprint(bot)
+            }
+            if (!sameSessionId) {
+                // Upgrade path for an existing verified June X installation.
+                rememberSessionIdFingerprint(bot, currentSessionFingerprint)
+                log(`[ AUTH:${bot.id} ] Linked the existing verified SQLite auth to the configured SESSION_ID fingerprint.`, 'cyan')
+            }
+            log(`[ AUTH:${bot.id} ] Verified SQLite auth found; SESSION_ID is retained only as a recovery backup.`, 'green')
+        } else if (hasValidEnvSessionID && usableFileSession) {
+            // The file session is usable. If fingerprint metadata is absent (for
+            // example after the move from marker files to session_auth_meta), adopt
+            // this session instead of quarantining and recreating it.
+            if (!sameSessionId && currentSessionFingerprint) {
+                if (sessionIdChanged) {
+                    log(`[ SESSION_ID:${bot.id} ] Configured fingerprint differs; retaining usable file auth. Set JUNE_FORCE_SESSION_BOOTSTRAP=true only for an intentional replacement.`, 'yellow')
+                }
+                const saved = rememberSessionIdFingerprint(bot, currentSessionFingerprint)
+                if (saved) {
+                    log(`[ SESSION_ID:${bot.id} ] Existing file auth adopted; fingerprint recorded in SQLite.`, 'green')
+                }
+            }
+            if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
+                clearRevokedSessionIdFingerprint(bot)
+            }
+            await bot.db.setStoredLoginMethod('session')
+            log(`[ SESSION_ID:${bot.id} ] Existing usable file session retained; rebuilding SQLite auth if needed.`, 'cyan')
+        } else {
+            log(`[ALERT:${bot.id}] No SESSION_ID configured for this session.`, 'blue')
+        }
+
+        // 4. Integrity check on stored session
+        await checkSessionIntegrityAndClean(bot)
+
+        // 5. Use existing stored session if valid
+        if (sessionExists(bot)) {
+            log(`[ALERT:${bot.id}] Valid stored session found.`, 'green')
+            return startBotSocket(bot)
+        }
+
+        // 5b. A verified SQLite auth state is complete on its own. Do not
+        // reconstruct only creds.json from the legacy session table.
+        if (hasVerifiedSQLiteAuth(bot.db._db)) {
+            log(`[ AUTH:${bot.id} ] Verified SQLite auth found; starting without session files.`, 'green')
+            await bot.db.setStoredLoginMethod('session')
+            return startBotSocket(bot)
+        }
+
+        // 5c. Legacy fallback for databases created before complete auth storage.
+        const restoredFromDB = await restoreSessionFromDB(bot)
+        if (restoredFromDB) {
+            await bot.db.setStoredLoginMethod('session')
+            return startBotSocket(bot)
+        }
+
+        // 6. No SESSION_ID and no stored session — login menu (interactive) or
+        //    pairing / needs-login for headless and registry sessions.
+        const isSoloLegacySession = sessionManager.list().length === 1 && bot.id === DEFAULT_BOT_ID
+        if (!process.stdin.isTTY && isSoloLegacySession && !bot.sessionId && !bot.phone) {
+            log('❌ No SESSION_ID found and no TTY available for interactive login.', 'red')
+            process.exit(1)
+        }
+
+        log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No SESSION_ID found and no stored session.`), 'white')
+        const loginMethod = await getLoginMethod(bot)
+        if (!loginMethod) return null // needs-login; session stays registered
+        if (loginMethod === 'session') {
+            try {
+                await downloadSessionData(bot)
+                if (!sessionExists(bot)) {
+                    throw new Error('Session file was not written — SESSION_ID may be corrupt or expired.')
+                }
+                log(`[ LOGIN:${bot.id} ] ✅ Session ID accepted. Connecting...`, 'green')
+            } catch (e) {
+                log(`[ LOGIN:${bot.id} ] ❌ Failed to load session: ${e.message}`, 'red', true)
+                log('Please check your SESSION_ID and try again. Retrying in 5 seconds...', 'yellow')
+                await delay(5000)
+                return bootBot(bot)
             }
         }
-        if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
-            clearRevokedSessionIdFingerprint()
-        }
-        await saveLoginMethod('session')
-        log('[ SESSION_ID ] Existing usable file session retained; rebuilding SQLite auth if needed.', 'cyan')
-    } else {
-        log('[ALERT] No SESSION_ID in .env..', 'blue')
-    }
-
-    // 4. Integrity check on stored session
-    await checkSessionIntegrityAndClean()
-
-    // 5. Use existing stored session if valid
-    if (sessionExists()) {
-        log('[ALERT] Valid stored session found.', 'green')
-        await startJunexBot()
-        checkEnvStatus()
-        return
-    }
-
-    // 5b. A verified SQLite auth state is complete on its own. Do not
-    // reconstruct only creds.json from the legacy session table.
-    if (hasVerifiedSQLiteAuth(juneDatabase._db)) {
-        log('[ AUTH ] Verified SQLite auth found; starting without session files.', 'green')
-        await saveLoginMethod('session')
-        await startJunexBot()
-        checkEnvStatus()
-        return
-    }
-
-    // 5c. Legacy fallback for databases created before complete auth storage.
-    const restoredFromDB = await restoreSessionFromDB()
-    if (restoredFromDB) {
-        await saveLoginMethod('session')
-        await startJunexBot()
-        checkEnvStatus()
-        return
-    }
-
-    // 6. No SESSION_ID and no stored session — show the interactive login menu.
-    log(chalk.black.bgYellowBright('[ LOGIN ] No SESSION_ID found and no stored session. Launching login menu...'), 'white')
-    const loginMethod = await getLoginMethod()
-    if (loginMethod === 'session') {
-        try {
-            await downloadSessionData()
-            if (!sessionExists()) {
-                throw new Error('Session file was not written — SESSION_ID may be corrupt or expired.')
-            }
-            log('[ LOGIN ] ✅ Session ID accepted. Connecting...', 'green')
-        } catch (e) {
-            log(`[ LOGIN ] ❌ Failed to load session: ${e.message}`, 'red', true)
-            log('Please check your SESSION_ID and try again. Retrying in 5 seconds...', 'yellow')
-            await delay(5000)
-            return main()
-        }
-    }
-    await startJunexBot()
-    checkEnvStatus()
+        return startBotSocket(bot)
+    })
 }
 
-// ─── Keep-Alive HTTP Server ────────────────────────────────────────────────────
+// ─── Wire one session's database, config and remote adapters ─────────────────
+
+async function wireBotRuntime(bot) {
+    return runInBot(bot.id, async () => {
+        // Per-bot SQLite database (june-<botId>.db — the default bot keeps the
+        // legacy database file so existing installs keep their data).
+        bot.db = juneDatabase.registerBotDatabase(bot.id)
+        await bot.db.ready
+
+        // Per-bot remote mirror adapters.
+        bot.pg = pgAdapter.forBot(bot.id)
+        bot.mongo = mongoAdapter.forBot(bot.id)
+
+        // Per-bot config object (independent clone of the base config).
+        bot.config = config.__createBotConfig({
+            prefix: config.__getBaseConfig().prefix,
+            botName: config.__getBaseConfig().botName,
+        })
+        if (bot.name !== `Session ${bot.id}`) bot.config.botName = bot.name
+        config.__registerBotConfig(bot.id, bot.config)
+
+        const [pgStatus, mongoStatus] = await Promise.all([
+            bot.pg.init(),
+            bot.mongo.init(),
+        ])
+        if (pgStatus.available) {
+            const restored = await bot.db.restoreFromPostgres()
+            if (restored.restored > 0) {
+                log(`[ PG:${bot.id} ] Restored ${restored.restored} missing local database records.`, 'green')
+            }
+        }
+        if (mongoStatus.available) {
+            const restored = await bot.db.restoreFromMongo()
+            if (restored.restored > 0) {
+                log(`[ MONGO:${bot.id} ] Restored ${restored.restored} missing local database records.`, 'green')
+            }
+        }
+
+        // Disaster recovery path: if this host lost its local auth database and
+        // has no usable file session, restore the direct remote auth state before
+        // normal SESSION_ID/session startup decisions run.
+        if (!hasVerifiedSQLiteAuth(bot.db._db) && !hasUsableFileSession(bot)) {
+            const authRecovery = await bot.db.restoreRemoteAuthState()
+            if (authRecovery.restored) {
+                log(`[ AUTH MIRROR:${bot.id} ] Restored ${authRecovery.source} auth state (${authRecovery.keyRows} key rows).`, 'green')
+            } else if (authRecovery.error) {
+                log(`[ AUTH MIRROR:${bot.id} ] Remote auth state was unavailable or invalid.`, 'yellow')
+            }
+        }
+        if (hasVerifiedSQLiteAuth(bot.db._db)) {
+            // Ensure an already healthy deployment mirrors the current auth state
+            // without waiting for the next creds.update event.
+            if (bot.db.scheduleRemoteAuthMirror('startup')) {
+                log(`[ AUTH MIRROR:${bot.id} ] External auth state mirror scheduled.`, 'cyan')
+            }
+        }
+
+        await applyPersistedRuntimeSettings(bot)
+    })
+}
+
+// ─── Apply Persisted Runtime Settings (per bot) ───────────────────────────────
+
+async function applyPersistedRuntimeSettings(bot) {
+    try {
+        const db = bot.db
+        const all = db.getAllBotSettings()
+        // Apply ALL stored settings that directly match a config key.
+        for (const [key, value] of Object.entries(all)) {
+            if (key in bot.config && value !== null && value !== undefined) {
+                bot.config[key] = value;
+            }
+        }
+        // Restore presence flags so .botstatus/.getsettings reflect the correct state
+        try {
+          const _m = require('./utils/presenceSettings').getModes();
+          bot.config.autoTyping = _m.pm === 'typing' || _m.group === 'typing';
+          bot.config.autoRecording = _m.pm === 'recording' || _m.group === 'recording' || _m.pm === 'recordtype' || _m.group === 'recordtype';
+          bot.config.autoRecordType = _m.pm === 'recordtype' || _m.group === 'recordtype';
+        } catch (_) {}
+
+        // Custom menu images stay in SQLite and are decoded directly by
+        // commands/general/menu.js when a menu is sent. Do not rebuild or
+        // maintain a persistent runtime image copy here.
+    } catch (e) {
+        log(`[ SETTINGS:${bot.id} ] Could not load runtime settings: ${e.message}`, 'yellow');
+    }
+}
+
+// ─── Keep-Alive HTTP Server (multi-session dashboard) ─────────────────────────
 
 function startKeepAliveServer() {
     const express   = require('express');
     const http      = require('http');
     const app       = express();
     const START_TIME = Date.now();
+
+    const renderSessionRow = (state) => {
+        const statusLabel = state.connected
+            ? 'CONNECTED'
+            : (state.state === 'connecting' ? 'CONNECTING' : (state.state === 'needs-login' ? 'NEEDS LOGIN' : 'OFFLINE'));
+        const statusColor = state.connected ? '#00ffe0' : (state.state === 'connecting' ? '#ffb703' : '#e94560');
+        return `<div class="card">
+      <div class="card-title">🤖 ${String(state.name).replace(/[<>&]/g, '')} <span style="color:${statusColor}">(${String(state.id).replace(/[<>&]/g, '')})</span></div>
+      <div class="card-value small" style="color:${statusColor}">${statusLabel}</div>
+      <div class="card-sub">${state.connected ? (state.account || '') + ' • connected ' + new Date(state.connectedAt).toLocaleTimeString() : (state.error ? 'last error: ' + String(state.error).slice(0, 90) : 'awaiting connection')}</div>
+    </div>`;
+    };
 
     // Read-only status dashboard — server-rendered, no client JS/fetch, no
     // pairing/session-ID UI or endpoints. Auto-refreshes via <meta refresh>
@@ -2182,10 +2260,9 @@ function startKeepAliveServer() {
         const now = new Date();
         const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         const platform = detectPlatform();
-        const connected = global.botState === 'connected';
-        const botNum = global.currentSock?.user?.id?.split(':')[0];
-        const statusLabel = connected ? 'OPERATIONAL • ACTIVE' : (global.botState === 'connecting' ? 'CONNECTING' : 'OFFLINE');
-        const statusColor = connected ? '#00ffe0' : (global.botState === 'connecting' ? '#ffb703' : '#e94560');
+        const sessions = sessionManager.snapshot();
+        const connectedCount = sessions.filter((s) => s.connected).length;
+        const statusColor = connectedCount > 0 ? '#00ffe0' : (sessions.some((s) => s.state === 'connecting') ? '#ffb703' : '#e94560');
 
         res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -2193,7 +2270,7 @@ function startKeepAliveServer() {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="refresh" content="10">
-  <title>June-X Ultra — Dashboard</title>
+  <title>June-X Ultra — Multi-Session Dashboard</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -2226,7 +2303,7 @@ function startKeepAliveServer() {
       0% { background-position: 0 0, 0 0, 0 0; }
       100% { background-position: 400px 400px, 300px 300px, 500px 500px; }
     }
-    .wrapper { max-width: 500px; width: 100%; z-index: 2; position: relative; }
+    .wrapper { max-width: 560px; width: 100%; z-index: 2; position: relative; }
     .header { text-align: center; margin-bottom: 2.5rem; }
     .bot-name {
       font-family: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Consolas', 'Courier New', monospace;
@@ -2274,7 +2351,7 @@ function startKeepAliveServer() {
     }
     .dashboard-grid { display: flex; flex-direction: column; align-items: center; gap: 1.5rem; margin-bottom: 2rem; }
     .card {
-      width: 100%; max-width: 400px;
+      width: 100%; max-width: 460px;
       background: rgba(10, 20, 28, 0.65);
       backdrop-filter: blur(12px);
       border: 1px solid rgba(0, 255, 224, 0.2);
@@ -2318,9 +2395,9 @@ function startKeepAliveServer() {
 <div class="wrapper">
   <div class="header">
     <div class="bot-name">June-X Ultra</div>
-    <div class="tagline">Autonomous Bot Matrix</div>
+    <div class="tagline">Autonomous Bot Matrix • Multi-Session</div>
     <div class="status-badge">
-      <span class="dot"></span> ${statusLabel}
+      <span class="dot"></span> ${connectedCount}/${sessions.length} sessions online
     </div>
   </div>
   <div class="dashboard-grid">
@@ -2339,11 +2416,7 @@ function startKeepAliveServer() {
       <div class="card-value small">${dateStr}</div>
       <div class="card-sub">local server date</div>
     </div>
-    <div class="card">
-      <div class="card-title">📶 CONNECTION</div>
-      <div class="card-value small">${connected ? `+${botNum}` : statusLabel}</div>
-      <div class="card-sub">whatsapp session</div>
-    </div>
+    ${sessions.map(renderSessionRow).join('\n    ') || '<div class="card"><div class="card-title">NO SESSIONS</div><div class="card-value small">offline</div><div class="card-sub">add sessions via JUNE_SESSIONS or sessions.json</div></div>'}
   </div>
   <div class="footer">
     ⚡ Powered by <strong>supreme</strong> &nbsp;|&nbsp; June-X Ultra
@@ -2358,8 +2431,10 @@ function startKeepAliveServer() {
 
     app.get('/health/details', async (req, res) => {
         try {
-            const databaseHealth = juneDatabase.getDatabaseHealth();
-            const authStats = getSQLiteAuthStats(juneDatabase._db);
+            const defaultBot = sessionManager.defaultBot();
+            if (!defaultBot) return res.status(503).json({ ok: false, error: 'no sessions registered' });
+            const databaseHealth = defaultBot.db.getDatabaseHealth();
+            const authStats = getSQLiteAuthStats(defaultBot.db._db);
             let antiDelete = null;
             try {
                 antiDelete = require('./commands/owner/antidelete').getStoreStats();
@@ -2367,7 +2442,7 @@ function startKeepAliveServer() {
             res.json({
                 ok: databaseHealth.ok === true &&
                     (!databaseHealth.backupExists || databaseHealth.backupValid === true),
-                botState: global.botState || 'unknown',
+                sessions: sessionManager.snapshot(),
                 database: {
                     sizeBytes: databaseHealth.databaseSizeBytes,
                     backupSizeBytes: databaseHealth.backupSizeBytes,
@@ -2397,7 +2472,7 @@ function startKeepAliveServer() {
                 storage: diskManager?.getReport?.() || null,
                 telemetry: {
                     stats: (() => {
-                        const rows = juneDatabase.getRuntimeTelemetry(1000);
+                        const rows = defaultBot.db.getRuntimeTelemetry(1000);
                         return {
                             total: rows.length,
                             eventTypes: rows.reduce((counts, row) => {
@@ -2452,26 +2527,23 @@ global.__JUNE_SHUTDOWN = async () => {
     global._shutdownRequested = true
     global._shutdownPromise = (async () => {
         log('[ SHUTDOWN ] Gracefully stopping June-X...', 'yellow')
-        if (global._reconnectTimer) {
-            clearTimeout(global._reconnectTimer)
-            global._reconnectTimer = null
-        }
-        for (const interval of global._activeIntervals || []) clearInterval(interval)
-        global._activeIntervals = []
         try { global._envWatcher?.close?.() } catch (_) {}
-        try { diskManager?.stop?.() } catch (_) {}
+        await sessionManager.stopAll()
         // Anti-delete and group stats keep small in-memory debounce queues.
-        // Persist both before shutdownDatabase closes SQLite.
-        try { global.__JUNE_FLUSH_ANTIDELETE?.() } catch (_) {}
-        try { global.__JUNE_FLUSH_GROUP_STATS?.() } catch (_) {}
-        try {
-            const sock = global.currentSock
-            if (sock?.ws?.close) sock.ws.close()
-            else if (sock?.end) sock.end(new Error('process shutdown'))
-        } catch (_) {}
+        // Persist both before the databases close — one pass per bot context
+        // so each bot's pending rows land in its own database.
+        for (const botId of juneDatabase.listBotIds()) {
+            await runInBot(botId, () => {
+                try { global.__JUNE_FLUSH_ANTIDELETE?.() } catch (_) {}
+                try { global.__JUNE_FLUSH_GROUP_STATS?.() } catch (_) {}
+            })
+        }
+        try { diskManager?.stop?.() } catch (_) {}
         try { keepAliveServer?.close?.() } catch (_) {}
-        try { await autoExportSessionToEnv(true) } catch (_) {}
-        try { await juneDatabase.shutdownDatabase() } catch (error) {
+        for (const bot of sessionManager.list()) {
+            try { await autoExportSessionToEnv(bot, true) } catch (_) {}
+        }
+        try { await juneDatabase.shutdownAllDatabases() } catch (error) {
             log(`[ SHUTDOWN ] Database flush failed: ${error.message}`, 'red', true)
         }
         log('[ SHUTDOWN ] Complete.', 'green')
@@ -2479,7 +2551,58 @@ global.__JUNE_SHUTDOWN = async () => {
     return global._shutdownPromise
 }
 
-keepAliveServer = startKeepAliveServer();
+// ─── Main Login Flow ──────────────────────────────────────────────────────────
+
+async function main() {
+    // The database uses async sql.js initialization when better-sqlite3 cannot
+    // load on an older VPS. Nothing may read settings/auth/schema before this.
+    await juneDatabase.ready
+
+    const entries = loadSessionRegistry()
+    const ids = entries.map((entry) => String(entry.id || DEFAULT_BOT_ID))
+    const unique = [...new Set(ids)]
+    if (entries.length !== unique.length) {
+        log('[ MULTI-SESSION ] Duplicate session ids detected — later entries override earlier ones.', 'yellow')
+    }
+    log(`[ MULTI-SESSION ] ${unique.length} session(s) registered: ${unique.join(', ')}`, 'cyan')
+    if (unique.length > 1) {
+        log('[ MULTI-SESSION ] Multi-session mode: each session uses its own SQLite database (june-<id>.db) and auth directory.', 'cyan')
+    }
+
+    // Wire every session: database, config, remote adapters, recovery.
+    for (const entry of entries) {
+        const bot = sessionManager.register(entry)
+        try {
+            await wireBotRuntime(bot)
+        } catch (error) {
+            log(`[ SESSION:${bot.id} ] Runtime wiring failed: ${error?.message || error}`, 'red', true)
+            bot.lastError = String(error?.message || error)
+            bot.botState = 'needs-login'
+        }
+    }
+
+    if (!handler) handler = require('./handler')
+    diskManager.start()
+
+    checkEnvStatus()
+
+    // Boot every session concurrently — each session is independent and
+    // reconnects on its own; a failed session never blocks the others.
+    const bootPromises = sessionManager.list().map((bot) => (async () => {
+        try {
+            await bootBot(bot)
+        } catch (error) {
+            log(`[ SESSION:${bot.id} ] Boot failed: ${error?.message || error}`, 'red', true)
+            bot.lastError = String(error?.message || error)
+            bot.botState = 'needs-login'
+        }
+    })())
+
+    // The dashboard serves immediately — sessions connect in the background.
+    keepAliveServer = startKeepAliveServer();
+
+    await Promise.allSettled(bootPromises)
+}
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────
 
@@ -2508,4 +2631,13 @@ process.on('unhandledRejection', (err) => {
     log(`Unhandled Rejection: ${err?.message}`, 'red', true)
 })
 
-module.exports = { store }
+// Backward-compatible export: resolves to the current bot's message store.
+module.exports = {
+    store: new Proxy({}, {
+        get(_target, prop) {
+            const bot = sessionManager.defaultBot();
+            return bot?.store?.[prop];
+        },
+    }),
+    sessionManager,
+}

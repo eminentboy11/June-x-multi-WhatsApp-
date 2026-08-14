@@ -6,7 +6,12 @@ const db = require('../../database');
 
 const HEARTBEAT_MS = 10_000; // ping presence every 10 s
 
-let _interval = null;
+// Per-bot heartbeat intervals (multi-session: each connected account keeps
+// its own presence loop).
+const _intervals = new Map();
+function _botKey(sock) {
+  return String(sock?.user?.id || sock?.authState?.creds?.me?.id || 'default');
+}
 
 function loadSettings() {
     return { enabled: db.getBotSetting('alwaysOnline') || false };
@@ -17,15 +22,19 @@ function saveSettings(s) {
 }
 
 function startHeartbeat(sock) {
-    if (_interval) clearInterval(_interval);
+    const key = _botKey(sock);
+    const previous = _intervals.get(key);
+    if (previous) clearInterval(previous);
     sock.sendPresenceUpdate('available').catch(() => {});
-    _interval = setInterval(() => {
+    _intervals.set(key, setInterval(() => {
         sock.sendPresenceUpdate('available').catch(() => {});
-    }, HEARTBEAT_MS);
+    }, HEARTBEAT_MS));
 }
 
 function stopHeartbeat(sock) {
-    if (_interval) { clearInterval(_interval); _interval = null; }
+    const key = _botKey(sock);
+    const interval = _intervals.get(key);
+    if (interval) { clearInterval(interval); _intervals.delete(key); }
     if (sock) sock.sendPresenceUpdate('unavailable').catch(() => {});
 }
 

@@ -39,3 +39,13 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# ── Multi-session runtime ─────────────────────────────────────────────────────
+sessions/
+sessions.json
+database/*.db
+database/*.db-shm
+database/*.db-wal
+database/*.backup
+database/*.quarantine-*
+session.*.quarantine-*

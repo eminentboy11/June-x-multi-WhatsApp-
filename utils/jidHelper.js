@@ -10,8 +10,10 @@
 
 const { jidDecode, jidEncode } = require('@whiskeysockets/baileys');
 const database = require('../database');
+const { scopedMap } = require('./botContext');
 
-const lidMappingCache = new Map();
+// Per-bot scoped: LID↔PN mappings differ per connected account.
+const lidMappingCache = scopedMap(() => new Map());
 
 function jidUser(value) {
   if (!value) return null;

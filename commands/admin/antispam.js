@@ -1,7 +1,9 @@
 const database = require(require('path').join(global.__CORE__, 'database'));
+const { scopedMap } = require('../../utils/botContext');
 
-// In-memory tracker: { groupId: { userId: [timestamps] } }
-const spamTracker = new Map();
+// In-memory tracker: { groupId: { userId: [timestamps] } } — per-bot scoped
+// so each session enforces its own anti-spam configuration independently.
+const spamTracker = scopedMap(() => new Map());
 
 const DEFAULT_LIMIT   = 5;  // messages
 const DEFAULT_WINDOW  = 5;  // seconds

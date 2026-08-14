@@ -1,4 +1,6 @@
-const { loadSettings, saveSettings } = require('../../database');
+const database = require('../../database');
+const loadSettings = () => database.loadSettings();
+const saveSettings = (s) => database.saveSettings(s);
 
 module.exports = {
     name: 'autostatusreact',
