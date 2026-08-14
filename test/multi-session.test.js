@@ -269,6 +269,46 @@ function test(name, fn) {
         assert.strictEqual(sessionLogLabel('9'), 'JUNE ULTRA 009');
     });
 
+    console.log('\n[9] per-session restart command');
+    const restartCmd = require('../commands/owner/restart');
+
+    await test('.restart routes to the per-session hook — only that bot restarts', async () => {
+        const oldExit = process.exit;
+        const oldHook = global.__JUNE_RESTART_SESSION;
+        let exitCode = null;
+        let hookCalledWith = null;
+        process.exit = (code) => { exitCode = code; };
+        global.__JUNE_RESTART_SESSION = (botId) => {
+            hookCalledWith = botId;
+            return Promise.resolve({ ok: true, id: botId, sock: { sendMessage: () => Promise.resolve() } });
+        };
+        const sock = { sendMessage: async () => {} };
+        const msg = { key: { remoteJid: 'abc@g.us', id: 'x' } };
+        const extra = { reply: async () => {} };
+        await runInBot('alpha', () => restartCmd.execute(sock, msg, [], extra));
+        await new Promise((r) => setTimeout(r, 700));
+        assert.strictEqual(hookCalledWith, 'alpha'); // the session that received it
+        assert.strictEqual(exitCode, null);          // process NOT killed
+        global.__JUNE_RESTART_SESSION = oldHook;
+        process.exit = oldExit;
+    });
+
+    await test('legacy fallback: process.exit when the hook is missing', async () => {
+        const oldExit = process.exit;
+        const oldHook = global.__JUNE_RESTART_SESSION;
+        let exitCode = null;
+        process.exit = (code) => { exitCode = code; };
+        global.__JUNE_RESTART_SESSION = undefined;
+        const sock = { sendMessage: async () => {} };
+        const msg = { key: { remoteJid: 'abc@g.us', id: 'y' } };
+        const extra = { reply: async () => {} };
+        await runInBot('alpha', () => restartCmd.execute(sock, msg, [], extra));
+        await new Promise((r) => setTimeout(r, 700));
+        assert.strictEqual(exitCode, 1);
+        global.__JUNE_RESTART_SESSION = oldHook;
+        process.exit = oldExit;
+    });
+
     console.log('\n[8] adapters — per-bot ids');
     const pg = require('../utils/juneDb/pgAdapter');
     const mg = require('../utils/juneDb/mongoAdapter');

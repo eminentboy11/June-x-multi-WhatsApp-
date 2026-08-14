@@ -2573,6 +2573,69 @@ function startKeepAliveServer() {
 
 let keepAliveServer = null
 
+// ─── Per-session restart ──────────────────────────────────────────────────────
+// Restarts ONLY the session that asked for it: the other sessions keep
+// running untouched. The command layer reaches this through
+// global.__JUNE_RESTART_SESSION(botId), falling back to process.exit(1) only
+// when the hook is unavailable (legacy single-session deployments).
+
+async function restartBot(id) {
+    const bot = sessionManager.get(id)
+    if (!bot) {
+        log(`[ SESSION ] Restart requested for unknown session: ${id}`, 'red', true)
+        return { ok: false, id: String(id), error: 'unknown session' }
+    }
+    return runInBot(bot.id, async () => {
+        try {
+            log(`[ SESSION:${bot.id} ] Manual restart requested — rebooting this session only.`, 'yellow')
+            bot._shutdownRequested = false // reconnect machinery must stay active
+            bot.isReconnecting = false
+            bot.isBotConnected = false
+            bot.botState = 'connecting'
+
+            // Tear down only this bot's socket. removeAllListeners prevents
+            // the old socket's close event from re-entering the reconnect
+            // state machine while the fresh socket is booting.
+            const oldSock = bot.sock
+            bot.sock = null
+            if (oldSock) {
+                try { oldSock.ev?.removeAllListeners?.() } catch (_) {}
+                try { oldSock.ws?.close?.() } catch (_) {}
+                try { oldSock.end?.(new Error('manual session restart')) } catch (_) {}
+                await delay(250)
+            }
+
+            const sock = await startBotSocket(bot)
+            // Wait (bounded) for the fresh socket to finish connecting so
+            // callers can reply through a live connection.
+            if (!sock.user) {
+                await new Promise((resolve) => {
+                    const onOpen = (update) => {
+                        if (update.connection === 'open') {
+                            try { sock.ev?.off?.('connection.update', onOpen) } catch (_) {}
+                            resolve()
+                        }
+                    }
+                    sock.ev?.on?.('connection.update', onOpen)
+                    setTimeout(() => {
+                        try { sock.ev?.off?.('connection.update', onOpen) } catch (_) {}
+                        resolve()
+                    }, 30000).unref?.()
+                })
+            }
+            log(`[ SESSION:${bot.id} ] Restart complete.`, 'green')
+            return { ok: true, id: bot.id, sock }
+        } catch (error) {
+            log(`[ SESSION:${bot.id} ] Restart failed: ${error?.message || error}`, 'red', true)
+            bot.lastError = String(error?.message || error)
+            bot.botState = 'needs-login'
+            return { ok: false, id: bot.id, error: String(error?.message || error) }
+        }
+    })
+}
+
+global.__JUNE_RESTART_SESSION = restartBot
+
 global.__JUNE_SHUTDOWN = async () => {
     if (global._shutdownPromise) return global._shutdownPromise
     global._shutdownRequested = true

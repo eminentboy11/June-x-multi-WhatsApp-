@@ -103,6 +103,10 @@ bot's data.
 
 - **Add a session**: append to `sessions.json` / `JUNE_SESSIONS` and restart
   (a watcher restarts the process automatically when `sessions.json` changes).
+- **Restart one session**: `.restart` from that bot restarts **only that
+  session** — its socket is torn down and rebooted from stored auth while the
+  other sessions keep running untouched (falls back to a full process restart
+  only when the per-session hook is unavailable).
 - **Replace a session**: change its `sessionId` (optionally
   `JUNE_FORCE_SESSION_BOOTSTRAP=true` to force re-bootstrap from the id).
 - **A session logs out**: only that session's auth is quarantined/cleared and
