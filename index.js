@@ -1711,14 +1711,19 @@ if (groupInvites.length > 0) {
             try {
                 const s = loadSettings()
 
-                // Auto View
+                // Auto View — key used for readMessages must match the JID used
+                // for sendReceipt (normPart), otherwise WhatsApp never registers
+                // the view and the green ring never clears.
                 if (s.enabled && normPart) {
-                    // 1. Mark the message as read first
+                    const readKey = {
+                        remoteJid: 'status@broadcast',
+                        id: msg.key.id,
+                        participant: normPart,
+                        fromMe: false,
+                    }
                     try {
-                        await sock.readMessages([msg.key])
+                        await sock.readMessages([readKey])
                     } catch (_) {}
-                    // 2. Send the story read receipt after a short natural delay
-                    //    so WhatsApp registers the view and updates the poster's seen list
                     await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 500)))
                     try {
                         await sock.sendReceipt('status@broadcast', normPart, [msg.key.id], 'read')
