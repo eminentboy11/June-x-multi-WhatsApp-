@@ -253,18 +253,30 @@ module.exports = {
     usage: '.lid [@user | number | reply]',
 
     async execute(sock, msg, args, extra) {
-        const input = collectInput(msg, args, extra);
+        const input = collectInput(msg, args, extra, sock);
+
+        // ✅ FIX: Ask for target instead of defaulting to bot
+        if (input.hint === 'need-target') {
+            return extra.reply(
+                `🆔 *LID Resolver — No Target*\n\n` +
+                `Provide a target to resolve:\n\n` +
+                `Usage:\n` +
+                `  .lid @user\n` +
+                `  .lid 2348072642047\n` +
+                `  .lid 233256100331525@lid\n` +
+                `  reply + .lid`
+            );
+        }
 
         if (input.hint === 'arg-unknown') {
             return extra.reply(
                 `🆔 *LID Resolver*\n\n` +
                 `Could not parse: *${input.raw}*\n\n` +
                 `Usage:\n` +
-                `  .lid\n` +
                 `  .lid @user\n` +
                 `  .lid 2348072642047\n` +
                 `  .lid 233256100331525@lid\n` +
-                `  .lid  _(reply to a message)_`
+                `  reply + .lid`
             );
         }
 
