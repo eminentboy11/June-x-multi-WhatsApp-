@@ -1,4 +1,4 @@
-       const config = require('../../config');
+const config = require('../../config');
 const db = require('../../database');
 
 const NOTES_NAMESPACE = 'user_notes';
@@ -8,7 +8,7 @@ function getUserId(m) {
   return jid.split(':')[0].split('@')[0];
 }
 
-functio       n fmtDate(ts) {
+function fmtDate(ts) {
   try {
     return new Date(ts).toLocaleString('en-GB', {
       day: '2-digit',
@@ -19,7 +19,7 @@ functio       n fmtDate(ts) {
     });
   } catch {
     return '';
-  }const
+  }
 }
 
 module.exports = {
@@ -65,7 +65,7 @@ module.exports = {
 
         await sock.sendMessage(jid, {
           text:
-            `┏━━『  NOTE DELETED 』━━\n` +
+            `┏━━『 🗑️ NOTE DELETED 』━━\n` +
             `➥ Note        ➜ ${removed.text}\n` +
             `➥ Remaining   ➜ ${notes.length}\n` +
             `┗━━━━━━━━━━━━━━━━`
@@ -116,19 +116,20 @@ module.exports = {
         }, { quoted: m });
 
         return;
-      } 
-  const lines = notes.map((n, i) =>
-  `➥ *${i + 1}.* ${n.text}`
-).join('\n');
+      }
 
-const out =
-  `┏━━『 📝 MY NOTES 』━━\n` +
-  `➥ Total     ➜ ${notes.length}\n` +
-  `${lines}\n` +
-  `➥ Add       ➜ ${prefix}addnote <text>\n` +
-  `➥ Delete    ➜ ${prefix}mynotes del <num>\n` +
-  `➥ Clear     ➜ ${prefix}mynotes clear\n` +
-  `┗━━━━━━━━━━━━━━━━`;
+      const lines = notes.map((n, i) =>
+        `➥ *${i + 1}.* ${n.text}`
+      ).join('\n');
+
+      const out =
+        `┏━━『 📝 MY NOTES 』━━\n` +
+        `➥ Total     ➜ ${notes.length}\n` +
+        `${lines}\n` +
+        `➥ Add       ➜ ${prefix}addnote <text>\n` +
+        `➥ Delete    ➜ ${prefix}mynotes del <num>\n` +
+        `➥ Clear     ➜ ${prefix}mynotes clear\n` +
+        `┗━━━━━━━━━━━━━━━━`;
 
       await sock.sendMessage(jid, {
         text: out
