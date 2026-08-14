@@ -67,6 +67,8 @@ Three ways, in priority order:
 
 No `sessionId` and no `phone` → session is parked as `needs-login` on the dashboard until you add one.
 
+**🎯 Bonus — combine both:** with `sessionId` + `phone`, the bot tries the session ID first and **automatically falls back to pairing-code login** whenever it's invalid, revoked, or the session logs out. Self-healing, no `needs-login` parking. Details in [MULTI_SESSION.md](MULTI_SESSION.md).
+
 ---
 
 ## 🖥️ Dashboard & health
@@ -84,7 +86,7 @@ No `sessionId` and no `phone` → session is parked as `needs-login` on the dash
 - **Auth**: SQLite-backed Signal keys with integrity validation, backups, quarantines, session-ID fingerprints, remote auth mirror (Postgres / MongoDB) with recovery
 - **Notes system** (`addnote` / `mynotes`) per user, per bot
 - Group stats, warning system, muting, bot modes, font styles, sticker tools, yt/media downloaders, TTS, ephoto360/textmaker/design logos
-- Auto status view/react, always-online, auto-download status, pairing-code login, `.env`/registry watchers, graceful shutdown
+- Auto status view/react, always-online, auto-download status, pairing-code login with **sessionId+phone auto-fallback**, `.env`/registry watchers, graceful shutdown
 
 ---
 

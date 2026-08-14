@@ -91,6 +91,7 @@ class BotInstance {
         this.loginMethod = null;
         this._lastSessionExport = 0;
         this._bootstrapRetries = 0;
+        this._fallbackToPairing = false; // sessionId+phone: auto pairing fallback active
 
         // Error info for dashboard
         this.lastError = null;

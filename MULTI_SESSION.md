@@ -38,11 +38,33 @@ Entry fields:
 | `id`        | no*      | Unique session id (safe chars: letters, digits, `_.-`)         |
 | `name`      | no       | Display name (also becomes that bot's `botName` config)        |
 | `sessionId` | no       | Session ID — one of `JUNE-MD:~…`, `Ultra-X:~…`, `June-Ultra:~…`, `June::~…` |
-| `phone`     | no       | Phone number with country code — triggers pairing-code login   |
+| `phone`     | no       | Phone number with country code — triggers pairing-code login; also acts as an automatic fallback when `sessionId` fails (see below) |
 
 \* defaults to the default bot id. `phone` without `sessionId` = pair with code
 (the code is printed in the logs). Neither = session is parked as
 `needs-login` until you add one.
+
+### 🎯 Bonus: sessionId + phone (auto-fallback)
+
+A session may carry **both** fields:
+
+```json
+{ "id": "main", "name": "Main", "sessionId": "JUNE-MD:~...", "phone": "2348154853640" }
+```
+
+The bot always tries the `sessionId` first (legacy bootstrap flow). If that
+path breaks, it **automatically falls back to pairing-code login** with the
+phone — no manual intervention, no `needs-login` parking:
+
+| Situation | What happens |
+|---|---|
+| `sessionId` invalid / creds rejected at bootstrap | fingerprint revoked, session quarantined, a fresh pairing code is printed from `phone` |
+| `sessionId` was revoked by WhatsApp (logged out) | falls straight to pairing with `phone` |
+| connected session gets logged out later | session cleared, then pairing code re-issued from `phone` |
+| pairing succeeds | bot connects; the fallback arms reset automatically |
+
+A QR event while a phone is configured also triggers a pairing code even when
+the `sessionId` path produced it — so the combo self-heals end to end.
 
 ### 2. Pair / connect
 

@@ -832,6 +832,16 @@ async function getLoginMethod(bot) {
         bot.db.clearStoredLoginMethod()
     }
 
+    // Bonus (sessionId + phone): when a phone is configured and there is no
+    // usable stored session, go straight to pairing-code login — no menu.
+    // (_fallbackToPairing is set when a configured sessionId was rejected;
+    // headless/panel sessions always prefer the phone when present.)
+    if (bot.phone && !sessionExists(bot) && (!process.stdin.isTTY || bot._fallbackToPairing)) {
+        log(`[ LOGIN:${bot.id} ] Phone configured — using pairing-code login.`, 'cyan')
+        await bot.db.setStoredLoginMethod('number')
+        return 'number'
+    }
+
     // Headless platforms and additional registry sessions are non-interactive.
     if (!process.stdin.isTTY || !bot.interactive) {
         if (bot.sessionId) {
@@ -1357,6 +1367,9 @@ async function startBotSocket(bot) {
                     await delay(1000)
                 }
                 log(`Restarting login flow... (${bot.id})`, 'green')
+                if (bot.phone) {
+                    return fallbackToPairing(bot, `Session ${bot.id} was logged out`)
+                }
                 return bootBot(bot)
             } else {
                 if (bot.isReconnecting) {
@@ -1504,6 +1517,7 @@ async function startBotSocket(bot) {
             // reconnect so WhatsApp backlog delivery cannot block live commands.
             replayDrain.markConnectionOpen()
             bot.phone = ''  // Clear so reconnects don't re-request pairing code
+            bot._fallbackToPairing = false  // pairing fallback completed
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             bot.accountNumber = botNum
             await tryMigrateFileAuth('connection-open')
@@ -1908,6 +1922,25 @@ async function startBotSocket(bot) {
     return sock
 }
 
+// ─── Bonus: sessionId + phone — automatic pairing fallback ───────────────────
+// When a session is configured with BOTH a sessionId and a phone number, the
+// sessionId is tried first (legacy bootstrap flow). If it is invalid, was
+// revoked by WhatsApp, or the session gets logged out, the bot automatically
+// falls back to pairing-code login with the configured phone instead of
+// parking the session as needs-login.
+
+async function fallbackToPairing(bot, reason) {
+    log(`[ SESSION:${bot.id} ] ${reason} — falling back to pairing-code login.`, 'yellow')
+    if (sessionExists(bot)) {
+        try { quarantineCurrentSessionForReplacement(bot) } catch (_) {}
+    }
+    bot.sessionId = ''
+    bot._fallbackToPairing = true
+    bot._bootstrapRetries = 0
+    bot.botState = 'connecting'
+    return bootBot(bot)
+}
+
 // ─── Per-session boot flow ────────────────────────────────────────────────────
 
 async function bootBot(bot) {
@@ -1917,8 +1950,9 @@ async function bootBot(bot) {
         // 0. Re-read SESSION_ID directly from .env every time the default
         //    session boots so recursive calls (after logout) always see the
         //    latest value, and dotenvx quirks (which mangle long base64
-        //    values) are bypassed entirely.
-        if (bot.id === DEFAULT_BOT_ID) {
+        //    values) are bypassed entirely. Skipped during a pairing fallback
+        //    so a revoked .env SESSION_ID cannot re-enter the loop.
+        if (bot.id === DEFAULT_BOT_ID && !bot._fallbackToPairing) {
             const _freshSessionID = readSessionIDFromEnv()
             // Keep a platform-provided SESSION_ID when .env intentionally
             // contains SESSION_ID= (the normal pattern for Heroku/Replit/Railway).
@@ -1973,6 +2007,10 @@ async function bootBot(bot) {
         log(`[ SESSION_ID:${bot.id} ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
 
         if (sessionIdRevoked) {
+            if (bot.phone) {
+                log(`[ SESSION_ID:${bot.id} ] This SESSION_ID was logged out by WhatsApp.`, 'red', true)
+                return fallbackToPairing(bot, 'Session ID was revoked by WhatsApp')
+            }
             log(`[ SESSION_ID:${bot.id} ] This SESSION_ID was logged out by WhatsApp. Add a fresh SESSION_ID, then restart.`, 'red', true)
             bot.botState = 'needs-login'
             return null
@@ -2023,8 +2061,14 @@ async function bootBot(bot) {
                     const multiSession = sessionManager.list().length > 1
                     // Legacy single-session keeps the original retry-forever
                     // behaviour. In multi-session mode a broken session id
-                    // must not spam logs forever — park the session instead.
+                    // must not spam logs forever — park the session instead,
+                    // or fall back to pairing when a phone is configured.
                     if (!bot.interactive && (multiSession || bot._bootstrapRetries >= 3)) {
+                        if (bot.phone) {
+                            log(`[ SESSION_ID:${bot.id} ] ❌ Bootstrap failed (${e.message}).`, 'red', true)
+                            markSessionIdFingerprintRevoked(bot, fingerprintSessionId(envSessionID))
+                            return fallbackToPairing(bot, 'Session ID bootstrap failed')
+                        }
                         log(`[ SESSION_ID:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
                         log(`[ SESSION:${bot.id} ] Marked as needs-login — fix its sessionId in sessions.json / JUNE_SESSIONS, then restart.`, 'yellow')
                         bot.botState = 'needs-login'
