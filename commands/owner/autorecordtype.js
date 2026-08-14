@@ -4,8 +4,8 @@ module.exports = {
     name: 'autorecordtype',
     aliases: ['recordtype', 'fakerecordtype'],
     category: 'owner',
-    description: 'Show fake recording-then-typing presence, scoped to pm/group/all',
-    usage: '.autorecordtype pm|group|all|on|off',
+    description: 'Show fake recording-then-typing presence — pm = PM only, gc = groups only, all = both, off = disabled',
+    usage: '.autorecordtype pm|gc|all|off',
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {

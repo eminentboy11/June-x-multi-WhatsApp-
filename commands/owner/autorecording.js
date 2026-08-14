@@ -4,8 +4,8 @@ module.exports = {
     name: 'autorecording',
     aliases: ['autorecord', 'record'],
     category: 'owner',
-    description: 'Show fake audio-recording presence, scoped to pm/group/all',
-    usage: '.autorecording pm|group|all|on|off',
+    description: 'Show fake audio-recording presence — pm = PM only, gc = groups only, all = both, off = disabled',
+    usage: '.autorecording pm|gc|all|off',
     ownerOnly: true,
 
     async execute(sock, msg, args, extra) {

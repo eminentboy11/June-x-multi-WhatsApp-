@@ -65,50 +65,48 @@ function labelOf(m) { return LABELS[m] || m || 'off'; }
 
 /**
  * Shared command logic for .autotyping / .autorecording / .autorecordtype.
- * Supports scope: pm | group | all | on | off, plus "<scope> off" to disable
- * just one scope.
+ * Simple mode selector: pm|dms = PM only, gc|group = groups only,
+ * all = PM + groups, off = disabled everywhere.
  */
 async function runPresenceCommand({ name, mode, args, extra, emoji, label }) {
   const a = (args || []).map((s) => String(s).toLowerCase());
   const scopeArg = a[0];
-  const actionArg = a[1];
   const modes = getModes();
 
   if (!scopeArg) {
     return extra.reply(
-      `${emoji} *${label}*\n` +
-      `📱 PM     : *${labelOf(modes.pm)}*\n` +
-      `👥 Group  : *${labelOf(modes.group)}*\n\n` +
+      `${emoji} *${label}*\n\n` +
+      `📱 PM       : ${labelOf(modes.pm)}\n` +
+      `👥 Group    : ${labelOf(modes.group)}\n\n` +
       `Usage:\n` +
-      `• .${name} pm     → enable in PMs\n` +
-      `• .${name} group  → enable in groups\n` +
-      `• .${name} all    → enable everywhere\n` +
-      `• .${name} on     → enable everywhere\n` +
-      `• .${name} off    → disable everywhere\n` +
-      `• .${name} pm off → disable in PMs only`
+      `• .${name} pm     → PM only\n` +
+      `• .${name} gc     → Groups only\n` +
+      `• .${name} all    → PM + Groups\n` +
+      `• .${name} off    → Disable\n` +
+      `_(aliases: dms = pm, group = gc)_`
     );
   }
 
-  let targetScope = 'all';
-  let turnOn = true;
-
-  if (scopeArg === 'off') { targetScope = 'all'; turnOn = false; }
-  else if (scopeArg === 'on' || scopeArg === 'all') { targetScope = 'all'; turnOn = true; }
-  else if (scopeArg === 'pm' || scopeArg === 'group') {
-    targetScope = scopeArg;
-    turnOn = actionArg !== 'off';
+  let newPm, newGroup, scopeText;
+  if (scopeArg === 'off') {
+    newPm = 'off'; newGroup = 'off'; scopeText = 'everywhere';
+  } else if (scopeArg === 'all') {
+    newPm = mode; newGroup = mode; scopeText = 'PM + Groups';
+  } else if (scopeArg === 'pm' || scopeArg === 'dms') {
+    newPm = mode; newGroup = 'off'; scopeText = 'PM only';
+  } else if (scopeArg === 'group' || scopeArg === 'gc') {
+    newGroup = mode; newPm = 'off'; scopeText = 'Groups only';
   } else {
-    return extra.reply(`⚠️ Usage: .${name} pm|group|all|on|off`);
+    return extra.reply(`⚠️ Usage: .${name} pm|gc|all|off`);
   }
 
-  const newMode = turnOn ? mode : 'off';
-  if (targetScope === 'all') { setPmMode(newMode); setGroupMode(newMode); }
-  else if (targetScope === 'pm') setPmMode(newMode);
-  else setGroupMode(newMode);
+  setPmMode(newPm);
+  setGroupMode(newGroup);
 
-  const scopeText = targetScope === 'all' ? 'PM + Group' : (targetScope === 'pm' ? 'PM' : 'Group');
-  const stateText = turnOn ? `ON — ${labelOf(mode)}` : 'OFF';
-  return extra.reply(`${emoji} *${label}* set to *${stateText}* for *${scopeText}*.`);
+  if (scopeArg === 'off') {
+    return extra.reply(`${emoji} *${label}* disabled ${scopeText}.`);
+  }
+  return extra.reply(`${emoji} *${label}* enabled for *${scopeText}* (${labelOf(mode)}).`);
 }
 
 module.exports = {
