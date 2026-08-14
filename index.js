@@ -145,6 +145,7 @@ const { runInBot, DEFAULT_BOT_ID } = require('./utils/botContext')
 const {
     SessionManager,
     loadSessionRegistry,
+    sessionLogLabel,
 } = require('./utils/sessionManager')
 const {
     atomicWriteFile,
@@ -1812,7 +1813,13 @@ async function startBotSocket(bot) {
                     const dayz = moment(Date.now()).tz(tz).locale('en').format('dddd')
                     const timez = moment(Date.now()).tz(tz).locale('en').format('HH:mm:ss z')
                     const datez = moment(Date.now()).tz(tz).format('DD/MM/YYYY')
-                    lolcatjs.fromString(`┏━━━━━━━━━━━━━『  JUNE ULTRA 』━━━━━━━━━━━━━─`)
+                    // Per-session log-box header: "JUNE ULTRA <last3>" where
+                    // <last3> is the last 3 digits of this session's number,
+                    // so each bot's CMD logs are identifiable at a glance.
+                    const logBoxLabel = sessionLogLabel(
+                        bot.accountNumber || sock?.user?.id?.split(':')[0]
+                    )
+                    lolcatjs.fromString(`┏━━━━━━━━━━━━━『  ${logBoxLabel} 』━━━━━━━━━━━━━─`)
                     lolcatjs.fromString(`»  Sent Time: ${dayz}, ${timez}`)
                     lolcatjs.fromString(`»  Date: ${datez}`)
                     lolcatjs.fromString(`»  Message Type: ${mtype}`)

@@ -33,6 +33,24 @@ function defaultSessionDir(botId) {
         : path.join(process.cwd(), 'sessions', String(botId));
 }
 
+/**
+ * Per-session console log-box label.
+ *
+ * The CMD log box header uses this instead of a static "JUNE ULTRA" label:
+ *   sessionLogLabel('2348165321909') -> 'JUNE ULTRA 909'
+ *   sessionLogLabel(null)            -> 'JUNE ULTRA ···'
+ *
+ * @param {string|number} number  the session's WhatsApp number (digits only)
+ */
+function sessionLogLabel(number) {
+    // Accept a bare number, a phone-with-device id (2348...:12) or a full JID
+    // (2348...:12@s.whatsapp.net) — always resolve to the phone's last 3 digits.
+    const raw = String(number || '').split(':')[0].split('@')[0];
+    const digits = raw.replace(/\D/g, '');
+    const last3 = digits ? digits.slice(-3).padStart(3, '0') : '···';
+    return `JUNE ULTRA ${last3}`;
+}
+
 class BotInstance {
     constructor(entry = {}) {
         this.id = String(entry.id || DEFAULT_BOT_ID);
@@ -263,6 +281,7 @@ module.exports = {
     BotInstance,
     loadSessionRegistry,
     parseSessionsJson,
+    sessionLogLabel,
     SESSIONS_FILE,
     DEFAULT_BOT_ID,
 };

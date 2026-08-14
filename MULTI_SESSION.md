@@ -111,7 +111,10 @@ bot's data.
   are written back to `.env` (default session) or `sessions.json` (registry
   sessions) every 30 minutes.
 - **Logs**: every session-scoped line is tagged with its id, e.g.
-  `[ SESSION_ID:backup ]`, `[ CONFLICT:backup ]`, `[ AUTH:backup ]`.
+  `[ SESSION_ID:backup ]`, `[ CONFLICT:backup ]`, `[ AUTH:backup ]`. The CMD
+  log box header is tagged per session with the last 3 digits of its WhatsApp
+  number — `JUNE ULTRA 909` for `2348165321909` — so each bot's traffic is
+  identifiable at a glance.
 
 ## Known shared-state caveats (intentional)
 

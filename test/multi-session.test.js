@@ -255,6 +255,20 @@ function test(name, fn) {
         assert.ok(snap.find(s => s.id === 'a').connected);
     });
 
+    await test('sessionLogLabel tags the CMD log box per session (last 3 digits)', () => {
+        const { sessionLogLabel } = require('../utils/sessionManager');
+        assert.strictEqual(sessionLogLabel('2348165321909'), 'JUNE ULTRA 909');
+        assert.strictEqual(sessionLogLabel('2348154853640'), 'JUNE ULTRA 640');
+        assert.strictEqual(sessionLogLabel('254798570132'), 'JUNE ULTRA 132');
+        assert.strictEqual(sessionLogLabel('254712345678:12@s.whatsapp.net'), 'JUNE ULTRA 678');
+        assert.strictEqual(sessionLogLabel('254798570132:12'), 'JUNE ULTRA 132');
+        assert.strictEqual(sessionLogLabel(2348165321909), 'JUNE ULTRA 909');
+        assert.strictEqual(sessionLogLabel(''), 'JUNE ULTRA ···');
+        assert.strictEqual(sessionLogLabel(null), 'JUNE ULTRA ···');
+        assert.strictEqual(sessionLogLabel(undefined), 'JUNE ULTRA ···');
+        assert.strictEqual(sessionLogLabel('9'), 'JUNE ULTRA 009');
+    });
+
     console.log('\n[8] adapters — per-bot ids');
     const pg = require('../utils/juneDb/pgAdapter');
     const mg = require('../utils/juneDb/mongoAdapter');
