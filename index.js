@@ -267,7 +267,6 @@ function getStartupToggleState() {
         autoRecordType: presenceMode === 'recordtype',
         autoDownload,
         alwaysOnline: Boolean(db.getBotSetting?.('alwaysOnline')),
-        readReceipts: (db.getBotSetting?.('readReceipts') || 'off') !== 'off',
         antideleteStatus,
         autoReact,
         antiDelete: antideleteMode !== 'off',
@@ -340,8 +339,7 @@ function printStartupReport(data = {}) {
         startupTogglePair('Typing', data.toggles?.autoTyping, 'Recording', data.toggles?.autoRecording),
         startupTogglePair('Record+Type', data.toggles?.autoRecordType, 'Auto-Save', data.toggles?.autoDownload),
         startupTogglePair('Auto-React', data.toggles?.autoReact, 'Always-On', data.toggles?.alwaysOnline),
-        startupTogglePair('Receipts', data.toggles?.readReceipts, 'Anti-Delete', data.toggles?.antiDelete),
-        startupTogglePair('Anti-Status', data.toggles?.antideleteStatus, '', undefined),
+        startupTogglePair('Anti-Delete', data.toggles?.antiDelete, 'Anti-Status', data.toggles?.antideleteStatus),
         startupSeparator(),
         startupHeading('RUNTIME PROTECTION'),
         startupRow('Disk manager', data.diskManagerLabel || 'active', data.diskManagerStatus || 'active'),
@@ -1613,15 +1611,6 @@ if (groupInvites.length > 0) {
                 );
             });
 
-            // Apply saved read receipts privacy setting
-            try {
-                const db = require('./database')
-                const stored = db.getBotSetting('readReceipts') || 'off'
-                const rrCmd = require('./commands/owner/readreceipts')
-                const privacyVal = rrCmd.PRIVACY_MAP[stored] || 'all'
-                await sock.updateReadReceiptsPrivacy(privacyVal)
-            } catch (_) {}
-
             // Apply always-online heartbeat if enabled
             try {
                 const aolMod = require('./commands/owner/alwaysonline')
@@ -1711,9 +1700,10 @@ if (groupInvites.length > 0) {
             try {
                 const s = loadSettings()
 
-                // Auto View — key used for readMessages must match the JID used
-                // for sendReceipt (normPart), otherwise WhatsApp never registers
-                // the view and the green ring never clears.
+                // Auto View — readMessages alone dispatches the correct receipt
+                // type for status@broadcast keys. Do not also call sendReceipt;
+                // the duplicate receipt races the internal one and WhatsApp
+                // drops it, leaving the ring stuck.
                 if (s.enabled && normPart) {
                     const readKey = {
                         remoteJid: 'status@broadcast',
@@ -1721,12 +1711,9 @@ if (groupInvites.length > 0) {
                         participant: normPart,
                         fromMe: false,
                     }
-                    try {
-                        await sock.readMessages([readKey])
-                    } catch (_) {}
                     await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 500)))
                     try {
-                        await sock.sendReceipt('status@broadcast', normPart, [msg.key.id], 'read')
+                        await sock.readMessages([readKey])
                     } catch (_) {}
                 }
 
