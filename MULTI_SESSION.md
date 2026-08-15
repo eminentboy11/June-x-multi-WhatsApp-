@@ -66,6 +66,39 @@ phone — no manual intervention, no `needs-login` parking:
 A QR event while a phone is configured also triggers a pairing code even when
 the `sessionId` path produced it — so the combo self-heals end to end.
 
+#### Pairing-code budget (configurable)
+
+Every login/recovery cycle issues at most **5 pairing codes**
+(`JUNE_PAIRING_MAX_ATTEMPTS`, default 5). If none of them is paired:
+
+- the session stops generating codes and reconnecting,
+- it parks as `needs-login` (dashboard shows "pairing limit reached"),
+- it stays parked until an explicit re-trigger: `.restart` from that session,
+  or a process restart.
+
+The counter is **per session** and resets automatically after a successful
+pairing. A new WhatsApp logout after a previously successful pairing starts a
+**fresh 5-code cycle automatically** — the configured phone number is never
+cleared, so no process restart is ever needed.
+
+### 🔥 Hot-add / hot-remove sessions (no restart)
+
+The session registry (`sessions.json`, or `JUNE_SESSIONS`) is reconciled live
+(polled every `JUNE_SESSIONS_POLL_MS`, default 15 s, plus instant on file
+change):
+
+- **Add a session** → the new session is registered, gets its own SQLite
+  database, session dir, config, pairing state, reconnect timers and counters,
+  and boots — **the running sessions are not touched and stay connected**.
+- **Remove a session** → ONLY that session stops: its socket closes, its
+  intervals and reconnect timers are cleared, and its database connection and
+  remote adapter pools are flushed and closed. Its data files stay on disk.
+  Every other session keeps running.
+- Renaming an `id` counts as remove + add.
+
+`.env` edits no longer kill the process — non-session variables simply need a
+restart to apply.
+
 ### 2. Pair / connect
 
 - A `sessionId` session bootstraps itself — same as the original bot.
@@ -101,12 +134,16 @@ bot's data.
 
 ## Operations
 
-- **Add a session**: append to `sessions.json` / `JUNE_SESSIONS` and restart
-  (a watcher restarts the process automatically when `sessions.json` changes).
+- **Add a session**: append it to `sessions.json` / `JUNE_SESSIONS` — it is
+  **hot-added** within seconds (or on the next poll tick): wired, booted and
+  ready to pair. No restart, running sessions stay connected.
+- **Remove a session**: delete its entry — it is **hot-removed**: only that
+  session's socket, timers, database handle and adapter pools are released.
 - **Restart one session**: `.restart` from that bot restarts **only that
   session** — its socket is torn down and rebooted from stored auth while the
   other sessions keep running untouched (falls back to a full process restart
-  only when the per-session hook is unavailable).
+  only when the per-session hook is unavailable). `.restart` also acts as the
+  explicit re-trigger for a session parked after exhausting its pairing codes.
 - **Replace a session**: change its `sessionId` (optionally
   `JUNE_FORCE_SESSION_BOOTSTRAP=true` to force re-bootstrap from the id).
 - **A session logs out**: only that session's auth is quarantined/cleared and

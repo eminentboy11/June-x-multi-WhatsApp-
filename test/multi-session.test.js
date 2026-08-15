@@ -309,6 +309,140 @@ function test(name, fn) {
         process.exit = oldExit;
     });
 
+    console.log('\n[10] pairing-cycle state machine');
+    const { parsePairingMaxAttempts, BotInstance } = require('../utils/sessionManager');
+
+    await test('parsePairingMaxAttempts: default 5, rejects invalid values', () => {
+        assert.strictEqual(parsePairingMaxAttempts(undefined), 5);
+        assert.strictEqual(parsePairingMaxAttempts('5'), 5);
+        assert.strictEqual(parsePairingMaxAttempts('3'), 3);
+        assert.strictEqual(parsePairingMaxAttempts('0'), 5);
+        assert.strictEqual(parsePairingMaxAttempts('-2'), 5);
+        assert.strictEqual(parsePairingMaxAttempts('abc'), 5);
+    });
+
+    await test('parsePairingMaxAttempts: fractional floors to valid ints', () => {
+        assert.strictEqual(parsePairingMaxAttempts('2.9'), 2);
+    });
+
+    await test('armPairingCycle starts a fresh cycle and keeps configured phone', () => {
+        const bot = new BotInstance({ id: 'a', phone: '2348165321909' });
+        bot.pairingAttempts = 4;
+        bot.pairingExhausted = true;
+        const phone = bot.armPairingCycle();
+        assert.strictEqual(phone, '2348165321909');
+        assert.strictEqual(bot.pairingAttempts, 0);
+        assert.strictEqual(bot.pairingExhausted, false);
+        assert.strictEqual(bot._pairingPhone, '2348165321909');
+        assert.strictEqual(bot.phone, '2348165321909'); // configured phone intact
+    });
+
+    await test('notePairingAttempt counts codes and exhausts exactly at the limit', () => {
+        const bot = new BotInstance({ id: 'b', phone: '234800000000' });
+        bot.armPairingCycle();
+        assert.strictEqual(bot.notePairingAttempt(5), 1);
+        assert.strictEqual(bot.pairingExhausted, false);
+        bot.notePairingAttempt(5); bot.notePairingAttempt(5); bot.notePairingAttempt(5);
+        assert.strictEqual(bot.pairingAttempts, 4);
+        assert.strictEqual(bot.pairingExhausted, false);
+        bot.notePairingAttempt(5);
+        assert.strictEqual(bot.pairingAttempts, 5);
+        assert.strictEqual(bot.pairingExhausted, true);
+    });
+
+    await test('clearPairingState resets transient state but NEVER the configured phone', () => {
+        const bot = new BotInstance({ id: 'c', phone: '2348154853640' });
+        bot.armPairingCycle();
+        bot.notePairingAttempt(5);
+        bot.notePairingAttempt(5);
+        bot.clearPairingState();
+        assert.strictEqual(bot._pairingPhone, null);
+        assert.strictEqual(bot.pairingAttempts, 0);
+        assert.strictEqual(bot.pairingExhausted, false);
+        assert.strictEqual(bot.phone, '2348154853640'); // survives — re-arms after logout
+        // and a fresh cycle can start from it immediately
+        const phone = bot.armPairingCycle();
+        assert.strictEqual(phone, '2348154853640');
+    });
+
+    await test('a new logout re-arms a full fresh cycle (attempt counter reset)', () => {
+        const bot = new BotInstance({ id: 'd', phone: '234900000000' });
+        bot.armPairingCycle();
+        bot.notePairingAttempt(5); bot.notePairingAttempt(5); bot.notePairingAttempt(5);
+        bot.notePairingAttempt(5); bot.notePairingAttempt(5); // exhausted
+        assert.strictEqual(bot.pairingExhausted, true);
+        // simulated logout -> fallbackToPairing re-arms
+        bot.armPairingCycle();
+        assert.strictEqual(bot.pairingExhausted, false);
+        assert.strictEqual(bot.pairingAttempts, 0);
+        assert.strictEqual(bot._pairingPhone, '234900000000');
+    });
+
+    await test('pairing state is isolated per bot', () => {
+        const a = new BotInstance({ id: 'a', phone: '111' });
+        const b = new BotInstance({ id: 'b', phone: '222' });
+        a.armPairingCycle();
+        a.notePairingAttempt(5); a.notePairingAttempt(5);
+        assert.strictEqual(a.pairingAttempts, 2);
+        assert.strictEqual(b.pairingAttempts, 0);
+        assert.strictEqual(b.pairingExhausted, false);
+    });
+
+    console.log('\n[11] hot-add / hot-remove plumbing');
+    const { SessionManager } = require('../utils/sessionManager');
+
+    await test('SessionManager.remove stops ONLY that session', async () => {
+        const manager = new SessionManager();
+        const sockA = { closed: false, ev: { removeAllListeners() {}, on() {} }, ws: { close() {} }, end() {} };
+        const sockB = { closed: false, ev: { removeAllListeners() {}, on() {} }, ws: { close() {} }, end() {} };
+        const a = manager.register({ id: 'a', name: 'A' });
+        const b = manager.register({ id: 'b', name: 'B' });
+        a.sock = sockA;
+        b.sock = sockB;
+        const removed = await manager.remove('a');
+        assert.strictEqual(removed, true);
+        assert.strictEqual(manager.get('a'), null);
+        assert.ok(manager.get('b'));
+        assert.strictEqual(manager.ids().join(','), 'b');
+    });
+
+    await test('unregisterBotDatabase closes one bot and survives re-registration', async () => {
+        const dbModule = require('../database');
+        const dbBot = dbModule.registerBotDatabase('hotbot');
+        await dbBot.ready;
+        dbBot.setKV('user_notes', 'u1', ['persisted-note']);
+        const removed = await dbModule.unregisterBotDatabase('hotbot');
+        assert.strictEqual(removed, true);
+        assert.strictEqual(dbModule.getBotDatabase('hotbot'), null);
+        // re-add creates a FRESH instance reading the SAME file — data persists
+        const again = dbModule.registerBotDatabase('hotbot');
+        await again.ready;
+        assert.deepStrictEqual(again.getKV('user_notes', 'u1', []), ['persisted-note']);
+        await dbModule.unregisterBotDatabase('hotbot');
+    });
+
+    await test('unregisterBotDatabase refuses to remove the default bot', async () => {
+        const dbModule = require('../database');
+        const result = await dbModule.unregisterBotDatabase(dbModule.DEFAULT_BOT_ID);
+        assert.strictEqual(result, false);
+        assert.ok(dbModule.getBotDatabase(dbModule.DEFAULT_BOT_ID));
+    });
+
+    await test('adapter unregister drops only that bot\u2019s instance', () => {
+        const pgModule = require('../utils/juneDb/pgAdapter');
+        const mgModule = require('../utils/juneDb/mongoAdapter');
+        pgModule.forBot('x-hot'); mgModule.forBot('x-hot');
+        assert.ok(pgModule.listBotIds().includes('x-hot'));
+        const removed = pgModule.unregister('x-hot');
+        assert.strictEqual(removed, true);
+        assert.ok(!pgModule.listBotIds().includes('x-hot'));
+        // re-request creates a fresh instance
+        const fresh = pgModule.forBot('x-hot');
+        assert.ok(fresh && typeof fresh.getBotId === 'function');
+        mgModule.unregister('x-hot');
+        pgModule.unregister('x-hot');
+    });
+
     console.log('\n[8] adapters — per-bot ids');
     const pg = require('../utils/juneDb/pgAdapter');
     const mg = require('../utils/juneDb/mongoAdapter');

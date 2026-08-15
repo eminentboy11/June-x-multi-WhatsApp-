@@ -146,6 +146,7 @@ const {
     SessionManager,
     loadSessionRegistry,
     sessionLogLabel,
+    parsePairingMaxAttempts,
 } = require('./utils/sessionManager')
 const {
     atomicWriteFile,
@@ -465,6 +466,11 @@ if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 // ─── Session manager ──────────────────────────────────────────────────────────
 
 const sessionManager = new SessionManager()
+
+// How many pairing codes may be issued per login/recovery cycle before the
+// session parks itself as needs-login. Per-session counters are isolated;
+// this value only sets the shared limit. Configurable: JUNE_PAIRING_MAX_ATTEMPTS.
+const PAIRING_MAX_ATTEMPTS = parsePairingMaxAttempts(process.env.JUNE_PAIRING_MAX_ATTEMPTS)
 
 // ─── Cleanup Functions ────────────────────────────────────────────────────────
 
@@ -898,12 +904,22 @@ async function getLoginMethod(bot) {
 
 async function requestPairingCode(socket, bot) {
     try {
+        // Transient pairing target (set by armPairingCycle) falls back to the
+        // configured phone. The configured phone itself is never cleared.
+        const phone = bot._pairingPhone || bot.phone
         log(`Waiting 3 seconds for socket to stabilize... (${bot.id})`, 'yellow')
         await delay(3000)
-        let code = await socket.requestPairingCode(bot.phone)
+        let code = await socket.requestPairingCode(phone)
         code = code?.match(/.{1,4}/g)?.join('-') || code
-        log(chalk.black.bgCyanBright(`\n🔑 [${bot.id}] Your Pairing Code: ${code}\n`), 'white')
+        const attempt = bot.notePairingAttempt(PAIRING_MAX_ATTEMPTS)
+        log(chalk.black.bgCyanBright(`\n🔑 [${bot.id}] Your Pairing Code (${attempt}/${PAIRING_MAX_ATTEMPTS}): ${code}\n`), 'white')
         log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
+        if (bot.pairingExhausted) {
+            log(chalk.white.bgRedBright(`[ PAIRING:${bot.id} ] Limit reached — ${PAIRING_MAX_ATTEMPTS} codes were issued without a successful pairing.`), 'white')
+            log(`[ PAIRING:${bot.id} ] Parking as needs-login. Send .restart to this session (or restart the process) to begin a fresh pairing cycle.`, 'yellow')
+            bot.botState = 'needs-login'
+            return false
+        }
         return true
     } catch (e) {
         log(`Failed to get pairing code (${bot.id}): ${e.message}`, 'red', true)
@@ -1012,20 +1028,20 @@ async function checkSessionIntegrityAndClean(bot) {
 }
 
 // ─── .env / sessions.json File Watcher ────────────────────────────────────────
+// sessions.json changes are applied LIVE: added sessions are hot-added and
+// removed sessions are hot-removed without touching the running ones.
+// .env changes only warn — non-session variables still need a restart.
 
 function checkEnvStatus() {
     try {
         log('[ WATCHER ] Monitoring .env and sessions.json for changes...', 'green')
         global._envWatcher = fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (filename && eventType === 'change') {
-                // Suppress restart when we ourselves wrote the session update.
-                // Use a time-window (not a one-shot boolean) because fs.watch fires
-                // multiple events per write on Linux/Replit.
+                // Suppress when we ourselves wrote the session update.
                 if (global._suppressEnvWatcherUntil && Date.now() < global._suppressEnvWatcherUntil) {
                     return
                 }
-                log(chalk.black.bgBlueBright('[ENV CHANGED] Restarting to apply new configuration...'), 'white')
-                process.exit(1)
+                log(chalk.black.bgBlueBright('[ENV CHANGED] .env updated — restart the process to apply non-session variables. (sessions.json changes apply live.)'), 'white')
             }
         })
         const { SESSIONS_FILE } = require('./utils/sessionManager')
@@ -1035,8 +1051,7 @@ function checkEnvStatus() {
                     if (global._suppressEnvWatcherUntil && Date.now() < global._suppressEnvWatcherUntil) {
                         return
                     }
-                    log(chalk.black.bgBlueBright('[SESSIONS CHANGED] Restarting to apply new session registry...'), 'white')
-                    process.exit(1)
+                    scheduleSessionReconcile()
                 }
             })
         }
@@ -1044,6 +1059,91 @@ function checkEnvStatus() {
         log(`⚠️ .env watcher failed: ${e.message}`, 'yellow')
     }
 }
+
+// ─── Live session registry reconciliation (hot-add / hot-remove) ──────────────
+// The registry (JUNE_SESSIONS env > sessions.json) is re-read periodically and
+// on file changes. New session ids are registered, wired and booted WITHOUT
+// touching the running sessions; removed ids stop ONLY that session and close
+// only its resources (socket, intervals, reconnect timers, database handle,
+// config, remote adapter pools).
+
+let _registryManagedIds = new Set()
+let _reconcileTimer = null
+let _reconcileRunning = false
+
+const SESSIONS_POLL_MS = (() => {
+    const n = Math.floor(Number(process.env.JUNE_SESSIONS_POLL_MS))
+    return Number.isFinite(n) && n >= 3000 ? n : 15000
+})()
+
+function scheduleSessionReconcile() {
+    if (_reconcileTimer) clearTimeout(_reconcileTimer)
+    _reconcileTimer = setTimeout(() => {
+        _reconcileTimer = null
+        reconcileSessions().catch((err) => {
+            log(`[ MULTI-SESSION ] Registry reconcile failed: ${err?.message || err}`, 'red', true)
+        })
+    }, 800)
+    _reconcileTimer.unref?.()
+}
+
+async function reconcileSessions() {
+    if (_reconcileRunning) return
+    _reconcileRunning = true
+    try {
+        const { loadRegistryFromEnv, loadRegistryFromFile } = require('./utils/sessionManager')
+        const entries = loadRegistryFromEnv() || loadRegistryFromFile()
+        if (!entries || entries.length === 0) {
+            _registryManagedIds.clear()
+            return
+        }
+
+        const desired = entries.map((entry) => String(entry.id || DEFAULT_BOT_ID))
+        const desiredSet = new Set(desired)
+        const currentSet = new Set(sessionManager.ids())
+
+        // Hot-add: brand-new ids only. Existing sessions (connected or not)
+        // are left completely alone.
+        for (const id of desired) {
+            if (currentSet.has(id)) continue
+            const entry = entries.find((e) => String(e.id || DEFAULT_BOT_ID) === id) || {}
+            const bot = sessionManager.register(entry)
+            try {
+                await wireBotRuntime(bot)
+                log(`[ MULTI-SESSION ] Hot-added session "${id}" — existing sessions stay connected.`, 'green')
+                void bootBot(bot).catch((err) => {
+                    log(`[ SESSION:${id} ] Hot-add boot failed: ${err?.message || err}`, 'red', true)
+                    bot.lastError = String(err?.message || err)
+                    bot.botState = 'needs-login'
+                })
+            } catch (error) {
+                log(`[ SESSION:${id} ] Hot-add wiring failed: ${error?.message || error}`, 'red', true)
+                bot.lastError = String(error?.message || error)
+                bot.botState = 'needs-login'
+            }
+        }
+
+        // Hot-remove: only ids that were previously registry-managed and have
+        // now disappeared from the registry. Stops ONLY that session and
+        // releases only its resources.
+        for (const id of _registryManagedIds) {
+            if (desiredSet.has(id)) continue
+            if (!currentSet.has(id)) continue
+            log(`[ MULTI-SESSION ] Hot-removing session "${id}" — only this session stops.`, 'yellow')
+            await sessionManager.remove(id)
+            config.__unregisterBotConfig(id)
+            await juneDatabase.unregisterBotDatabase(id)
+            pgAdapter.unregister(id)
+            mongoAdapter.unregister(id)
+        }
+
+        _registryManagedIds = desiredSet
+    } finally {
+        _reconcileRunning = false
+    }
+}
+
+global.__JUNE_RECONCILE_SESSIONS = reconcileSessions
 
 // ─── In-memory Message Store (per bot) ────────────────────────────────────────
 
@@ -1331,12 +1431,20 @@ async function startBotSocket(bot) {
         const { connection, lastDisconnect, qr } = update
 
         // ── Pairing code flow: intercept QR and request a code instead ──────────
-        if (qr && bot.phone && !_pairingCodeRequested) {
+        if (qr && (bot._pairingPhone || bot.phone) && !_pairingCodeRequested) {
             _pairingCodeRequested = true
+            if (!bot._pairingPhone) bot.armPairingCycle()
             await requestPairingCode(sock, bot)
         }
 
         if (connection === 'close') {
+            // Pairing budget exhausted: park and stop reconnecting. A manual
+            // .restart or process restart begins a fresh pairing cycle.
+            if (bot.pairingExhausted) {
+                bot.botState = 'needs-login'
+                log(`[ SESSION:${bot.id} ] Pairing exhausted — staying parked as needs-login.`, 'yellow')
+                return
+            }
             bot.isBotConnected = false
             bot.botState = 'connecting'
             const statusCode = lastDisconnect?.error?.output?.statusCode
@@ -1517,8 +1625,10 @@ async function startBotSocket(bot) {
             // Drop only stale replay traffic for a brief, bounded period after
             // reconnect so WhatsApp backlog delivery cannot block live commands.
             replayDrain.markConnectionOpen()
-            bot.phone = ''  // Clear so reconnects don't re-request pairing code
-            bot._fallbackToPairing = false  // pairing fallback completed
+            // Clear only the TRANSIENT pairing state. The configured phone
+            // survives so the next WhatsApp logout can re-arm pairing
+            // automatically without a process restart.
+            bot.clearPairingState()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             bot.accountNumber = botNum
             await tryMigrateFileAuth('connection-open')
@@ -1944,6 +2054,9 @@ async function fallbackToPairing(bot, reason) {
     bot.sessionId = ''
     bot._fallbackToPairing = true
     bot._bootstrapRetries = 0
+    // Fresh pairing cycle: resets the per-session attempt counter so every
+    // logout/recovery starts with the full pairing-code budget again.
+    bot.armPairingCycle()
     bot.botState = 'connecting'
     return bootBot(bot)
 }
@@ -2163,6 +2276,20 @@ async function bootBot(bot) {
             process.exit(1)
         }
 
+        // 6b. Pairing budget exhausted: park until an explicit re-trigger
+        //     (.restart on this session, a process restart, or the interactive
+        //     login menu which counts as an explicit re-trigger).
+        if (bot.pairingExhausted) {
+            if (bot.interactive && process.stdin.isTTY) {
+                log(`[ PAIRING:${bot.id} ] Previous pairing cycle exhausted — the login menu re-arms a fresh cycle.`, 'yellow')
+                bot.armPairingCycle()
+            } else {
+                log(`[ SESSION:${bot.id} ] Pairing exhausted — parked as needs-login. Send .restart to this session or restart the process for a fresh cycle.`, 'yellow')
+                bot.botState = 'needs-login'
+                return null
+            }
+        }
+
         log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No SESSION_ID found and no stored session.`), 'white')
         const loginMethod = await getLoginMethod(bot)
         if (!loginMethod) return null // needs-login; session stays registered
@@ -2286,10 +2413,20 @@ function startKeepAliveServer() {
             ? 'CONNECTED'
             : (state.state === 'connecting' ? 'CONNECTING' : (state.state === 'needs-login' ? 'NEEDS LOGIN' : 'OFFLINE'));
         const statusColor = state.connected ? '#00ffe0' : (state.state === 'connecting' ? '#ffb703' : '#e94560');
+        let sub;
+        if (state.connected) {
+            sub = (state.account || '') + ' • connected ' + new Date(state.connectedAt).toLocaleTimeString();
+        } else if (state.pairingExhausted) {
+            sub = 'pairing limit reached — .restart to retry';
+        } else if (state.pairingAttempts > 0) {
+            sub = `pairing codes issued: ${state.pairingAttempts}`;
+        } else {
+            sub = state.error ? 'last error: ' + String(state.error).slice(0, 90) : 'awaiting connection';
+        }
         return `<div class="card">
       <div class="card-title">🤖 ${String(state.name).replace(/[<>&]/g, '')} <span style="color:${statusColor}">(${String(state.id).replace(/[<>&]/g, '')})</span></div>
       <div class="card-value small" style="color:${statusColor}">${statusLabel}</div>
-      <div class="card-sub">${state.connected ? (state.account || '') + ' • connected ' + new Date(state.connectedAt).toLocaleTimeString() : (state.error ? 'last error: ' + String(state.error).slice(0, 90) : 'awaiting connection')}</div>
+      <div class="card-sub">${sub}</div>
     </div>`;
     };
 
@@ -2482,7 +2619,7 @@ function startKeepAliveServer() {
 
     app.get('/health/details', async (req, res) => {
         try {
-            const defaultBot = sessionManager.defaultBot();
+            const defaultBot = sessionManager.defaultBot() || sessionManager.list()[0];
             if (!defaultBot) return res.status(503).json({ ok: false, error: 'no sessions registered' });
             const databaseHealth = defaultBot.db.getDatabaseHealth();
             const authStats = getSQLiteAuthStats(defaultBot.db._db);
@@ -2592,6 +2729,10 @@ async function restartBot(id) {
             bot.isReconnecting = false
             bot.isBotConnected = false
             bot.botState = 'connecting'
+            // Explicit re-trigger: a parked/exhausted session gets a fresh
+            // pairing cycle when the configured phone exists.
+            bot.clearPairingState()
+            if (bot.phone) bot.armPairingCycle()
 
             // Tear down only this bot's socket. removeAllListeners prevents
             // the old socket's close event from re-entering the reconnect
@@ -2716,6 +2857,11 @@ async function main() {
     keepAliveServer = startKeepAliveServer();
 
     await Promise.allSettled(bootPromises)
+
+    // Live registry reconciliation: seed the managed-id set, then poll so
+    // sessions can be hot-added / hot-removed without a restart.
+    try { await reconcileSessions() } catch (_) {}
+    setInterval(() => scheduleSessionReconcile(), SESSIONS_POLL_MS).unref?.()
 }
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────
@@ -2749,7 +2895,7 @@ process.on('unhandledRejection', (err) => {
 module.exports = {
     store: new Proxy({}, {
         get(_target, prop) {
-            const bot = sessionManager.defaultBot();
+            const bot = sessionManager.defaultBot() || sessionManager.list()[0];
             return bot?.store?.[prop];
         },
     }),

@@ -2323,6 +2323,25 @@ function getBotDatabase(botId) {
   return registry.get(String(botId || CONTEXT_DEFAULT_BOT_ID)) || null;
 }
 
+/**
+ * Hot-remove support: flush and close ONLY this bot's database connection and
+ * drop it from the registry so a later re-add starts a fresh instance. The
+ * database FILE is kept on disk (data survives). The default/legacy bot is
+ * protected — it must never be unregistered.
+ */
+async function unregisterBotDatabase(botId) {
+  const id = String(botId || CONTEXT_DEFAULT_BOT_ID);
+  if (id === CONTEXT_DEFAULT_BOT_ID) {
+    console.warn('[DB] Refusing to unregister the default bot database.');
+    return false;
+  }
+  const instance = registry.get(id);
+  if (!instance) return false;
+  try { await instance.shutdownDatabase(); } catch (_) {}
+  registry.delete(id);
+  return true;
+}
+
 function listBotIds() {
   return [...registry.keys()];
 }
@@ -2346,6 +2365,7 @@ const defaultBotDatabase = registerBotDatabase(CONTEXT_DEFAULT_BOT_ID);
 
 const facade = new Proxy({
   registerBotDatabase,
+  unregisterBotDatabase,
   getBotDatabase,
   listBotIds,
   shutdownAllDatabases,

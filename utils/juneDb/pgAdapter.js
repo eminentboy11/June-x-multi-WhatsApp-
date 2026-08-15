@@ -635,8 +635,23 @@ function shutdownAll() {
   return Promise.allSettled([..._instances.values()].map((i) => i.close()));
 }
 
+/**
+ * Hot-remove support: close ONLY this bot's adapter instance and drop it from
+ * the cache so a later re-add starts a fresh connection. Other bots' adapter
+ * instances are untouched.
+ */
+function unregister(botId) {
+  const id = String(botId || _DEFAULT_BOT_ID);
+  const instance = _instances.get(id);
+  if (!instance) return false;
+  try { Promise.resolve(instance.close?.()).catch(() => {}); } catch (_) {}
+  _instances.delete(id);
+  return true;
+}
+
 module.exports = forBot(_DEFAULT_BOT_ID);
 module.exports.forBot = forBot;
 module.exports.create = createAdapter;
 module.exports.listBotIds = listBotIds;
 module.exports.shutdownAll = shutdownAll;
+module.exports.unregister = unregister;

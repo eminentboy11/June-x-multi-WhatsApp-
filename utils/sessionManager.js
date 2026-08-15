@@ -105,7 +105,13 @@ class BotInstance {
         this._sReactedIds = new Set();
 
         // Pairing / login
+        // `phone` is the CONFIGURED number and is never cleared: it re-arms
+        // a fresh pairing cycle after every WhatsApp logout. `_pairingPhone`
+        // is the transient target consumed while a pairing cycle is live.
         this._pairingCodeRequested = false;
+        this._pairingPhone = null;
+        this.pairingAttempts = 0;      // codes issued in the current cycle
+        this.pairingExhausted = false; // limit reached -> parked as needs-login
         this.loginMethod = null;
         this._lastSessionExport = 0;
         this._bootstrapRetries = 0;
@@ -114,6 +120,41 @@ class BotInstance {
         // Error info for dashboard
         this.lastError = null;
         this.accountNumber = null;
+    }
+
+    /**
+     * Start a fresh pairing cycle using the CONFIGURED phone. Resets the
+     * attempt counter and the exhausted flag so every logout/recovery begins
+     * with the full pairing-code budget again.
+     */
+    armPairingCycle() {
+        this._pairingPhone = this.phone || this._pairingPhone || '';
+        this.pairingAttempts = 0;
+        this.pairingExhausted = false;
+        this._pairingCodeRequested = false;
+        return this._pairingPhone;
+    }
+
+    /**
+     * Record that one pairing code was successfully shown to the user.
+     * Marks the cycle exhausted when the per-cycle limit is reached.
+     */
+    notePairingAttempt(maxAttempts) {
+        this.pairingAttempts += 1;
+        const limit = Math.max(1, Number(maxAttempts) || 5);
+        if (this.pairingAttempts >= limit) this.pairingExhausted = true;
+        return this.pairingAttempts;
+    }
+
+    /**
+     * Clear the TRANSIENT pairing state after a successful connection.
+     * The configured `phone` is intentionally left intact.
+     */
+    clearPairingState() {
+        this._pairingPhone = null;
+        this.pairingAttempts = 0;
+        this.pairingExhausted = false;
+        this._pairingCodeRequested = false;
     }
 
     get status() {
@@ -126,6 +167,8 @@ class BotInstance {
                 ? `+${String(this.accountNumber).slice(0, 3)}******${String(this.accountNumber).slice(-3)}`
                 : null,
             connectedAt: this.connectedAt,
+            pairingAttempts: this.pairingAttempts,
+            pairingExhausted: this.pairingExhausted,
             error: this.lastError,
         };
     }
@@ -218,6 +261,18 @@ class SessionManager {
     async stopAll() {
         for (const bot of this.list()) await this.stop(bot.id);
     }
+
+    /**
+     * Hot-remove: stop ONLY this session (socket, intervals, reconnect timers)
+     * and drop it from the registry. Every other session stays untouched.
+     */
+    async remove(id) {
+        const bot = this.get(id);
+        if (!bot) return false;
+        await this.stop(id);
+        this.bots.delete(String(id));
+        return true;
+    }
 }
 
 // ─── Registry parsing ─────────────────────────────────────────────────────────
@@ -276,11 +331,23 @@ function loadSessionRegistry() {
     return [buildLegacyEntry()];
 }
 
+/**
+ * Parse JUNE_PAIRING_MAX_ATTEMPTS. Default 5 pairing codes per login/recovery
+ * cycle; anything below 1 falls back to the default.
+ */
+function parsePairingMaxAttempts(raw) {
+    const n = Math.floor(Number(raw));
+    return Number.isFinite(n) && n >= 1 ? n : 5;
+}
+
 module.exports = {
     SessionManager,
     BotInstance,
     loadSessionRegistry,
+    loadRegistryFromEnv,
+    loadRegistryFromFile,
     parseSessionsJson,
+    parsePairingMaxAttempts,
     sessionLogLabel,
     SESSIONS_FILE,
     DEFAULT_BOT_ID,
