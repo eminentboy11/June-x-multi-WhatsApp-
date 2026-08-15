@@ -123,6 +123,22 @@ as JSON.
 | KV data (`user_notes` from `mynote.js`, warnings, chat profiles…) | each bot's own `kv_store` / tables |
 | Reconnect state machine (408/503/500/409/440 counters, conflict throttling) | per-bot counters persisted in each bot's DB |
 | Postgres / MongoDB mirror | per-bot `bot_id` rows and per-bot adapter pools |
+
+### External databases (PostgreSQL / MongoDB)
+
+Optional mirrors for auth state, settings and data — enabled with **global**
+env vars; every bot's rows are then separated by its `bot_id` automatically
+(each session opens its own adapter pool):
+
+```env
+DATABASE_URL=postgres://user:pass@host:5432/june_x
+MONGODB_URI=mongodb+srv://user:pass@cluster/june_x
+```
+
+- Startup log per bot: `[ PG ] Connected; remote persistence enabled for bot_id=main`
+- Recovery is per bot: a lost local DB restores **its own** remote auth state
+- A logout/session-clear deletes only that bot's remote auth rows
+- Full template (both session styles + tuning) in **`.env.example`**
 | In-memory caches (group metadata, bot-admin, view-once, LID map, auto-react) | AsyncLocalStorage-scoped per bot |
 | Status auto-view/react queues, message store, presence store | per bot |
 | Always-online heartbeat, anti-spam tracker, anti-delete status store | per bot |

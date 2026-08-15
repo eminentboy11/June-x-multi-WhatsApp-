@@ -31,7 +31,8 @@ git clone https://github.com/eminentboy11/June-x-multi-WhatsApp-.git
 cd June-x-multi-WhatsApp-
 npm install
 
-# define your sessions (see sessions.example.json)
+# optional: copy .env.example -> .env and fill in your sessions
+# or define sessions in sessions.json (see sessions.example.json)
 nano sessions.json
 
 npm start
@@ -122,13 +123,16 @@ Then restart. Existing installs keep their `session/` folder and `june-ultra.db`
 
 ### Environment variables
 
+See **`.env.example`** for a ready-to-copy template (single legacy session, multi-session, external databases, pairing tuning). The bot auto-creates the same template as `.env` on first boot when none exists.
+
 | Variable | Purpose |
 |---|---|
-| `SESSION_ID` | legacy single-session id |
-| `JUNE_SESSIONS` | multi-session registry (JSON) |
+| `SESSION_ID` | legacy single-session id (`JUNE-MD:~…`, `Ultra-X:~…`, …) |
 | `JUNE_PAIRING_NUMBER` | legacy single-session pairing phone |
+| `JUNE_SESSIONS` | multi-session registry (JSON, one line) — alternative to `sessions.json` |
 | `JUNE_BOT_ID` | default session id / mirror `bot_id` |
-| `DATABASE_URL` / `MONGODB_URI` | optional remote mirrors |
+| `DATABASE_URL` | PostgreSQL mirror (per-bot rows separated by `bot_id` automatically) |
+| `MONGODB_URI` / `MONGO_URL` | MongoDB mirror (per-bot `botId` records) |
 | `JUNE_DB_FILE` / `JUNE_DB_DIR` | database path for the default session |
 | `JUNE_FORCE_SESSION_BOOTSTRAP` | `true` = force re-bootstrap from `sessionId` |
 | `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds (`.env` / `sessions.json`) |
