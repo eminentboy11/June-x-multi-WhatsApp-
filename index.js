@@ -2857,6 +2857,23 @@ global.__JUNE_SHUTDOWN = async () => {
     return global._shutdownPromise
 }
 
+// ─── Graceful signal handling (VPS reboots, Ctrl+C, panel restarts) ──────────
+// A machine reboot sends SIGTERM/SIGINT straight to the process. Route it
+// through the full graceful shutdown so every session's queues, mirrors and
+// databases are flushed first — then exit. A bounded grace period guarantees
+// the process never hangs the reboot.
+for (const _sig of ['SIGINT', 'SIGTERM']) {
+    process.on(_sig, () => {
+        log(`[ SIGNAL ] Received ${_sig} — flushing all sessions before exit.`, 'yellow')
+        Promise.race([
+            Promise.resolve(global.__JUNE_SHUTDOWN()),
+            new Promise((resolve) => setTimeout(resolve, 10000)),
+        ])
+            .catch(() => {})
+            .finally(() => process.exit(0))
+    })
+}
+
 // ─── Main Login Flow ──────────────────────────────────────────────────────────
 
 async function main() {
