@@ -404,7 +404,93 @@ function test(name, fn) {
         assert.strictEqual(b.pairingExhausted, false);
     });
 
-    console.log('\n[11] hot-add / hot-remove plumbing');
+    console.log('\n[12] simplified registry (sessionId + phone only)');
+    const { normalizeSessionEntries, loadSessionRegistry } = require('../utils/sessionManager');
+
+    await test('id is derived from the phone automatically', () => {
+        const entries = normalizeSessionEntries([
+            { sessionId: 'JUNE-MD:~abc', phone: '2348154853640' },
+        ]);
+        assert.strictEqual(entries.length, 1);
+        assert.strictEqual(entries[0].id, '2348154853640');
+        assert.strictEqual(entries[0].phone, '2348154853640');
+        assert.strictEqual(entries[0].sessionId, 'JUNE-MD:~abc');
+    });
+
+    await test('duplicate phones get -2, -3 suffixes (two sessions, one number)', () => {
+        const entries = normalizeSessionEntries([
+            { sessionId: 'JUNE-MD:~a', phone: '2348154853640' },
+            { sessionId: 'JUNE-MD:~b', phone: '2348154853640' },
+            { sessionId: 'JUNE-MD:~c', phone: '2348154853640' },
+        ]);
+        assert.deepStrictEqual(entries.map((e) => e.id), [
+            '2348154853640',
+            '2348154853640-2',
+            '2348154853640-3',
+        ]);
+    });
+
+    await test('name is derived as "June X <last3>" and is NOT botName-explicit', () => {
+        const entries = normalizeSessionEntries([
+            { sessionId: '', phone: '2348165321909' },
+        ]);
+        assert.strictEqual(entries[0].name, 'June X 909');
+        assert.strictEqual(entries[0].nameExplicit, false);
+    });
+
+    await test('explicit id/name act as overrides (and name becomes botName-explicit)', () => {
+        const entries = normalizeSessionEntries([
+            { sessionId: '', phone: '234800000000', id: 'client-one', name: 'Client Bot' },
+        ]);
+        assert.strictEqual(entries[0].id, 'client-one');
+        assert.strictEqual(entries[0].name, 'Client Bot');
+        assert.strictEqual(entries[0].nameExplicit, true);
+    });
+
+    await test('sessionId-only entries still work (id falls back to default)', () => {
+        const entries = normalizeSessionEntries([
+            { sessionId: 'JUNE-MD:~only', phone: '' },
+        ]);
+        assert.strictEqual(entries.length, 1);
+        assert.strictEqual(entries[0].sessionId, 'JUNE-MD:~only');
+        assert.ok(entries[0].id);
+    });
+
+    await test('entries with neither id, sessionId nor phone are dropped', () => {
+        const entries = normalizeSessionEntries([
+            { name: 'ghost' },
+            { sessionId: '', phone: '' },
+        ]);
+        assert.strictEqual(entries.length, 0);
+    });
+
+    await test('legacy 4-field format still parses unchanged (backward compat)', () => {
+        const entries = normalizeSessionEntries([
+            { id: 'main', name: 'Main Bot', sessionId: 'JUNE-MD:~x', phone: '2348154853640' },
+            { id: 'backup', name: 'Backup', sessionId: '', phone: '2348165321909' },
+        ]);
+        assert.strictEqual(entries[0].id, 'main');
+        assert.strictEqual(entries[0].name, 'Main Bot');
+        assert.strictEqual(entries[1].id, 'backup');
+    });
+
+    await test('explicit id colliding with a derived id gets suffixed (never shared)', () => {
+        const entries = normalizeSessionEntries([
+            { sessionId: '', phone: '2348154853640' },
+            { sessionId: '', phone: '234800000000', id: '2348154853640' },
+        ]);
+        assert.strictEqual(entries[0].id, '2348154853640');
+        assert.strictEqual(entries[1].id, '2348154853640-2');
+    });
+
+    await test('sessionLogPrefix uses the configured phone before the number is known', () => {
+        const { sessionLogPrefix, BotInstance } = require('../utils/sessionManager');
+        const bot = new BotInstance({ id: '2348154853640', phone: '2348154853640' });
+        assert.strictEqual(sessionLogPrefix(bot, true), '[ JUNEX ULTRA 640 ]');
+        // with only the derived numeric id and no phone, use last-3 of the id
+        const bot2 = new BotInstance({ id: '2348165321909', phone: '' });
+        assert.strictEqual(sessionLogPrefix(bot2, true), '[ JUNEX ULTRA 909 ]');
+    });
     const { SessionManager } = require('../utils/sessionManager');
 
     await test('SessionManager.remove stops ONLY that session', async () => {

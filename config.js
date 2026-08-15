@@ -22,7 +22,7 @@ const baseConfig = {
     
     botName: 'JuneX-Ultra',
     prefix: '.',
-    version: '3.3.3',
+    version: '3.4.0',
     sessionName: '',
     sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',

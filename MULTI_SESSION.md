@@ -10,46 +10,52 @@ machine, its own settings, and its own SQLite database.
 
 Three ways, in priority order:
 
-**A. `JUNE_SESSIONS` env (JSON)** — best for hosted panels:
-
-```json
-[{"id":"main","name":"Main","sessionId":"JUNE-MD:~...","phone":""},
- {"id":"backup","name":"Backup","sessionId":"","phone":"254700000000"}]
-```
-
-**B. `sessions.json` at the project root** (see `sessions.example.json`):
+**A. `sessions.json` at the project root** (recommended — see
+`sessions.example.json`). The simple format is just **two fields per session**:
 
 ```json
 {
   "sessions": [
-    { "id": "main",   "name": "June Main",   "sessionId": "JUNE-MD:~<base64>", "phone": "" },
-    { "id": "backup", "name": "June Backup", "sessionId": "",                    "phone": "254700000000" }
+    { "sessionId": "JUNE-MD:~<base64>", "phone": "2348154853640" },
+    { "sessionId": "",                    "phone": "2348165321909" }
   ]
 }
+```
+
+**B. `JUNE_SESSIONS` env (JSON, one line)** — best for hosted panels:
+
+```json
+[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
 ```
 
 **C. Legacy `SESSION_ID`** — nothing changes. The bot runs exactly as before as
 one session with id `JUNE_BOT_ID` (or `BOT_ID`, `OWNER_NUMBER`, else `default`).
 
-Entry fields:
+Session entry fields:
 
-| Field       | Required | Meaning                                                        |
-|-------------|----------|----------------------------------------------------------------|
-| `id`        | no*      | Unique session id (safe chars: letters, digits, `_.-`)         |
-| `name`      | no       | Display name (also becomes that bot's `botName` config)        |
-| `sessionId` | no       | Session ID — one of `JUNE-MD:~…`, `Ultra-X:~…`, `June-Ultra:~…`, `June::~…` |
-| `phone`     | no       | Phone number with country code — triggers pairing-code login; also acts as an automatic fallback when `sessionId` fails (see below) |
+| Field       | Required  | Meaning                                                        |
+|-------------|-----------|----------------------------------------------------------------|
+| `sessionId` | no        | One of `JUNE-MD:~…`, `Ultra-X:~…`, `June-Ultra:~…`, `June::~…` (auto-login) |
+| `phone`     | expected  | Digits with country code — pairing-code login + the self-healing fallback; the bot's identity key |
+| `id`        | **auto**  | Derived from the phone; duplicate numbers get `-2`, `-3` suffixes automatically (two sessions may share one number). Optional explicit override for a stable id |
+| `name`      | **auto**  | Derived as `June X <last3>` (e.g. `June X 640`) for dashboard/logs. An explicit name also changes that bot's `botName` |
 
-\* defaults to the default bot id. `phone` without `sessionId` = pair with code
-(the code is printed in the logs). Neither = session is parked as
-`needs-login` until you add one.
+Login combinations:
+
+- Only `phone` → fresh pairing-code login (code in the logs).
+- Only `sessionId` → classic auto-login (no fallback without a phone).
+- **Both** → sessionId first, phone auto-fallback.
+- **Neither** → parked as `needs-login` until you add one.
+
+The old full format (`id`/`name`/`sessionId`/`phone` on every entry) still
+works unchanged — `id`/`name` are simply treated as overrides.
 
 ### 🎯 Bonus: sessionId + phone (auto-fallback)
 
 A session may carry **both** fields:
 
 ```json
-{ "id": "main", "name": "Main", "sessionId": "JUNE-MD:~...", "phone": "2348154853640" }
+{ "sessionId": "JUNE-MD:~...", "phone": "2348154853640" }
 ```
 
 The bot always tries the `sessionId` first (legacy bootstrap flow). If that

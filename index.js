@@ -456,14 +456,14 @@ if (!fs.existsSync(envPath)) {
         '#    JUNE_PAIRING_NUMBER=2348...           (pairing-code login)',
         '#',
         '# B) Multiple sessions (one process, isolated per bot):',
-        '#    JUNE_SESSIONS=[{"id":"main","name":"Main","sessionId":"JUNE-MD:~...","phone":""},{"id":"second","name":"Second","sessionId":"","phone":"2348..."}]',
+        '#    JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348..."},{"sessionId":"","phone":"2348..."}]',
         '#    (one line JSON; or use sessions.json — see sessions.example.json)',
         '#',
-        '#    id         unique session id (letters, digits, _ . -)',
-        '#    name       display name (also becomes that bot\'s botName)',
         '#    sessionId  JUNE-MD:~ / Ultra-X:~ / June-Ultra:~ / June::~ + base64',
-        '#    phone      number with country code -> pairing-code login,',
-        '#               and auto-fallback whenever the sessionId fails',
+        '#    phone      digits with country code -> pairing-code login +',
+        '#               auto-fallback whenever the sessionId fails (the bot\'s key)',
+        '#    id / name  optional overrides — otherwise id is derived from the',
+        '#               phone (duplicates get -2, -3) and name is "June X <last3>"',
         '',
         '# ── EXTERNAL DATABASES (optional; per-bot rows are separated',
         '#    by bot_id automatically) ───────────────────────────────',
@@ -1142,8 +1142,9 @@ async function reconcileSessions() {
     if (_reconcileRunning) return
     _reconcileRunning = true
     try {
-        const { loadRegistryFromEnv, loadRegistryFromFile } = require('./utils/sessionManager')
-        const entries = loadRegistryFromEnv() || loadRegistryFromFile()
+        const { loadRegistryFromEnv, loadRegistryFromFile, normalizeSessionEntries } = require('./utils/sessionManager')
+        const rawEntries = loadRegistryFromEnv() || loadRegistryFromFile()
+        const entries = normalizeSessionEntries(rawEntries)
         if (!entries || entries.length === 0) {
             _registryManagedIds.clear()
             return
@@ -2380,7 +2381,9 @@ async function wireBotRuntime(bot) {
             prefix: config.__getBaseConfig().prefix,
             botName: config.__getBaseConfig().botName,
         })
-        if (bot.name !== `Session ${bot.id}`) bot.config.botName = bot.name
+        // Only an EXPLICIT registry name changes the bot's botName; the
+        // auto-derived display name ("June X 640") leaves config untouched.
+        if (bot.nameExplicit) bot.config.botName = bot.name
         config.__registerBotConfig(bot.id, bot.config)
 
         const [pgStatus, mongoStatus] = await Promise.all([

@@ -62,7 +62,10 @@ function sessionLogLabel(number) {
  */
 function sessionLogPrefix(bot, multiSession) {
     if (bot && multiSession) {
-        const digits = String(bot.accountNumber || '').replace(/\D/g, '');
+        // Number first (accountNumber/phone), then a numeric id (ids derived
+        // from a phone), and only then the raw id (non-numeric ids).
+        const digits = String(bot.accountNumber || bot.phone || '').replace(/\D/g, '')
+            || String(bot.id || '').replace(/\D/g, '');
         const tag = digits ? digits.slice(-3).padStart(3, '0') : String(bot.id);
         return `[ JUNEX ULTRA ${tag} ]`;
     }
@@ -73,6 +76,9 @@ class BotInstance {
     constructor(entry = {}) {
         this.id = String(entry.id || DEFAULT_BOT_ID);
         this.name = String(entry.name || `Session ${this.id}`);
+        // Explicit names (from the registry) are applied to the bot's botName;
+        // auto-derived names ("June X 640") are display-only.
+        this.nameExplicit = Boolean(entry.nameExplicit);
         this.phone = String(entry.phone || '').replace(/[^0-9]/g, '');
         this.sessionId = String(entry.sessionId || '').trim();
         this.interactive = Boolean(entry.interactive) || this.id === DEFAULT_BOT_ID;
@@ -306,6 +312,96 @@ function parseSessionsJson(raw) {
     return null;
 }
 
+const digitsOnly = (value) => String(value || '').replace(/\D/g, '');
+
+const last3Digits = (value) => {
+    const digits = digitsOnly(value);
+    return digits ? digits.slice(-3).padStart(3, '0') : '';
+};
+
+/**
+ * Normalize raw registry entries into fully-qualified session entries.
+ *
+ * SIMPLE FORMAT (recommended): just sessionId + phone —
+ *   [ { "sessionId": "JUNE-MD:~...", "phone": "2348154853640" } ]
+ *
+ *   id    → derived from the phone automatically (duplicate numbers get
+ *           -2, -3 … suffixes so two sessions may share one number)
+ *   name  → derived as "June X <last3>" (e.g. "June X 640")
+ *
+ * FULL FORMAT (still supported, backward compatible): id + name may be
+ * given explicitly — they then act as overrides, and an explicit name is
+ * also applied to the bot's botName.
+ *
+ * Entries with no id, no sessionId AND no phone are dropped (they cannot
+ * ever connect).
+ */
+function normalizeSessionEntries(rawEntries) {
+    if (!Array.isArray(rawEntries)) return [];
+    const cleaned = rawEntries
+        .filter((entry) => entry && typeof entry === 'object')
+        .map((entry) => ({ ...entry }))
+        .filter((entry) => entry.id || entry.sessionId || entry.phone);
+    if (cleaned.length === 0) return [];
+
+    // Count phones first so duplicate numbers can be suffixed in order.
+    const phoneCounts = new Map();
+    for (const entry of cleaned) {
+        const phone = digitsOnly(entry.phone);
+        if (phone) phoneCounts.set(phone, (phoneCounts.get(phone) || 0) + 1);
+    }
+
+    const usedIds = new Set();
+    const usedPhones = new Map(); // phone -> how many times already assigned
+    const normalized = [];
+
+    for (const entry of cleaned) {
+        const phone = digitsOnly(entry.phone);
+        const sessionId = String(entry.sessionId || '').trim();
+        const nameExplicit = Boolean(entry.name);
+
+        // 1) id — explicit wins; otherwise derived from the phone; otherwise
+        //    the default bot id (legacy fallback).
+        let id = String(entry.id || '').trim();
+        if (!id && phone) {
+            const ordinal = (usedPhones.get(phone) || 0) + 1;
+            usedPhones.set(phone, ordinal);
+            id = ordinal === 1 ? phone : `${phone}-${ordinal}`;
+        } else if (!id) {
+            id = DEFAULT_BOT_ID;
+        }
+
+        // 2) Dedupe ids — an explicit id may collide with a derived one.
+        let candidate = id;
+        let suffix = 2;
+        while (usedIds.has(candidate)) {
+            candidate = `${id}-${suffix}`;
+            suffix += 1;
+        }
+        id = candidate;
+        usedIds.add(id);
+
+        // 3) name — explicit wins; otherwise derived from the phone;
+        //    otherwise a plain fallback label.
+        let name = String(entry.name || '').trim();
+        if (!name) {
+            const last3 = last3Digits(phone);
+            name = last3 ? `June X ${last3}` : `Session ${id}`;
+        }
+
+        normalized.push({
+            ...entry,
+            id,
+            name,
+            phone,
+            sessionId,
+            nameExplicit,
+        });
+    }
+
+    return normalized;
+}
+
 function loadRegistryFromFile() {
     try {
         if (!fs.existsSync(SESSIONS_FILE)) return null;
@@ -333,18 +429,18 @@ function buildLegacyEntry() {
 
 function loadSessionRegistry() {
     // Priority: JUNE_SESSIONS env > sessions.json > legacy SESSION_ID.
-    const entries = loadRegistryFromEnv() || loadRegistryFromFile();
-    if (entries && entries.length > 0) {
-        const clean = entries
-            .filter((entry) => entry && (entry.id || entry.sessionId || entry.phone))
-            .map((entry) => ({ ...entry }));
-        // A registry entry with the default bot id REPLACES the legacy env
-        // entry; otherwise the legacy SESSION_ID still gets its own session.
-        const hasDefault = clean.some((entry) => String(entry.id) === DEFAULT_BOT_ID);
-        if (!hasDefault && (process.env.SESSION_ID || process.env.JUNE_PAIRING_NUMBER)) {
-            clean.push(buildLegacyEntry());
+    const rawEntries = loadRegistryFromEnv() || loadRegistryFromFile();
+    if (rawEntries && rawEntries.length > 0) {
+        const clean = normalizeSessionEntries(rawEntries);
+        if (clean.length > 0) {
+            // A registry entry with the default bot id REPLACES the legacy env
+            // entry; otherwise the legacy SESSION_ID still gets its own session.
+            const hasDefault = clean.some((entry) => String(entry.id) === DEFAULT_BOT_ID);
+            if (!hasDefault && (process.env.SESSION_ID || process.env.JUNE_PAIRING_NUMBER)) {
+                clean.push(buildLegacyEntry());
+            }
+            return clean;
         }
-        return clean;
     }
     return [buildLegacyEntry()];
 }
@@ -365,6 +461,7 @@ module.exports = {
     loadRegistryFromEnv,
     loadRegistryFromFile,
     parseSessionsJson,
+    normalizeSessionEntries,
     parsePairingMaxAttempts,
     sessionLogLabel,
     sessionLogPrefix,

@@ -42,35 +42,39 @@ npm start
 
 Three ways, in priority order:
 
-**1. `sessions.json`** at the project root (recommended):
+**1. `sessions.json`** at the project root (recommended) — the simple format
+is just two fields per session:
 
 ```json
 { "sessions": [
-  { "id": "main",   "name": "June Main",   "sessionId": "JUNE-MD:~<base64>", "phone": "" },
-  { "id": "backup", "name": "June Backup", "sessionId": "", "phone": "254700000000" }
+  { "sessionId": "JUNE-MD:~...", "phone": "2348154853640" },
+  { "sessionId": "",             "phone": "2348165321909" }
 ] }
 ```
 
-**2. `JUNE_SESSIONS` env** (JSON) — ideal for hosted panels:
+**2. `JUNE_SESSIONS` env** (JSON, one line) — ideal for hosted panels:
 
 ```json
-[{"id":"main","name":"Main","sessionId":"JUNE-MD:~...","phone":""},{"id":"backup","name":"Backup","sessionId":"","phone":"254700000000"}]
+[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
 ```
 
 **3. Legacy `SESSION_ID`** in `.env` — single session, exactly like before.
 
+#### Session entry fields
+
 | Field | Required | Meaning |
 |---|---|---|
-| `id` | no | unique session id (default: `JUNE_BOT_ID` / `BOT_ID` / `OWNER_NUMBER` / `default`) |
-| `name` | no | display name — also becomes that bot's `botName` |
 | `sessionId` | no | `JUNE-MD:~…`, `Ultra-X:~…`, `June-Ultra:~…` or `June::~…` (auto-login) |
-| `phone` | no | phone with country code → **pairing-code login**, code printed in logs |
+| `phone` | expected | digits with country code → **pairing-code login** + self-healing fallback; the bot's identity key |
+| `id` | **auto** | derived from the phone; duplicate numbers get `-2`, `-3` suffixes automatically. Optional explicit override for a stable id (e.g. client bots) |
+| `name` | **auto** | derived as `June X <last3>` (e.g. `June X 640`) for the dashboard/logs. An explicit name also changes that bot's `botName` |
 
-No `sessionId` and no `phone` → session is parked as `needs-login` on the dashboard until you add one.
-
-**🎯 Bonus — combine both:** with `sessionId` + `phone`, the bot tries the session ID first and **automatically falls back to pairing-code login** whenever it's invalid, revoked, or the session logs out. Self-healing, no `needs-login` parking. Details in [MULTI_SESSION.md](MULTI_SESSION.md).
-
----
+- Only `phone` given → fresh pairing-code login.
+- Only `sessionId` given → classic auto-login (no self-healing fallback).
+- **Both** → sessionId first, phone auto-fallback.
+- **Neither** → session is parked as `needs-login` on the dashboard.
+- The old full format (`id`/`name`/`sessionId`/`phone` on every entry) still
+  works unchanged — `id`/`name` are just overrides now.
 
 ## 🖥️ Dashboard & health
 
