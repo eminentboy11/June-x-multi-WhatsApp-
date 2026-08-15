@@ -143,6 +143,7 @@ const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
 const { applyFont } = require('./utils/fontConverter')
 const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/botContext')
+const { claimSuperOwner, superOwnerStatusFor } = require('./utils/ownership')
 const {
     SessionManager,
     loadSessionRegistry,
@@ -1073,6 +1074,7 @@ async function sendWelcomeMessage(sock, bot) {
         if (!sock.user || bot.isBotConnected) return
         bot.isBotConnected = true
         const botJid = sock.user.id.split(':')[0] + '@s.whatsapp.net'
+        const botNum = bot.accountNumber || sock.user?.id?.split(':')[0] || ''
         const prefix = bot.config.prefix === '' ? 'none' : (bot.config.prefix || '.')
         const platform = detectPlatform()
         const ownerName = Array.isArray(bot.config.ownerName) ? bot.config.ownerName[0] : bot.config.ownerName
@@ -1083,6 +1085,7 @@ async function sendWelcomeMessage(sock, bot) {
 ┃✧ Session: ${bot.name}
 ┃✧ Prefix: [ ${prefix} ]
 ┃✧ Owner: ${ownerName}
+┃✧ Super Owner: ${superOwnerStatusFor(botNum)}
 ┃✧ Platform: ${platform}
 ┃✧ Status: online 
 ┃✧ Time: ${new Date().toLocaleString()}
@@ -1748,6 +1751,18 @@ async function startBotSocket(bot) {
             bot.clearPairingState()
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             bot.accountNumber = botNum
+            // ── Deployment Super Owner ───────────────────────────────────────
+            // Established ONCE from the verified number of the first
+            // successfully initialized INITIAL session. Atomic first-wins
+            // (SQLite ON CONFLICT DO NOTHING), never recalculated, never
+            // cleared, never claimed by hot-added sessions. The number is
+            // deliberately NOT printed.
+            if (bot.isInitialSession) {
+                const claim = claimSuperOwner(botNum, { eligible: true })
+                if (claim.established) {
+                    log('[ SUPER OWNER ] Deployment Super Owner established by the first initialized session.', 'green')
+                }
+            }
             await tryMigrateFileAuth('connection-open')
             // Auto-export the session to .env / registry so restarts never need re-login
             autoExportSessionToRegistry(bot, true).catch(() => {})
@@ -2954,8 +2969,11 @@ async function main() {
     }
 
     // Wire every session: database, config, remote adapters, recovery.
+    // Sessions present at initial startup are the ONLY candidates allowed to
+    // establish the deployment Super Owner (first successful connection).
     for (const entry of entries) {
         const bot = sessionManager.register(entry)
+        bot.isInitialSession = true
         try {
             await wireBotRuntime(bot)
         } catch (error) {

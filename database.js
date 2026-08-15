@@ -941,6 +941,11 @@ function createBotDatabase(options = {}) {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS platform_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS session (
       id       INTEGER PRIMARY KEY DEFAULT 1,
       creds    TEXT,
@@ -1071,6 +1076,8 @@ function createBotDatabase(options = {}) {
       getBotSetting: db.prepare('SELECT value FROM bot_settings WHERE key = ?'),
       setBotSetting: db.prepare('INSERT INTO bot_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
       getAllBotSettings: db.prepare('SELECT key, value FROM bot_settings'),
+      getPlatformSetting: db.prepare('SELECT value FROM platform_settings WHERE key = ?'),
+      claimPlatformSetting: db.prepare('INSERT INTO platform_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING'),
       getSession: db.prepare('SELECT creds FROM session WHERE id = 1'),
       upsertSession: db.prepare('INSERT INTO session (id, creds, saved_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET creds = excluded.creds, saved_at = excluded.saved_at'),
       clearSession: db.prepare('DELETE FROM session WHERE id = 1'),
@@ -2237,8 +2244,41 @@ function createBotDatabase(options = {}) {
     return { localCleared, includeSession, remote };
   }
 
+// ─── Deployment-level platform settings ──────────────────────────────────────
+// Only the ANCHOR database (the default/legacy instance at june-ultra.db) is
+// authoritative for platform settings — the facade routes these calls there
+// explicitly, regardless of the current bot context. This instance API exists
+// so the table works in every DB schema variant, but session databases never
+// serve platform reads/writes.
+function getPlatformSetting(key) {
+    if (!stmts.getPlatformSetting) return null;
+    try {
+        return stmts.getPlatformSetting.get(String(key))?.value ?? null;
+    } catch (_) {
+        return null;
+    }
+}
+
+function claimPlatformSetting(key, value) {
+    if (!stmts.claimPlatformSetting) return { established: false, existing: null };
+    const k = String(key);
+    const v = String(value);
+    try {
+        // ON CONFLICT DO NOTHING — first writer wins; later claims never overwrite.
+        stmts.claimPlatformSetting.run(k, v);
+        const stored = getPlatformSetting(k);
+        if (stored === null) return { established: false, existing: null };
+        if (stored === v) requestBackup('platform-settings-claim');
+        return { established: stored === v, existing: stored };
+    } catch (error) {
+        return { established: false, existing: getPlatformSetting(k) };
+    }
+}
+
 const api = {
   ready,
+  getPlatformSetting,
+  claimPlatformSetting,
   getGroupSettings, updateGroupSettings, getUser, updateUser,
   getWarnings, addWarning, removeWarning, clearWarnings,
   getModerators, addModerator, removeModerator, isModerator,
@@ -2372,6 +2412,18 @@ const facade = new Proxy({
   closeAllConnections,
   createBotDatabase,
   DEFAULT_BOT_ID: CONTEXT_DEFAULT_BOT_ID,
+  // Deployment-level platform settings ALWAYS resolve against the anchor
+  // database (june-ultra.db) — never against the current bot's database.
+  getPlatformSetting(key) {
+    const anchor = registry.get(CONTEXT_DEFAULT_BOT_ID);
+    return anchor ? anchor.getPlatformSetting(key) : null;
+  },
+  claimPlatformSetting(key, value) {
+    const anchor = registry.get(CONTEXT_DEFAULT_BOT_ID);
+    return anchor
+      ? anchor.claimPlatformSetting(key, value)
+      : { established: false, existing: null };
+  },
 }, {
   get(target, prop) {
     if (prop in target) return target[prop];

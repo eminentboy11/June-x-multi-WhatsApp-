@@ -84,6 +84,10 @@ class BotInstance {
         this.phone = String(entry.phone || '').replace(/[^0-9]/g, '');
         this.sessionId = String(entry.sessionId || '').trim();
         this.interactive = Boolean(entry.interactive) || this.id === DEFAULT_BOT_ID;
+        // TRUE only for sessions present at process startup (set by index.js
+        // main()). Hot-added sessions never get this flag — and therefore can
+        // never establish the deployment Super Owner.
+        this.isInitialSession = false;
 
         // Paths
         this.sessionDir = entry.sessionDir || defaultSessionDir(this.id);

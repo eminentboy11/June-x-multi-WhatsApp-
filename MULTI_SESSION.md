@@ -215,6 +215,31 @@ bot's data.
   legacy mode keeps the classic `[ JUNEX ULTRA ]`. The CMD log box header
   carries the same tag.
 
+## 👑 Deployment Super Owner (security foundation)
+
+Every fresh deployment establishes its **own** Super Owner — it never comes
+from hardcoded source numbers, a WhatsApp command, or a session setting.
+
+- **Establishment**: the first **initial session** (present in `JUNE_SESSIONS`
+  at process startup) that successfully connects — its **verified WhatsApp
+  number** is persisted as the deployment's Super Owner.
+- **Locked**: stored in the anchor database's `platform_settings` table
+  (`database/june-ultra.db`) with an atomic first-wins claim. It is never
+  recalculated on startup, never overwritten, and never cleared when sessions
+  disconnect, get removed, reordered or replaced.
+- **Hot-added sessions** (`.addbot`, `.env` hot-reload additions) can never
+  claim the Super Owner — eligibility is reserved for initial sessions only.
+- **Platform-level commands** (`superOwnerOnly`, currently `.addbot`) resolve
+  ONLY against the persisted Super Owner. Before establishment, the legacy
+  `config.ownerNumber` list authorizes as a bootstrap fallback; afterwards it
+  loses platform authority.
+- **Session-level commands** (`ownerOnly`) remain the union of
+  `config.ownerNumber` (future session owners) + the Super Owner.
+- **Privacy**: the Super Owner number is never printed in logs or the
+  connected message — sessions only display `Super Owner: ✅/❌`.
+
+No change, reset or recovery command exists — and none is planned yet.
+
 ## Known shared-state caveats (intentional)
 
 These remain shared across sessions because the data is identical for both

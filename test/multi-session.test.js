@@ -735,6 +735,100 @@ function test(name, fn) {
         assert.strictEqual(pg.forBot('default-x').getBotId(), 'default-x');
     });
 
+    console.log('\n[16] deployment Super Owner foundation');
+    const ownership = require('../utils/ownership');
+    const anchorDb = require('../database');
+    const SUPER_NUMBER = '234800000111';
+    const OTHER_NUMBER = '234800000222';
+    const jid = (num) => `${num}@s.whatsapp.net`;
+
+    await test('fresh deployment: no Super Owner until first initialization', async () => {
+        await anchorDb.ready;
+        assert.strictEqual(ownership.hasSuperOwner(), false);
+        assert.strictEqual(ownership.getSuperOwner(), null);
+        assert.strictEqual(ownership.isSuperOwner(jid(SUPER_NUMBER)), false);
+        // indicator shows nothing is established yet
+        assert.strictEqual(ownership.superOwnerStatusFor(SUPER_NUMBER), '—');
+    });
+
+    await test('bootstrap window: legacy config.ownerNumber authorizes platform checks', () => {
+        const configBase = require('../config');
+        const legacyNumber = String(configBase.ownerNumber[0]).replace(/\D/g, '');
+        assert.strictEqual(ownership.isPlatformOwner(jid(legacyNumber)), true);
+        // an unknown number must NOT pass, even before establishment
+        assert.strictEqual(ownership.isPlatformOwner(jid('234899999999')), false);
+    });
+
+    await test('claimSuperOwner: ineligible sessions can NEVER claim', () => {
+        const res = ownership.claimSuperOwner(SUPER_NUMBER, { eligible: false });
+        assert.strictEqual(res.established, false);
+        assert.strictEqual(ownership.hasSuperOwner(), false);
+    });
+
+    await test('claimSuperOwner: first eligible initial session establishes it', () => {
+        const res = ownership.claimSuperOwner(SUPER_NUMBER, { eligible: true });
+        assert.strictEqual(res.established, true);
+        assert.strictEqual(res.superOwner, SUPER_NUMBER);
+        assert.strictEqual(ownership.getSuperOwner(), SUPER_NUMBER);
+    });
+
+    await test('claimSuperOwner: LOCKED — a second session can never overwrite', () => {
+        const res = ownership.claimSuperOwner(OTHER_NUMBER, { eligible: true });
+        assert.strictEqual(res.established, false);
+        assert.strictEqual(res.existing, SUPER_NUMBER);
+        assert.strictEqual(ownership.getSuperOwner(), SUPER_NUMBER); // unchanged
+        // even a later claim with the SAME value reports established=false
+        // (it is already locked, not re-established)
+        const res2 = ownership.claimSuperOwner(SUPER_NUMBER, { eligible: true });
+        assert.strictEqual(res2.established, false);
+    });
+
+    await test('after establishment: only the persisted Super Owner passes platform checks', () => {
+        const configBase = require('../config');
+        const legacyNumber = String(configBase.ownerNumber[0]).replace(/\D/g, '');
+        assert.strictEqual(ownership.isPlatformOwner(jid(SUPER_NUMBER)), true);
+        // hardcoded config numbers LOSE platform authority after establishment
+        assert.strictEqual(ownership.isPlatformOwner(jid(legacyNumber)), false);
+        assert.strictEqual(ownership.isSuperOwner(jid(SUPER_NUMBER)), true);
+        assert.strictEqual(ownership.isSuperOwner(jid(OTHER_NUMBER)), false);
+    });
+
+    await test('startup indicator: current session is/ is-not the Super Owner', () => {
+        assert.strictEqual(ownership.superOwnerStatusFor(SUPER_NUMBER), '✅');
+        assert.strictEqual(ownership.superOwnerStatusFor(OTHER_NUMBER), '❌');
+        assert.strictEqual(ownership.superOwnerStatusFor(`${SUPER_NUMBER}:12@s.whatsapp.net`), '✅');
+    });
+
+    await test('handler owner checks: Super Owner passes isOwner; legacy numbers keep session-level rights', () => {
+        const h = require('../handler');
+        const configBase = require('../config');
+        const legacyNumber = String(configBase.ownerNumber[0]).replace(/\D/g, '');
+        assert.strictEqual(h.isOwner(jid(SUPER_NUMBER)), true);   // super owner controls everything
+        assert.strictEqual(h.isOwner(jid(legacyNumber)), true);   // session-level owner list still works
+        assert.strictEqual(h.isPlatformOwner(jid(SUPER_NUMBER)), true);
+        assert.strictEqual(h.isPlatformOwner(jid(legacyNumber)), false); // lost platform authority
+        assert.strictEqual(h.isSuperOwner(jid(SUPER_NUMBER)), true);
+        assert.strictEqual(h.isOwner(jid(OTHER_NUMBER)), false);
+    });
+
+    await test('platform settings live in the anchor DB, not in bot databases', async () => {
+        const alpha = anchorDb.registerBotDatabase('alpha');
+        await alpha.ready;
+        // facade always resolves the anchor, even inside a bot context
+        const { runInBot } = require('../utils/botContext');
+        let seen = null;
+        await runInBot('alpha', () => { seen = anchorDb.getPlatformSetting('superOwner'); });
+        assert.strictEqual(seen, SUPER_NUMBER);
+        // the bot's own database never holds the platform value
+        assert.strictEqual(alpha.getPlatformSetting('superOwner'), null);
+    });
+
+    await test('.addbot command is platform-gated (superOwnerOnly, not ownerOnly)', () => {
+        const addbotCmd = require('../commands/owner/addbot');
+        assert.strictEqual(addbotCmd.superOwnerOnly, true);
+        assert.strictEqual(addbotCmd.ownerOnly, undefined);
+    });
+
     console.log('\n──────────────────────────────────────────');
     console.log(`  ${passed} passed, ${failed} failed`);
     if (failed > 0) {

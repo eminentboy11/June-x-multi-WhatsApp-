@@ -248,8 +248,24 @@ const getLiveGroupMetadata = async (sock, groupId) => {
 const getGroupMetadata = getCachedGroupMetadata;
 
 // Helper functions
+// Ownership model:
+//   isOwner          — SESSION-level owner check (config.ownerNumber) UNION the
+//                      deployment Super Owner (so the Super Owner can operate
+//                      the entire deployment).
+//   isPlatformOwner  — PLATFORM-level check (superOwnerOnly commands such as
+//                      .addbot): resolves ONLY against the persisted
+//                      deployment Super Owner; the legacy config.ownerNumber
+//                      list authorizes only during the bootstrap window before
+//                      a Super Owner has been established.
+//   isSuperOwner     — strict match against the persisted Super Owner.
+const ownership = require('./utils/ownership');
+const { isPlatformOwner: platformOwnerCheck, isSuperOwner: superOwnerCheck } = ownership;
+
 const isOwner = (sender) => {
   if (!sender) return false;
+
+  // The deployment Super Owner always passes session-level owner checks.
+  if (superOwnerCheck(sender)) return true;
 
   // Extract the raw phone/user number from sender (strips :device and @server)
   const rawNum = sender.split('@')[0].split(':')[0];
@@ -270,6 +286,10 @@ const isOwner = (sender) => {
 
   return false;
 };
+
+// Thin re-exports so gates stay readable.
+const isPlatformOwner = (sender) => platformOwnerCheck(sender);
+const isSuperOwner = (sender) => superOwnerCheck(sender);
 
 const isSudo = (sender) => {
   if (!sender) return false;
@@ -789,6 +809,7 @@ const handleMessage = async (sock, msg) => {
         isGroup,
         groupMetadata,
         isOwner: isOwner(sender),
+        isPlatformOwner: isPlatformOwner(sender),
         isAdmin: await isAdmin(sock, sender, from, groupMetadata),
         isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
         isMod: isMod(sender),
@@ -846,6 +867,10 @@ const handleMessage = async (sock, msg) => {
           extra.isOwner = msg.key.fromMe || extra.isOwner;
           extra.isSudo = extra.isOwner || extra.isSudo;
           extra.isMod = extra.isSudo;
+          if (dynCmd.superOwnerOnly && !extra.isPlatformOwner) {
+            await sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
+            return;
+          }
           if (dynCmd.ownerOnly && !extra.isOwner && !extra.isSudo) {
             await sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
             return;
@@ -994,6 +1019,7 @@ const handleMessage = async (sock, msg) => {
                   isGroup,
                   groupMetadata,
                   isOwner: isOwner(sender),
+        isPlatformOwner: isPlatformOwner(sender),
                   isAdmin: await isAdmin(sock, sender, from, groupMetadata),
                   isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
                   isMod: isMod(sender),
@@ -1024,6 +1050,7 @@ const handleMessage = async (sock, msg) => {
             isGroup,
             groupMetadata,
             isOwner: isOwner(sender),
+        isPlatformOwner: isPlatformOwner(sender),
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
@@ -1056,6 +1083,7 @@ const handleMessage = async (sock, msg) => {
             isGroup,
             groupMetadata,
             isOwner: isOwner(sender),
+        isPlatformOwner: isPlatformOwner(sender),
             isAdmin: await isAdmin(sock, sender, from, groupMetadata),
             isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
             isMod: isMod(sender),
@@ -1276,6 +1304,7 @@ const handleMessage = async (sock, msg) => {
 
     const senderIsOwner = msg.key.fromMe || isOwner(resolvedSender);
     const senderIsSudo  = senderIsOwner || isSudo(resolvedSender);
+    const senderIsPlatformOwner = msg.key.fromMe || isPlatformOwner(resolvedSender);
 
     // Self mode — bot only responds to its own messages (self-bot mode)
     if (config.selfMode && !msg.key.fromMe) return;
@@ -1297,6 +1326,13 @@ const handleMessage = async (sock, msg) => {
     }
 
     // Permission checks
+    // superOwnerOnly = platform-level command (.addbot …): resolves ONLY
+    // against the persisted deployment Super Owner (legacy config.ownerNumber
+    // authorizes just during the pre-establishment bootstrap window).
+    if (command.superOwnerOnly && !senderIsPlatformOwner) {
+      return sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
+    }
+
     if (command.ownerOnly && !senderIsOwner && !senderIsSudo) {
       return sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
     }
@@ -2565,6 +2601,8 @@ module.exports = {
   initializeAntiCall,
   getCachedArSettings,
   isOwner,
+  isSuperOwner,
+  isPlatformOwner,
   isAdmin,
   isBotAdmin,
   isMod,
