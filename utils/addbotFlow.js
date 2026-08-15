@@ -72,7 +72,16 @@ function removeRegistryEntry(registry, identifier) {
     return { ok: true, registry: list, removed };
 }
 
-/** The in-chat pairing-code message with copy/cancel buttons. */
+/** The in-chat pairing-code message with copy/cancel buttons.
+ *
+ * NOTE: gifted-btns (this repo's button library) only accepts `cta_copy`
+ * button types. Both buttons therefore use `name: 'cta_copy'`:
+ *   - Copy Code  -> copy_code = the pairing code
+ *   - Cancel     -> copy_code = the .delbot command (harmless clipboard side
+ *                   effect), carrying the addbot_cancel_ id for the handler
+ * Buttons carry an `id` inside buttonParamsJson so handler.js extractButtonId
+ * can route the tap back to the live flow.
+ */
 function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
     const copyId = `${BUTTON_COPY_PREFIX}${botId}`;
     const cancelId = `${BUTTON_CANCEL_PREFIX}${botId}`;
@@ -89,7 +98,7 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
         footer: 'June X — live pairing',
         buttons: [
             {
-                name: copyId,
+                name: 'cta_copy',
                 buttonParamsJson: JSON.stringify({
                     display_text: '📋 Copy Code',
                     id: copyId,
@@ -97,10 +106,11 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
                 }),
             },
             {
-                name: cancelId,
+                name: 'cta_copy',
                 buttonParamsJson: JSON.stringify({
                     display_text: '❌ Cancel',
                     id: cancelId,
+                    copy_code: `.delbot ${phone}`,
                 }),
             },
         ],

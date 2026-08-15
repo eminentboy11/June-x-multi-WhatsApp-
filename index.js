@@ -605,15 +605,20 @@ const _pendingAddRequests = new Map()
 async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
     const via = sessionManager.get(viaBotId)
     if (!via?.sock || via.botState !== 'connected') return false
-    try {
-        if (content.buttons) {
+    const quoteOpt = quotedKey ? { quoted: { key: quotedKey } } : {}
+    if (content.buttons) {
+        try {
             const { sendButtons } = require('gifted-btns')
-            await sendButtons(via.sock, chatJid, content,
-                quotedKey ? { quoted: { key: quotedKey } } : {})
-        } else {
-            await via.sock.sendMessage(chatJid, { text: content.text || String(content) },
-                quotedKey ? { quoted: { key: quotedKey } } : {})
+            await sendButtons(via.sock, chatJid, content, quoteOpt)
+            return true
+        } catch (buttonError) {
+            // Button delivery failed (library/socket constraint) — the
+            // information must still reach the chat: fall back to plain text.
+            log(`[ FLOW:${viaBotId} ] Button delivery failed (${buttonError?.message || buttonError}); falling back to plain text.`, 'yellow')
         }
+    }
+    try {
+        await via.sock.sendMessage(chatJid, { text: content.text || String(content) }, quoteOpt)
         return true
     } catch (_) {
         return false
@@ -633,7 +638,10 @@ async function reactFlowMessage(viaBotId, chatJid, emoji, key) {
 
 function deliverPairingCodeToRequester(bot, code, attempt) {
     const pending = _pendingAddRequests.get(bot.id)
-    if (!pending) return false
+    if (!pending) {
+        log(`[ FLOW:${bot.id} ] Pairing code generated but no live .addbot request is waiting for it (console-only delivery).`, 'yellow')
+        return false
+    }
     const payload = addbotFlow.buildCodeMessage({
         code,
         attempt,
