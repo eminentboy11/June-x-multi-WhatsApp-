@@ -988,6 +988,29 @@ function test(name, fn) {
         assert.strictEqual(cancel.copy_code, '.delbot 2348154853640');
     });
 
+    await test('generateWAMessageFromContent wraps the flow content (menu.js style-5 pattern)', () => {
+        // Panel-proven construction: raw relay content gets silently dropped
+        // by WhatsApp; menu.js menuStyle '5' (repo default) wraps it with
+        // generateWAMessageFromContent + userJid and relays message.message.
+        const { generateWAMessageFromContent, proto } = require('@whiskeysockets/baileys');
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
+        const relay = flow.buildNativeFlowContent(proto, payload);
+        const generated = generateWAMessageFromContent('chat@g.us', relay, { userJid: '123:1@s.whatsapp.net' });
+        assert.ok(generated.key?.id);
+        assert.ok(generated.message);
+        const im = generated.message.viewOnceMessage?.message?.interactiveMessage;
+        assert.ok(im, 'interactiveMessage survived the wrapper');
+        assert.strictEqual(im.nativeFlowMessage.buttons.length, 2);
+    });
+
+    await test('buildFlowQuoted: real key when available, undefined otherwise', () => {
+        const withKey = flow.buildFlowQuoted({ remoteJid: 'chat@g.us', id: 'MSG1', participant: 'p' });
+        assert.strictEqual(withKey.key.id, 'MSG1');
+        assert.strictEqual(withKey.key.remoteJid, 'chat@g.us');
+        assert.strictEqual(flow.buildFlowQuoted(null), undefined);
+        assert.strictEqual(flow.buildFlowQuoted({ remoteJid: 'x' }), undefined);
+    });
+
     await test('buildSimpleButtons: botinfo-style { id, text } shape with flow ids', () => {
         const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
         const simple = flow.buildSimpleButtons(payload);

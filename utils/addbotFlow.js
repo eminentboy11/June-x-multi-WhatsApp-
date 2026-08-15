@@ -126,13 +126,16 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
 }
 
 /**
- * Build the relayable protobuf content for the native-flow buttons message.
+ * Build the content object for the native-flow buttons message.
  *
  * This repo's Baileys (rc14) has no built-in native-flow button support, and
  * the gifted-btns wrapper has proven unreliable on some panels (obfuscated
- * internals crashing at send time). We therefore construct the
- * viewOnceMessage.message.interactiveMessage protobuf directly and send it
- * via sock.relayMessage — no third-party library in the critical path.
+ * internals crashing at send time). The content is therefore built directly
+ * and sent with generateWAMessageFromContent + relayMessage — the EXACT
+ * pattern used by commands/general/menu.js menuStyle '5' (the repo's default
+ * menu style, proven to render on real panels). Relaying raw content without
+ * that wrapper makes WhatsApp's server silently drop the message (no local
+ * error, nothing delivered) — which is what happened with the first attempt.
  *
  * @param {object} proto  Baileys' WAProto (`require('@whiskeysockets/baileys').proto`)
  */
@@ -153,6 +156,24 @@ function buildNativeFlowContent(proto, payload) {
                 }),
             },
         },
+    };
+}
+
+/**
+ * Quoted-message object for generateWAMessageFromContent (same minimal shape
+ * menu.js passes via createFakeContact, but carrying the REAL .addbot command
+ * key when available so the reply quotes the requesting message).
+ */
+function buildFlowQuoted(quotedKey) {
+    if (!quotedKey || !quotedKey.id) return undefined;
+    return {
+        key: {
+            remoteJid: quotedKey.remoteJid || '0@s.whatsapp.net',
+            fromMe: false,
+            id: quotedKey.id,
+            participant: quotedKey.participant || undefined,
+        },
+        message: { conversation: ' ' },
     };
 }
 
@@ -215,6 +236,7 @@ module.exports = {
     removeRegistryEntry,
     buildCodeMessage,
     buildNativeFlowContent,
+    buildFlowQuoted,
     buildSimpleButtons,
     buildStatusMessage,
     parseAddbotButton,

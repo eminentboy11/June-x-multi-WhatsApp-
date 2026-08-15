@@ -623,11 +623,19 @@ async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
             if (!bot.sock || bot.botState !== 'connected') continue
 
             // 1) Native-flow relay (real copy buttons) — built directly from
-            //    the Baileys proto, no third-party library.
+            //    the Baileys proto and sent with generateWAMessageFromContent,
+            //    the EXACT pattern of menu.js menuStyle '5' (panel-proven).
+            //    Relaying raw content without that wrapper makes WhatsApp
+            //    silently drop the message — no error, nothing delivered.
             if (content.buttons) {
                 try {
+                    const { generateWAMessageFromContent } = require('@whiskeysockets/baileys')
                     const relay = addbotFlow.buildNativeFlowContent(require('@whiskeysockets/baileys').proto, content)
-                    await bot.sock.relayMessage(chatJid, relay, {})
+                    const generated = generateWAMessageFromContent(chatJid, relay, {
+                        userJid: bot.sock.user?.id,
+                        quoted: addbotFlow.buildFlowQuoted(quotedKey),
+                    })
+                    await bot.sock.relayMessage(chatJid, generated.message, { messageId: generated.key.id })
                     log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (native-flow buttons).`, 'cyan')
                     return true
                 } catch (e) {
