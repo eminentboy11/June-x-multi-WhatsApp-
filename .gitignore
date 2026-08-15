@@ -42,7 +42,6 @@ Thumbs.db
 
 # ── Multi-session runtime ─────────────────────────────────────────────────────
 sessions/
-sessions.json
 database/*.db
 database/*.db-shm
 database/*.db-wal

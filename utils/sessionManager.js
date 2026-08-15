@@ -5,12 +5,13 @@
  * single-session build kept in process globals (socket, reconnect counters,
  * intervals, message store, status queues…).
  *
- * A session is registered from:
- *   1. `JUNE_SESSIONS` env — JSON array or { sessions: [...] }
- *   2. `sessions.json` at the project root — same shape
- *   3. neither — one default session with no credentials, which behaves
- *      exactly like the old first-run flow (interactive login menu, or a
- *      clear exit message on headless platforms)
+ * A session is registered from the `JUNE_SESSIONS` environment variable —
+ * the SOLE session configuration source (JSON array or { sessions: [...] }).
+ * The value hot-reloads: index.js watches the .env file for changes to the
+ * JUNE_SESSIONS line and reconciles the running sessions live (hot-add /
+ * hot-remove) without a restart. With no registry configured, one default
+ * session with no credentials boots — exactly the old first-run flow
+ * (interactive login menu, or a clear exit message on headless platforms).
  *
  * Entry shape (simple):
  *   { phone: '2547...', sessionId: 'JUNE-MD:~...' }
@@ -23,11 +24,8 @@
 
 'use strict';
 
-const fs = require('fs');
 const path = require('path');
 const { DEFAULT_BOT_ID } = require('./botContext');
-
-const SESSIONS_FILE = path.join(process.cwd(), 'sessions.json');
 
 function defaultSessionDir(botId) {
     // Legacy single-session installs keep their existing folder so existing
@@ -406,15 +404,6 @@ function normalizeSessionEntries(rawEntries) {
     return normalized;
 }
 
-function loadRegistryFromFile() {
-    try {
-        if (!fs.existsSync(SESSIONS_FILE)) return null;
-        return parseSessionsJson(fs.readFileSync(SESSIONS_FILE, 'utf8'));
-    } catch (_) {
-        return null;
-    }
-}
-
 function loadRegistryFromEnv() {
     return parseSessionsJson(process.env.JUNE_SESSIONS);
 }
@@ -426,8 +415,8 @@ function loadRegistryFromEnv() {
  * interactive login menu on a TTY, or a clear exit message headless.
  */
 function loadSessionRegistry() {
-    // Priority: JUNE_SESSIONS env > sessions.json.
-    const rawEntries = loadRegistryFromEnv() || loadRegistryFromFile();
+    // JUNE_SESSIONS is the sole session registry.
+    const rawEntries = loadRegistryFromEnv();
     if (rawEntries && rawEntries.length > 0) {
         const clean = normalizeSessionEntries(rawEntries);
         if (clean.length > 0) return clean;
@@ -455,12 +444,10 @@ module.exports = {
     BotInstance,
     loadSessionRegistry,
     loadRegistryFromEnv,
-    loadRegistryFromFile,
     parseSessionsJson,
     normalizeSessionEntries,
     parsePairingMaxAttempts,
     sessionLogLabel,
     sessionLogPrefix,
-    SESSIONS_FILE,
     DEFAULT_BOT_ID,
 };

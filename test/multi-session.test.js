@@ -498,13 +498,33 @@ function test(name, fn) {
     await test('loadSessionRegistry: no registry -> single default session (first-run flow)', async () => {
         const oldEnv = process.env.JUNE_SESSIONS;
         delete process.env.JUNE_SESSIONS;
-        // sessions.json is absent in the test sandbox (cleanup guarantees it)
         const entries = loadSessionRegistry();
         assert.strictEqual(entries.length, 1);
         assert.strictEqual(entries[0].id, require('../utils/botContext').DEFAULT_BOT_ID);
         assert.strictEqual(entries[0].phone, '');
         assert.strictEqual(entries[0].sessionId, '');
         if (oldEnv) process.env.JUNE_SESSIONS = oldEnv;
+    });
+
+    await test('loadSessionRegistry: sessions.json is NOT a configuration source', async () => {
+        const fs = require('fs');
+        const path = require('path');
+        const filePath = path.join(__dirname, '..', 'sessions.json');
+        const oldEnv = process.env.JUNE_SESSIONS;
+        delete process.env.JUNE_SESSIONS;
+        // Plant a sessions.json full of entries — it must be completely ignored.
+        fs.writeFileSync(filePath, JSON.stringify({ sessions: [
+            { sessionId: 'JUNE-MD:~ignored', phone: '234899999999' },
+        ] }));
+        try {
+            const entries = loadSessionRegistry();
+            assert.strictEqual(entries.length, 1); // only the default session
+            assert.strictEqual(entries[0].phone, '');
+            assert.strictEqual(entries[0].sessionId, '');
+        } finally {
+            try { fs.rmSync(filePath, { force: true }); } catch (_) {}
+            if (oldEnv) process.env.JUNE_SESSIONS = oldEnv;
+        }
     });
 
     await test('loadSessionRegistry: one env entry behaves like single-session mode', () => {

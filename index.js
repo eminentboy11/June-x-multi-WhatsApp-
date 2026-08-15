@@ -14,10 +14,11 @@
  *   - commands/config/database reads are routed per bot through
  *     utils/botContext AsyncLocalStorage — command modules are untouched.
  *
- * Sessions are defined via:
- *   JUNE_SESSIONS env  (JSON array or { "sessions": [...] })
- *   sessions.json      (same shape)
- *   neither            (single default session, first-run login flow)
+ * Sessions are defined via the JUNE_SESSIONS env / .env variable — the sole
+ * session registry (JSON array or { "sessions": [...] }). Its .env line
+ * hot-reloads: edits are reconciled live (hot-add / hot-remove) without a
+ * restart. With no registry, a single default session runs the first-run
+ * login flow.
  *
  * Entry shape: { "id": "main", "name": "June Main", "phone": "2547…",
  *                "sessionId": "JUNE-MD:~<base64>" }
@@ -145,6 +146,7 @@ const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/botContex
 const {
     SessionManager,
     loadSessionRegistry,
+    parseSessionsJson,
     sessionLogLabel,
     sessionLogPrefix,
     parsePairingMaxAttempts,
@@ -457,13 +459,16 @@ if (!fs.existsSync(envPath)) {
         '# Multiple sessions (one process, isolated per bot):',
         '#    JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348..."},{"sessionId":"","phone":"2348..."}]',
         '#',
-        '# (one line JSON; or use sessions.json — see sessions.example.json)',
+        '# MUST be one line of JSON (multi-line values do not parse in .env).',
         '#',
         '#    sessionId  JUNE-MD:~ / Ultra-X:~ / June-Ultra:~ / June::~ + base64',
         '#    phone      digits with country code -> pairing-code login +',
         '#               auto-fallback whenever the sessionId fails (the bot\'s key)',
         '#    id / name  optional overrides — otherwise id is derived from the',
         '#               phone (duplicates get -2, -3) and name is "June X <last3>"',
+        '#',
+        '# HOT-RELOAD: editing this line while the bot runs adds/removes',
+        '# sessions live (within seconds) — no restart needed.',
         '#',
         '# No registry at all -> single default session with the first-run',
         '# login flow (interactive menu, or exit message when headless).',
@@ -482,7 +487,7 @@ if (!fs.existsSync(envPath)) {
         'JUNE_PAIRING_MAX_ATTEMPTS=5',
         '# Hot-add/hot-remove registry poll interval ms (default 15000)',
         'JUNE_SESSIONS_POLL_MS=15000',
-        '# Auto-export refreshed session creds back to sessions.json',
+        '# Auto-export refreshed session creds back to .env JUNE_SESSIONS',
         'JUNE_EXPORT_SESSION_TO_ENV=false',
         '',
         '# ── OTHER ───────────────────────────────────────────────────',
@@ -502,6 +507,62 @@ sessionManagerRef = sessionManager
 // session parks itself as needs-login. Per-session counters are isolated;
 // this value only sets the shared limit. Configurable: JUNE_PAIRING_MAX_ATTEMPTS.
 const PAIRING_MAX_ATTEMPTS = parsePairingMaxAttempts(process.env.JUNE_PAIRING_MAX_ATTEMPTS)
+
+// ─── JUNE_SESSIONS hot-reload (sole registry, .env file) ─────────────────────
+// The .env file's JUNE_SESSIONS line is the single source of truth. Whenever
+// it changes (detected by the file watcher or the periodic poll), the value is
+// re-read, parsed and reconciled against the running sessions: new ids are
+// hot-added, removed ids are hot-removed — running sessions are never touched.
+//
+// Rules:
+//   - The line must be ONE line of JSON (multi-line values cannot live in .env).
+//   - A missing line means the value is platform-managed (panel env var) — the
+//     file is never consulted and edits to it change nothing.
+//   - An invalid JSON line is logged and ignored until fixed (typos must never
+//     tear down running sessions).
+//   - An empty value removes every registry-managed session (hot-remove).
+
+let _lastEnvJuneSessions = null // last applied raw line value
+
+function readJuneSessionsLineFromEnv() {
+    try {
+        if (!fs.existsSync(envPath)) return { present: false, value: '' }
+        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
+        for (const line of lines) {
+            const trimmed = line.trim()
+            if (trimmed.startsWith('#') || !trimmed.startsWith('JUNE_SESSIONS=')) continue
+            // Everything after the first '=' is the value (preserves '=' inside base64)
+            return { present: true, value: trimmed.slice('JUNE_SESSIONS='.length).trim() }
+        }
+        return { present: false, value: '' }
+    } catch (e) {
+        log(`[ .env ] Failed to read JUNE_SESSIONS: ${e.message}`, 'red', true)
+        return { present: false, value: '' }
+    }
+}
+
+/**
+ * Re-read the JUNE_SESSIONS line from the .env file. Returns true when the
+ * value changed and was applied to process.env (trigger a live reconcile).
+ */
+function syncJuneSessionsFromEnvFile() {
+    const { present, value } = readJuneSessionsLineFromEnv()
+    if (!present) return false // platform-managed value — nothing file-based to sync
+    if (value === _lastEnvJuneSessions) return false
+
+    // Never apply garbage: an invalid JSON line must not tear sessions down.
+    if (value.trim() !== '' && !parseSessionsJson(value)) {
+        log('[ MULTI-SESSION ] JUNE_SESSIONS in .env is not valid JSON — ignoring until fixed.', 'red', true)
+        return false
+    }
+
+    _lastEnvJuneSessions = value
+    if (value.trim() === '') delete process.env.JUNE_SESSIONS
+    else process.env.JUNE_SESSIONS = value
+    return true
+}
+
+global.__JUNE_SYNC_SESSIONS = syncJuneSessionsFromEnvFile
 
 // ─── Cleanup Functions ────────────────────────────────────────────────────────
 
@@ -711,7 +772,7 @@ async function checkAndHandleSessionFormat(bot) {
             await delay(20000)
             process.exit(1)
         }
-        log(`[ SESSION:${bot.id} ] Skipping this session; fix its sessionId in sessions.json / JUNE_SESSIONS.`, 'red', true)
+        log(`[ SESSION:${bot.id} ] Skipping this session; fix its sessionId in the JUNE_SESSIONS registry (.env).`, 'red', true)
         bot.botState = 'needs-login'
         bot.lastError = 'Invalid sessionId format'
         return false
@@ -780,9 +841,9 @@ function buildSessionIdFromCreds(bot) {
     return `Ultra-X:~${base64}`
 }
 
-// Sessions keep their refreshed sessionId inside sessions.json — the only
-// session configuration file. (JUNE_SESSIONS env values cannot be written at
-// runtime; the export is skipped in that case.)
+// Refreshed sessionIds are written back to the .env file's JUNE_SESSIONS
+// line (only when that line already exists — a platform-managed env var
+// cannot be edited at runtime, so the export is skipped in that case).
 function findRegistryEntryForBot(entries, bot) {
     const list = Array.isArray(entries) ? entries : (entries.sessions || []);
     return list.find((entry) => {
@@ -806,26 +867,34 @@ async function autoExportSessionToRegistry(bot, force = false) {
             return
         }
 
-        const { SESSIONS_FILE } = require('./utils/sessionManager')
-        if (!fs.existsSync(SESSIONS_FILE)) {
-            // Registry came from JUNE_SESSIONS env — nothing file-based to
-            // update at runtime.
+        if (!fs.existsSync(envPath)) return
+        const envContent = fs.readFileSync(envPath, 'utf8')
+        const lineMatch = envContent.match(/^JUNE_SESSIONS=.*$/m)
+        if (!lineMatch) {
+            // No JUNE_SESSIONS line in the file — the registry is
+            // platform-managed; nothing file-based to update at runtime.
             bot._lastSessionExport = now
             return
         }
-        let entries = null
-        try { entries = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')) } catch (_) {}
+
+        const entries = parseSessionsJson(lineMatch[0].slice('JUNE_SESSIONS='.length).trim())
         if (!entries) return
         const target = findRegistryEntryForBot(entries, bot)
         if (!target) return
 
         global._suppressEnvWatcherUntil = Date.now() + 3000
         target.sessionId = sessionID
-        atomicWriteFile(SESSIONS_FILE, JSON.stringify(entries, null, 2))
+        const newValue = JSON.stringify(entries)
+        atomicWriteFile(
+            envPath,
+            envContent.replace(/^JUNE_SESSIONS=.*$/m, `JUNE_SESSIONS=${newValue}`)
+        )
+        process.env.JUNE_SESSIONS = newValue
+        _lastEnvJuneSessions = newValue // our own write — no watcher reaction needed
         bot.sessionId = sessionID
         rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
         bot._lastSessionExport = now
-        log(`[ SESSION:${bot.id} ] Session export completed; registry updated.`, 'cyan')
+        log(`[ SESSION:${bot.id} ] Session export completed; .env JUNE_SESSIONS updated.`, 'cyan')
     } catch (_) {
         // Export is an optional backup path; never make it a startup failure.
     }
@@ -864,7 +933,7 @@ async function getLoginMethod(bot) {
             return 'number'
         }
         bot.botState = 'needs-login'
-        log(`[ SESSION:${bot.id} ] No sessionId or phone configured. Add one to sessions.json (or JUNE_SESSIONS) to connect this session.`, 'red', true)
+        log(`[ SESSION:${bot.id} ] No sessionId or phone configured. Add one to the JUNE_SESSIONS registry (.env) to connect this session.`, 'red', true)
         return null
     }
 
@@ -1031,41 +1100,33 @@ async function checkSessionIntegrityAndClean(bot) {
     }
 }
 
-// ─── .env / sessions.json File Watcher ────────────────────────────────────────
-// sessions.json changes are applied LIVE: added sessions are hot-added and
-// removed sessions are hot-removed without touching the running ones.
-// .env changes only warn — non-session variables still need a restart.
+// ─── .env JUNE_SESSIONS File Watcher (live hot-reload) ───────────────────────
+// The .env file is watched specifically for changes to the JUNE_SESSIONS line.
+// When it changes, the value is re-read, parsed and reconciled against the
+// running sessions (hot-add / hot-remove) without a restart. Edits to any
+// other variable are left alone (they still need a restart to apply).
 
 function checkEnvStatus() {
     try {
-        log('[ WATCHER ] Monitoring .env and sessions.json for changes...', 'green')
+        log('[ WATCHER ] Hot-reload: monitoring .env JUNE_SESSIONS for live changes...', 'green')
         global._envWatcher = fs.watch(envPath, { persistent: false }, (eventType, filename) => {
-            if (filename && eventType === 'change') {
-                // Suppress when we ourselves wrote the session update.
-                if (global._suppressEnvWatcherUntil && Date.now() < global._suppressEnvWatcherUntil) {
-                    return
-                }
-                log(chalk.black.bgBlueBright('[ENV CHANGED] .env updated — restart the process to apply non-session variables. (sessions.json changes apply live.)'), 'white')
+            if (eventType !== 'change') return
+            // Suppress when we ourselves wrote the session update.
+            if (global._suppressEnvWatcherUntil && Date.now() < global._suppressEnvWatcherUntil) {
+                return
+            }
+            if (syncJuneSessionsFromEnvFile()) {
+                log(chalk.black.bgBlueBright('[MULTI-SESSION] JUNE_SESSIONS changed in .env — applying live (hot-add/hot-remove).'), 'white')
+                scheduleSessionReconcile()
             }
         })
-        const { SESSIONS_FILE } = require('./utils/sessionManager')
-        if (fs.existsSync(SESSIONS_FILE)) {
-            fs.watch(SESSIONS_FILE, { persistent: false }, (eventType, filename) => {
-                if (filename && eventType === 'change') {
-                    if (global._suppressEnvWatcherUntil && Date.now() < global._suppressEnvWatcherUntil) {
-                        return
-                    }
-                    scheduleSessionReconcile()
-                }
-            })
-        }
     } catch (e) {
         log(`⚠️ .env watcher failed: ${e.message}`, 'yellow')
     }
 }
 
 // ─── Live session registry reconciliation (hot-add / hot-remove) ──────────────
-// The registry (JUNE_SESSIONS env > sessions.json) is re-read periodically and
+// The registry (JUNE_SESSIONS in .env) is re-read periodically and
 // on file changes. New session ids are registered, wired and booted WITHOUT
 // touching the running sessions; removed ids stop ONLY that session and close
 // only its resources (socket, intervals, reconnect timers, database handle,
@@ -1095,15 +1156,12 @@ async function reconcileSessions() {
     if (_reconcileRunning) return
     _reconcileRunning = true
     try {
-        const { loadRegistryFromEnv, loadRegistryFromFile, normalizeSessionEntries } = require('./utils/sessionManager')
-        const rawEntries = loadRegistryFromEnv() || loadRegistryFromFile()
-        const entries = normalizeSessionEntries(rawEntries)
-        if (!entries || entries.length === 0) {
-            _registryManagedIds.clear()
-            return
-        }
-
-        const desired = entries.map((entry) => String(entry.id || DEFAULT_BOT_ID))
+        const { normalizeSessionEntries } = require('./utils/sessionManager')
+        // JUNE_SESSIONS (process.env) is the sole registry. The .env watcher /
+        // poll keep process.env in sync with the .env file line.
+        const rawEntries = parseSessionsJson(process.env.JUNE_SESSIONS)
+        const entries = normalizeSessionEntries(rawEntries || [])
+        const desired = entries.map((entry) => String(entry.id))
         const desiredSet = new Set(desired)
         const currentSet = new Set(sessionManager.ids())
 
@@ -1111,7 +1169,7 @@ async function reconcileSessions() {
         // are left completely alone.
         for (const id of desired) {
             if (currentSet.has(id)) continue
-            const entry = entries.find((e) => String(e.id || DEFAULT_BOT_ID) === id) || {}
+            const entry = entries.find((e) => String(e.id) === id) || {}
             const bot = sessionManager.register(entry)
             try {
                 await wireBotRuntime(bot)
@@ -1128,10 +1186,10 @@ async function reconcileSessions() {
             }
         }
 
-        // Hot-remove: only ids that were previously registry-managed and have
-        // now disappeared from the registry. Stops ONLY that session and
-        // releases only its resources.
-        for (const id of _registryManagedIds) {
+        // Hot-remove: ids that were previously registry-managed and have now
+        // disappeared from the registry (including a fully emptied registry).
+        // Stops ONLY those sessions and releases only their resources.
+        for (const id of [..._registryManagedIds]) {
             if (desiredSet.has(id)) continue
             if (!currentSet.has(id)) continue
             log(`[ MULTI-SESSION ] Hot-removing session "${id}" — only this session stops.`, 'yellow')
@@ -1143,6 +1201,9 @@ async function reconcileSessions() {
         }
 
         _registryManagedIds = desiredSet
+        if (desired.length === 0) {
+            log('[ MULTI-SESSION ] Registry is empty — all managed sessions stopped. Set JUNE_SESSIONS to re-add sessions (restart for the default first-run session).', 'yellow')
+        }
     } finally {
         _reconcileRunning = false
     }
@@ -2121,7 +2182,7 @@ async function bootBot(bot) {
                 log(`[ sessionId:${bot.id} ] This sessionId was logged out by WhatsApp.`, 'red', true)
                 return fallbackToPairing(bot, 'Session ID was revoked by WhatsApp')
             }
-            log(`[ sessionId:${bot.id} ] This sessionId was logged out by WhatsApp. Add a fresh sessionId to sessions.json / JUNE_SESSIONS, then restart.`, 'red', true)
+            log(`[ sessionId:${bot.id} ] This sessionId was logged out by WhatsApp. Add a fresh sessionId to the JUNE_SESSIONS registry (.env), then restart.`, 'red', true)
             bot.botState = 'needs-login'
             return null
         }
@@ -2822,6 +2883,14 @@ async function main() {
     // load on an older VPS. Nothing may read settings/auth/schema before this.
     await juneDatabase.ready
 
+    // The .env file's JUNE_SESSIONS line is authoritative at boot too: sync it
+    // into process.env before the registry is read (dotenv may have loaded an
+    // older value, and platform env vars are only used when the file has no
+    // JUNE_SESSIONS line at all).
+    if (syncJuneSessionsFromEnvFile()) {
+        log('[ MULTI-SESSION ] Applied JUNE_SESSIONS from .env.', 'cyan')
+    }
+
     const entries = loadSessionRegistry()
     const ids = entries.map((entry) => String(entry.id || DEFAULT_BOT_ID))
     const unique = [...new Set(ids)]
@@ -2868,9 +2937,16 @@ async function main() {
     await Promise.allSettled(bootPromises)
 
     // Live registry reconciliation: seed the managed-id set, then poll so
-    // sessions can be hot-added / hot-removed without a restart.
+    // sessions can be hot-added / hot-removed without a restart. Each tick
+    // re-reads the .env JUNE_SESSIONS line first, so panels without a
+    // reliable fs.watch still hot-apply edits within one poll interval.
     try { await reconcileSessions() } catch (_) {}
-    setInterval(() => scheduleSessionReconcile(), SESSIONS_POLL_MS).unref?.()
+    setInterval(() => {
+        if (syncJuneSessionsFromEnvFile()) {
+            log('[ MULTI-SESSION ] JUNE_SESSIONS changed in .env — applying live (hot-add/hot-remove).', 'green')
+            scheduleSessionReconcile()
+        }
+    }, SESSIONS_POLL_MS).unref?.()
 }
 
 // ─── Boot ──────────────────────────────────────────────────────────────────────

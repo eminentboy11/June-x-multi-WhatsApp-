@@ -8,31 +8,35 @@ machine, its own settings, and its own SQLite database.
 
 ### 1. Define your sessions
 
-Three ways, in priority order:
+`JUNE_SESSIONS` in `.env` (or as a panel variable) is the **only** session
+registry — one line of JSON. One entry behaves exactly like the old
+single-session mode; multiple entries boot independently.
 
-**A. `sessions.json` at the project root** (recommended — see
-`sessions.example.json`). The simple format is just **two fields per session**:
+```env
+# single session
+JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"}]
 
-```json
-{
-  "sessions": [
-    { "sessionId": "JUNE-MD:~<base64>", "phone": "2348154853640" },
-    { "sessionId": "",                    "phone": "2348165321909" }
-  ]
-}
+# pairing-only
+JUNE_SESSIONS=[{"sessionId":"","phone":"2348154853640"}]
+
+# multiple sessions
+JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
 ```
 
-**B. `JUNE_SESSIONS` env (JSON, one line)** — best for hosted panels:
+Rules:
 
-```json
-[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
-```
-
-**C. No registry** — the bot boots a single default session with the
-first-run login flow (interactive menu on a TTY, or a clear exit message on
-headless platforms). `JUNE_SESSIONS` is the **only** session configuration
-mechanism — one entry behaves exactly like the old single-session mode, and
-multiple entries boot independently.
+- The value **must be one line of JSON** — multi-line values do not parse in `.env`.
+- **Hot-reload**: editing the line while the bot runs is detected within
+  seconds (file watcher + a `JUNE_SESSIONS_POLL_MS` fallback poll). New ids
+  are hot-added, removed ids are hot-removed; unchanged sessions are never
+  touched. No restart needed.
+- An invalid JSON line is logged and ignored until fixed — a typo can never
+  tear down running sessions.
+- When `.env` has no `JUNE_SESSIONS` line at all, the platform/panel value is
+  used and file edits change nothing.
+- Emptying the value hot-removes every registry-managed session.
+- With no registry anywhere, one default session boots the first-run login
+  flow (interactive menu, or a clear exit message headless).
 
 Session entry fields:
 
@@ -92,9 +96,8 @@ cleared, so no process restart is ever needed.
 
 ### 🔥 Hot-add / hot-remove sessions (no restart)
 
-The session registry (`sessions.json`, or `JUNE_SESSIONS`) is reconciled live
-(polled every `JUNE_SESSIONS_POLL_MS`, default 15 s, plus instant on file
-change):
+The `JUNE_SESSIONS` line in `.env` is reconciled live (instantly via the
+file watcher, plus a `JUNE_SESSIONS_POLL_MS` fallback poll, default 15 s):
 
 - **Add a session** → the new session is registered, gets its own SQLite
   database, session dir, config, pairing state, reconnect timers and counters,
@@ -159,11 +162,12 @@ bot's data.
 
 ## Operations
 
-- **Add a session**: append it to `sessions.json` / `JUNE_SESSIONS` — it is
-  **hot-added** within seconds (or on the next poll tick): wired, booted and
-  ready to pair. No restart, running sessions stay connected.
-- **Remove a session**: delete its entry — it is **hot-removed**: only that
-  session's socket, timers, database handle and adapter pools are released.
+- **Add a session**: append an entry to the `JUNE_SESSIONS` line in `.env` —
+  it is **hot-added** within seconds (or on the next poll tick): wired, booted
+  and ready to pair. No restart, running sessions stay connected.
+- **Remove a session**: delete its entry from the line — it is **hot-removed**:
+  only that session's socket, timers, database handle and adapter pools are
+  released.
 - **Restart one session**: `.restart` from that bot restarts **only that
   session** — its socket is torn down and rebooted from stored auth while the
   other sessions keep running untouched (falls back to a full process restart
@@ -174,7 +178,7 @@ bot's data.
 - **A session logs out**: only that session's auth is quarantined/cleared and
   it returns to its own login flow; the others keep running.
 - **Session export**: with `JUNE_EXPORT_SESSION_TO_ENV=true`, refreshed creds
-  are written back to `sessions.json` (the registry) every 30 minutes.
+  are written back to the `.env` `JUNE_SESSIONS` line every 30 minutes.
 - **Logs**: every session-scoped line is tagged with its id, e.g.
   `[ sessionId:backup ]`, `[ CONFLICT:backup ]`, `[ AUTH:backup ]`. In
   multi-session mode the console prefix itself is also per session —

@@ -31,9 +31,8 @@ git clone https://github.com/eminentboy11/June-x-multi-WhatsApp-.git
 cd June-x-multi-WhatsApp-
 npm install
 
-# optional: copy .env.example -> .env and fill in your sessions
-# or define sessions in sessions.json (see sessions.example.json)
-nano sessions.json
+# optional: copy .env.example -> .env and fill in your JUNE_SESSIONS registry
+nano .env
 
 npm start
 ```
@@ -44,24 +43,18 @@ npm start
 and multiple sessions use exactly the same registry and boot pipeline — the
 only difference is the number of entries.
 
-**`sessions.json`** at the project root (recommended) — the simple format is
-just two fields per session:
+**`JUNE_SESSIONS` in `.env`** (or as a panel variable) is the **only** registry.
+The value is one line of JSON:
 
-```json
-{ "sessions": [
-  { "sessionId": "JUNE-MD:~...", "phone": "2348154853640" },
-  { "sessionId": "",             "phone": "2348165321909" }
-] }
+```env
+JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
 ```
 
-**`JUNE_SESSIONS` env** (JSON, one line) — ideal for hosted panels:
-
-```json
-[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
-```
-
-With no registry at all, the bot boots a single default session with the
-first-run login flow (interactive menu, or a clear exit message headless).
+- **Hot-reload**: editing the `JUNE_SESSIONS` line in `.env` while the bot
+  runs adds/removes sessions live (within seconds) — no restart.
+- The line **must be one line of JSON** (multi-line values do not parse in `.env`).
+- With no registry at all, the bot boots a single default session with the
+  first-run login flow (interactive menu, or a clear exit message headless).
 
 #### Session entry fields
 
@@ -121,7 +114,6 @@ utils/juneDb/mongoAdapter.js
 utils/juneDb/pgAdapter.js
 utils/botContext.js          (new)
 utils/sessionManager.js      (new)
-sessions.example.json        (new)
 MULTI_SESSION.md             (new)
 test/multi-session.test.js   (new)
 ```
@@ -134,13 +126,13 @@ See **`.env.example`** for a ready-to-copy template (single legacy session, mult
 
 | Variable | Purpose |
 |---|---|
-| `JUNE_SESSIONS` | the sole session registry (JSON, one line) — alternative to `sessions.json` |
+| `JUNE_SESSIONS` | the sole session registry (JSON, one line in `.env`) — hot-reloadable live |
 | `JUNE_BOT_ID` | default session id / mirror `bot_id` |
 | `DATABASE_URL` | PostgreSQL mirror (per-bot rows separated by `bot_id` automatically) |
 | `MONGODB_URI` / `MONGO_URL` | MongoDB mirror (per-bot `botId` records) |
 | `JUNE_DB_FILE` / `JUNE_DB_DIR` | database path for the default session |
 | `JUNE_FORCE_SESSION_BOOTSTRAP` | `true` = force re-bootstrap from `sessionId` |
-| `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds back to `sessions.json` |
+| `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds back to `.env`'s `JUNE_SESSIONS` line |
 | `JUNE_PAIRING_MAX_ATTEMPTS` | pairing codes per login/recovery cycle (default **5**); after the limit the session parks as `needs-login` until `.restart`/process restart |
 | `JUNE_SESSIONS_POLL_MS` | hot-add/hot-remove registry poll interval (default 15000) |
 | `PORT` | dashboard port (default 5000) |

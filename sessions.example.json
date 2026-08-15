@@ -1,7 +1,0 @@
-{
-  "sessions": [
-    { "sessionId": "JUNE-MD:~<base64-session-here>", "phone": "2348154853640" },
-    { "sessionId": "", "phone": "2348165321909" },
-    { "sessionId": "Ultra-X:~<base64-session-here>", "phone": "2348012345678", "id": "client-one", "name": "Client Bot" }
-  ]
-}
