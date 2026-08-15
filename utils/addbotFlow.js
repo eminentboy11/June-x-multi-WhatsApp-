@@ -72,22 +72,14 @@ function removeRegistryEntry(registry, identifier) {
     return { ok: true, registry: list, removed };
 }
 
-/** The in-chat pairing-code message with copy/cancel buttons.
+/** The in-chat pairing-code message — PLAIN TEXT ONLY.
  *
- * The message travels as a NATIVE FLOW interactive message (see
- * buildNativeFlowContent). Buttons are `cta_copy` type — the only button type
- * WhatsApp accepts for copy actions, and the one the repo's button library
- * wraps. Both buttons carry an `id` inside buttonParamsJson so the tap can be
- * routed back to the live flow by handler.js (extractButtonId reads
- * interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).
- *
- * Copy Code -> copy_code = the pairing code.
- * Cancel    -> copy_code = the .delbot command (harmless clipboard side
- *             effect; the tap, when delivered, cancels the flow properly).
+ * Button delivery proved unreliable across panel environments, so by design
+ * this is a simple text message: the code, the linking steps, and a cancel
+ * hint (the .delbot command). The unused button builders remain in this
+ * module for a future opt-in, but the live flow never sends buttons.
  */
 function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
-    const copyId = `${BUTTON_COPY_PREFIX}${botId}`;
-    const cancelId = `${BUTTON_CANCEL_PREFIX}${botId}`;
     return {
         text:
             `🔑 *Pairing Code* (${attempt}/${max})\n\n` +
@@ -97,31 +89,13 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
             `1️⃣ Open WhatsApp → Settings\n` +
             `2️⃣ Linked Devices → *Link a Device*\n` +
             `3️⃣ Enter the code above\n\n` +
-            `⏳ _Waiting for pairing…_`,
-        footer: 'June X — live pairing',
+            `⏳ _Waiting for pairing…_\n` +
+            `❌ _Cancel with_ *.delbot ${phone}*`,
         code,
         attempt,
         max,
         phone,
         botId,
-        buttons: [
-            {
-                name: 'cta_copy',
-                buttonParamsJson: JSON.stringify({
-                    display_text: '📋 Copy Code',
-                    id: copyId,
-                    copy_code: code,
-                }),
-            },
-            {
-                name: 'cta_copy',
-                buttonParamsJson: JSON.stringify({
-                    display_text: '❌ Cancel',
-                    id: cancelId,
-                    copy_code: `.delbot ${phone}`,
-                }),
-            },
-        ],
     };
 }
 
@@ -148,7 +122,7 @@ function buildNativeFlowContent(proto, payload) {
                     body: IM.Body.create({ text: payload.text }),
                     footer: IM.Footer.create({ text: payload.footer || '' }),
                     nativeFlowMessage: IM.NativeFlowMessage.create({
-                        buttons: payload.buttons.map((b) => ({
+                        buttons: (payload.buttons || []).map((b) => ({
                             name: b.name,
                             buttonParamsJson: b.buttonParamsJson,
                         })),

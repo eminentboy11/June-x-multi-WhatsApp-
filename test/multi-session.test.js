@@ -954,91 +954,13 @@ function test(name, fn) {
         assert.strictEqual(registry.length, 2); // untouched
     });
 
-    await test('buildCodeMessage: code, buttons with ids + copy_code, cancel button', () => {
+    await test('buildCodeMessage: PLAIN TEXT ONLY — code, steps and .delbot cancel hint, no buttons', () => {
         const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 2, max: 5, phone: '2348154853640', botId: 'b1' });
         assert.ok(payload.text.includes('ABCD-1234'));
         assert.ok(payload.text.includes('(2/5)'));
-        assert.strictEqual(payload.buttons.length, 2);
-        const copy = JSON.parse(payload.buttons[0].buttonParamsJson);
-        const cancel = JSON.parse(payload.buttons[1].buttonParamsJson);
-        assert.strictEqual(copy.id, 'addbot_copy_b1');
-        assert.strictEqual(copy.copy_code, 'ABCD-1234');
-        assert.strictEqual(cancel.id, 'addbot_cancel_b1');
-    });
-
-    await test('buildNativeFlowContent: relayable protobuf carries the flow ids (library-free)', () => {
-        // This repo's Baileys (rc14) has no native-flow button support, and
-        // the gifted-btns wrapper crashed at send time on a real panel. The
-        // flow therefore builds the interactiveMessage protobuf directly —
-        // no third-party button library in the critical path.
-        const { proto } = require('@whiskeysockets/baileys');
-        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
-        const relay = flow.buildNativeFlowContent(proto, payload);
-        const im = relay.viewOnceMessage.message.interactiveMessage;
-        assert.strictEqual(im.body.text, payload.text);
-        assert.strictEqual(im.footer.text, payload.footer);
-        assert.strictEqual(im.nativeFlowMessage.buttons.length, 2);
-        assert.strictEqual(im.nativeFlowMessage.buttons[0].name, 'cta_copy');
-        assert.strictEqual(im.nativeFlowMessage.buttons[1].name, 'cta_copy');
-        const copy = JSON.parse(im.nativeFlowMessage.buttons[0].buttonParamsJson);
-        const cancel = JSON.parse(im.nativeFlowMessage.buttons[1].buttonParamsJson);
-        assert.strictEqual(copy.id, 'addbot_copy_b1');
-        assert.strictEqual(copy.copy_code, 'ABCD-1234');
-        assert.strictEqual(cancel.id, 'addbot_cancel_b1');
-        assert.strictEqual(cancel.copy_code, '.delbot 2348154853640');
-    });
-
-    await test('generateWAMessageFromContent wraps the flow content (menu.js style-5 pattern)', () => {
-        // Panel-proven construction: raw relay content gets silently dropped
-        // by WhatsApp; menu.js menuStyle '5' (repo default) wraps it with
-        // generateWAMessageFromContent + userJid and relays message.message.
-        const { generateWAMessageFromContent, proto } = require('@whiskeysockets/baileys');
-        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
-        const relay = flow.buildNativeFlowContent(proto, payload);
-        const generated = generateWAMessageFromContent('chat@g.us', relay, { userJid: '123:1@s.whatsapp.net' });
-        assert.ok(generated.key?.id);
-        assert.ok(generated.message);
-        const im = generated.message.viewOnceMessage?.message?.interactiveMessage;
-        assert.ok(im, 'interactiveMessage survived the wrapper');
-        assert.strictEqual(im.nativeFlowMessage.buttons.length, 2);
-    });
-
-    await test('buildFlowQuoted: real key when available, undefined otherwise', () => {
-        const withKey = flow.buildFlowQuoted({ remoteJid: 'chat@g.us', id: 'MSG1', participant: 'p' });
-        assert.strictEqual(withKey.key.id, 'MSG1');
-        assert.strictEqual(withKey.key.remoteJid, 'chat@g.us');
-        assert.strictEqual(flow.buildFlowQuoted(null), undefined);
-        assert.strictEqual(flow.buildFlowQuoted({ remoteJid: 'x' }), undefined);
-    });
-
-    await test('buildSimpleButtons: botinfo-style { id, text } shape with flow ids', () => {
-        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
-        const simple = flow.buildSimpleButtons(payload);
-        assert.strictEqual(simple.text, payload.text);
-        assert.strictEqual(simple.buttons.length, 2);
-        assert.deepStrictEqual(simple.buttons, [
-            { id: 'addbot_copy_b1', text: '📋 Copy Code' },
-            { id: 'addbot_cancel_b1', text: '❌ Cancel' },
-        ]);
-    });
-
-    await test('buildSimpleButtons payload passes gifted-btns validation (panel-proven shape)', async () => {
-        // commands/general/botinfo.js sends this exact { id, text } shape and
-        // its buttons render on the user's real panel. Pin that path: the
-        // library validates the payload BEFORE touching the socket, so a
-        // recording socket is enough to distinguish accepted vs rejected.
-        const { sendButtons } = require('gifted-btns');
-        const recorder = { sendMessage: async () => ({}) };
-        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
-        const simple = flow.buildSimpleButtons(payload);
-        let validationError = null;
-        try {
-            await sendButtons(recorder, 'x@g.us', simple, {});
-        } catch (e) {
-            // 'Missing baileys internals' = payload VALID (needs real socket).
-            if (!/Missing baileys internals/.test(e.message)) validationError = e;
-        }
-        assert.strictEqual(validationError, null);
+        assert.ok(payload.text.includes('2348154853640'));
+        assert.ok(payload.text.includes('.delbot 2348154853640'), 'cancel hint present');
+        assert.strictEqual(payload.buttons, undefined, 'buttons removed by design');
     });
 
     await test('parseAddbotButton: copy / cancel / garbage', () => {

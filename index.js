@@ -606,11 +606,11 @@ const _pendingAddRequests = new Map()
 const FLOW_SEND_ATTEMPTS = 3
 const FLOW_SEND_RETRY_DELAY_MS = 1500
 
-// Delivery is library-free: Baileys rc14 has no native-flow button support
-// and the gifted-btns wrapper has crashed on real panels (obfuscated
-// internals). The interactive message is built from the proto directly and
-// relayed; any failure falls back to plain text, tries other connected
-// sessions, and retries — nothing silently disappears.
+// Delivery is PLAIN TEXT ONLY by design: button delivery proved unreliable
+// across panel environments (library crashes + WhatsApp silently dropping
+// wrapped relays). Every flow message is a normal text message — simple,
+// dependable, and it always renders. Retries, multi-session candidates and
+// reconnect re-delivery still apply; nothing disappears silently.
 async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
     const quoteOpt = quotedKey ? { quoted: { key: quotedKey } } : {}
     const candidates = [
@@ -621,43 +621,9 @@ async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
     for (let attempt = 0; attempt < FLOW_SEND_ATTEMPTS; attempt++) {
         for (const bot of candidates) {
             if (!bot.sock || bot.botState !== 'connected') continue
-
-            // 1) Native-flow relay (real copy buttons) — built directly from
-            //    the Baileys proto and sent with generateWAMessageFromContent,
-            //    the EXACT pattern of menu.js menuStyle '5' (panel-proven).
-            //    Relaying raw content without that wrapper makes WhatsApp
-            //    silently drop the message — no error, nothing delivered.
-            if (content.buttons) {
-                try {
-                    const { generateWAMessageFromContent } = require('@whiskeysockets/baileys')
-                    const relay = addbotFlow.buildNativeFlowContent(require('@whiskeysockets/baileys').proto, content)
-                    const generated = generateWAMessageFromContent(chatJid, relay, {
-                        userJid: bot.sock.user?.id,
-                        quoted: addbotFlow.buildFlowQuoted(quotedKey),
-                    })
-                    await bot.sock.relayMessage(chatJid, generated.message, { messageId: generated.key.id })
-                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (native-flow buttons).`, 'cyan')
-                    return true
-                } catch (e) {
-                    log(`[ FLOW:${viaBotId} ] Native-flow send via ${bot.id} failed (${e?.message || e}); trying simple buttons.`, 'yellow')
-                }
-                // 2) gifted-btns with the SIMPLE button shape ({ id, text })
-                //    — the format proven on real panels (botinfo.js style).
-                try {
-                    const { sendButtons } = require('gifted-btns')
-                    const simple = addbotFlow.buildSimpleButtons(content)
-                    await sendButtons(bot.sock, chatJid, simple, quoteOpt)
-                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (simple buttons).`, 'cyan')
-                    return true
-                } catch (e) {
-                    log(`[ FLOW:${viaBotId} ] Simple-buttons send via ${bot.id} failed (${e?.message || e}); falling back to plain text.`, 'yellow')
-                }
-            }
-
-            // 3) Plain text — information always reaches the chat.
             try {
                 await bot.sock.sendMessage(chatJid, { text: content.text || String(content) }, quoteOpt)
-                log(`[ FLOW:${viaBotId} ] Message delivered as plain text via ${bot.id}.`, 'cyan')
+                log(`[ FLOW:${viaBotId} ] Message delivered via ${bot.id} (plain text).`, 'cyan')
                 return true
             } catch (e) {
                 log(`[ FLOW:${viaBotId} ] Plain-text send via ${bot.id} failed (${e?.message || e}).`, 'yellow')
