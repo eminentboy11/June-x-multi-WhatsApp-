@@ -237,6 +237,9 @@ from hardcoded source numbers, a WhatsApp command, or a session setting.
   `config.ownerNumber` (future session owners) + the Super Owner.
 - **Privacy**: the Super Owner number is never printed in logs or the
   connected message — sessions only display `Super Owner: ✅/❌`.
+- **Test command**: `.superowner` tells the sender whether THEY are the
+  Super Owner (`✅` / `❌` / `—`) — deliberately ungated and leak-free; it can
+  never change the Super Owner.
 
 No change, reset or recovery command exists — and none is planned yet.
 

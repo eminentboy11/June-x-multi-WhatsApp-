@@ -829,6 +829,32 @@ function test(name, fn) {
         assert.strictEqual(addbotCmd.ownerOnly, undefined);
     });
 
+    console.log('\n[17] .superowner diagnostic command');
+    const soCmd = require('../commands/owner/superowner');
+
+    await test('superowner command: the Super Owner sees ✅ (number never displayed)', async () => {
+        let replyText = '';
+        const extra = { sender: `${SUPER_NUMBER}@s.whatsapp.net`, reply: async (t) => { replyText = t; } };
+        await soCmd.execute({}, {}, [], extra);
+        assert.ok(replyText.includes('✅'));
+        assert.ok(replyText.includes('Super Owner'));
+        assert.ok(replyText.includes(SUPER_NUMBER)); // sender's OWN number is fine
+        assert.ok(!replyText.includes('234899999999')); // nothing else leaks
+    });
+
+    await test('superowner command: a normal session sees ❌', async () => {
+        let replyText = '';
+        const extra = { sender: `${OTHER_NUMBER}@s.whatsapp.net`, reply: async (t) => { replyText = t; } };
+        await soCmd.execute({}, {}, [], extra);
+        assert.ok(replyText.includes('❌'));
+        assert.ok(replyText.includes('NOT the Super Owner'));
+    });
+
+    await test('superowner command is deliberately ungated (test/diagnostic)', () => {
+        assert.strictEqual(soCmd.ownerOnly, undefined);
+        assert.strictEqual(soCmd.superOwnerOnly, undefined);
+    });
+
     console.log('\n──────────────────────────────────────────');
     console.log(`  ${passed} passed, ${failed} failed`);
     if (failed > 0) {
