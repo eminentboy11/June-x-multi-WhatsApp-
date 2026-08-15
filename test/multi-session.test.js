@@ -613,10 +613,14 @@ function test(name, fn) {
         };
         await runInBot('via-bot', () => addbotCmd.execute({}, msg, ['+234 816 532 1909', 'JUNE-MD:~xxxxx'], extra));
         assert.deepStrictEqual(calledWith, { phone: '2348165321909', sessionId: 'JUNE-MD:~xxxxx' });
-        // flow meta: same-chat delivery + which session delivers + quote key
+        // flow meta: same-chat delivery + which session delivers + the FULL
+        // quoted message (Baileys' quote path reads quoted.message — passing
+        // only { key } crashes with 'Cannot read properties of undefined',
+        // which is what killed delivery on the real panel).
         assert.strictEqual(calledMeta.chatJid, 'chat@g.us');
         assert.strictEqual(calledMeta.viaBotId, 'via-bot');
-        assert.deepStrictEqual(calledMeta.quotedKey, msg.key);
+        assert.strictEqual(calledMeta.quotedMsg, msg);
+        assert.ok(calledMeta.quotedMsg.message === undefined || calledMeta.quotedMsg.key, 'full message object passed');
         // progress = reactions only; NO processing text messages
         assert.deepStrictEqual(reactions, ['⏳']);
         assert.strictEqual(replies.length, 0);
@@ -961,6 +965,23 @@ function test(name, fn) {
         assert.ok(payload.text.includes('2348154853640'));
         assert.ok(payload.text.includes('.delbot 2348154853640'), 'cancel hint present');
         assert.strictEqual(payload.buttons, undefined, 'buttons removed by design');
+    });
+
+    await test('buildFlowQuoteOptions: regression guard — key-only quotes can never crash delivery', () => {
+        // Baileys messages.js quote path: normalizeMessageContent(quoted.message)
+        // -> passing only { key } crashes with 'Cannot read properties of
+        // undefined' (the exact error seen in the panel logs that silently
+        // killed in-chat delivery). The guard only quotes FULL messages.
+        const fullMsg = { key: { remoteJid: 'c@g.us', id: 'X' }, message: { conversation: 'hi' } };
+        assert.deepStrictEqual(flow.buildFlowQuoteOptions(fullMsg), { quoted: fullMsg });
+        assert.deepStrictEqual(flow.buildFlowQuoteOptions({ key: { remoteJid: 'c@g.us', id: 'X' } }), {});
+        assert.deepStrictEqual(flow.buildFlowQuoteOptions(null), {});
+        assert.deepStrictEqual(flow.buildFlowQuoteOptions(undefined), {});
+        // simulate Baileys' quote path against the guarded output
+        const quote = flow.buildFlowQuoteOptions({ key: { remoteJid: 'c@g.us', id: 'X' } });
+        assert.doesNotThrow(() => {
+            if (quote.quoted) quote.quoted.message.conversation; // only reached for full messages
+        });
     });
 
     await test('parseAddbotButton: copy / cancel / garbage', () => {

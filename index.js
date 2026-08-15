@@ -597,8 +597,8 @@ function writeJuneSessionsLineToEnv(newValue) {
  * existing reconciliation pipeline for the hot-add. No second hot-add
  * implementation — existing sessions are never touched.
  */
-// ─── Live addbot flow (in-chat code delivery, buttons, reactions) ────────────
-// newBotId -> { chatJid, viaBotId, quotedKey, phone, lastCode, lastAttempt,
+// ─── Live addbot flow (in-chat code delivery, reactions) ────────────────────
+// newBotId -> { chatJid, viaBotId, quotedMsg, phone, lastCode, lastAttempt,
 //               statusText }: where to deliver the pairing code and terminal
 //               status, and which session's socket to deliver with.
 const _pendingAddRequests = new Map()
@@ -606,27 +606,37 @@ const _pendingAddRequests = new Map()
 const FLOW_SEND_ATTEMPTS = 3
 const FLOW_SEND_RETRY_DELAY_MS = 1500
 
-// Delivery is PLAIN TEXT ONLY by design: button delivery proved unreliable
-// across panel environments (library crashes + WhatsApp silently dropping
-// wrapped relays). Every flow message is a normal text message — simple,
-// dependable, and it always renders. Retries, multi-session candidates and
-// reconnect re-delivery still apply; nothing disappears silently.
-async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
-    const quoteOpt = quotedKey ? { quoted: { key: quotedKey } } : {}
+// Delivery is PLAIN TEXT ONLY by design. IMPORTANT quoting rule: Baileys'
+// sendMessage quote path reads quoted.message — passing only { key } crashes
+// with "Cannot read properties of undefined" (the original delivery bug).
+// The FULL command message is therefore stored and passed as the quote, with
+// a no-quote fallback so a bad quote can never block delivery again.
+async function sendFlowMessage(viaBotId, chatJid, content, quotedMsg) {
     const candidates = [
         sessionManager.get(viaBotId),
         ...sessionManager.list().filter((b) => String(b.id) !== String(viaBotId)),
     ].filter(Boolean)
 
+    const text = content?.text || String(content || '')
+    // Baileys' quote path reads quoted.message — only quote when the full
+    // message payload is present (pure helper, regression-tested).
+    const quoteOpt = addbotFlow.buildFlowQuoteOptions(quotedMsg)
     for (let attempt = 0; attempt < FLOW_SEND_ATTEMPTS; attempt++) {
         for (const bot of candidates) {
             if (!bot.sock || bot.botState !== 'connected') continue
             try {
-                await bot.sock.sendMessage(chatJid, { text: content.text || String(content) }, quoteOpt)
+                await bot.sock.sendMessage(chatJid, { text }, quoteOpt)
                 log(`[ FLOW:${viaBotId} ] Message delivered via ${bot.id} (plain text).`, 'cyan')
                 return true
             } catch (e) {
-                log(`[ FLOW:${viaBotId} ] Plain-text send via ${bot.id} failed (${e?.message || e}).`, 'yellow')
+                log(`[ FLOW:${viaBotId} ] Plain-text send via ${bot.id} failed (${e?.message || e}); retrying without quote.`, 'yellow')
+            }
+            try {
+                await bot.sock.sendMessage(chatJid, { text })
+                log(`[ FLOW:${viaBotId} ] Message delivered via ${bot.id} (plain text, no quote).`, 'cyan')
+                return true
+            } catch (e) {
+                log(`[ FLOW:${viaBotId} ] Unquoted plain-text send via ${bot.id} failed (${e?.message || e}).`, 'yellow')
             }
         }
         if (attempt < FLOW_SEND_ATTEMPTS - 1) {
@@ -667,7 +677,7 @@ function deliverPairingCodeToRequester(bot, code, attempt) {
         phone: bot.phone || pending.phone,
         botId: bot.id,
     })
-    return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedKey).then((ok) => {
+    return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedMsg).then((ok) => {
         if (!ok) {
             log(`[ FLOW:${bot.id} ] Code delivery failed for now — will retry on the next code or reconnect.`, 'yellow')
         }
@@ -681,9 +691,9 @@ async function deliverAddbotFlowStatus(bot, state, detail) {
     let text = addbotFlow.buildStatusMessage(state, pending.phone)
     if (detail) text += `\n\n_${String(detail).slice(0, 120)}_`
     pending.statusText = text
-    const ok = await sendFlowMessage(pending.viaBotId, pending.chatJid, { text }, pending.quotedKey)
+    const ok = await sendFlowMessage(pending.viaBotId, pending.chatJid, { text }, pending.quotedMsg)
     await reactFlowMessage(pending.viaBotId, pending.chatJid,
-        state === 'connected' ? '✅' : '⚠️', pending.quotedKey)
+        state === 'connected' ? '✅' : '⚠️', pending.quotedMsg?.key || null)
     if (ok) _pendingAddRequests.delete(bot.id)
     else log(`[ FLOW:${bot.id} ] Status delivery failed — retrying when the delivering session reconnects.`, 'yellow')
 }
@@ -694,7 +704,7 @@ async function retryPendingFlowDeliveries(viaBotId) {
     for (const [newBotId, pending] of [..._pendingAddRequests.entries()]) {
         if (String(pending.viaBotId) !== String(viaBotId)) continue
         if (pending.statusText) {
-            const ok = await sendFlowMessage(viaBotId, pending.chatJid, { text: pending.statusText }, pending.quotedKey)
+            const ok = await sendFlowMessage(viaBotId, pending.chatJid, { text: pending.statusText }, pending.quotedMsg)
             if (ok) _pendingAddRequests.delete(newBotId)
         } else if (pending.lastCode) {
             const payload = addbotFlow.buildCodeMessage({
@@ -704,7 +714,7 @@ async function retryPendingFlowDeliveries(viaBotId) {
                 phone: pending.phone,
                 botId: newBotId,
             })
-            await sendFlowMessage(viaBotId, pending.chatJid, payload, pending.quotedKey)
+            await sendFlowMessage(viaBotId, pending.chatJid, payload, pending.quotedMsg)
         }
     }
 }
@@ -748,7 +758,7 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
         _pendingAddRequests.set(derivedId, {
             chatJid: meta.chatJid,
             viaBotId: meta.viaBotId,
-            quotedKey: meta.quotedKey || null,
+            quotedMsg: meta.quotedMsg || null,
             phone,
         })
     }
@@ -800,7 +810,7 @@ async function repairSessionByIdentifier(identifier = '', meta = {}) {
         _pendingAddRequests.set(bot.id, {
             chatJid: meta.chatJid,
             viaBotId: meta.viaBotId,
-            quotedKey: meta.quotedKey || null,
+            quotedMsg: meta.quotedMsg || null,
             phone: bot.phone,
         })
     }
@@ -819,7 +829,7 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
     if (!isPlatformOwner(senderNumber)) {
         await sendFlowMessage(pending.viaBotId, chatJid,
             { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
-            pending.quotedKey)
+            pending.quotedMsg)
         return
     }
 
@@ -833,7 +843,7 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
                 phone: pending.phone,
                 botId: bot.id,
             })
-            await sendFlowMessage(pending.viaBotId, chatJid, payload, pending.quotedKey)
+            await sendFlowMessage(pending.viaBotId, chatJid, payload, pending.quotedMsg)
         }
         return
     }

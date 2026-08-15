@@ -66,7 +66,7 @@ module.exports = {
     const result = await hook({ phone: check.phone, sessionId: check.sessionId }, {
       chatJid: msg.key.remoteJid,
       viaBotId: getCurrentBotId(),
-      quotedKey: msg.key,
+      quotedMsg: msg, // FULL message — Baileys' quote path needs quoted.message
     });
 
     if (!result.ok) {

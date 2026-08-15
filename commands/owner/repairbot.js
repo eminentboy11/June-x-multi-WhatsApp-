@@ -38,7 +38,7 @@ module.exports = {
     const result = await hook(identifier, {
       chatJid: msg.key.remoteJid,
       viaBotId: getCurrentBotId(),
-      quotedKey: msg.key,
+      quotedMsg: msg, // FULL message — Baileys' quote path needs quoted.message
     });
     if (!result.ok) {
       try { await extra.react('⚠️'); } catch (_) {}

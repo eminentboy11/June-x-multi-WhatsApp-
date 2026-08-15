@@ -152,6 +152,19 @@ function buildFlowQuoted(quotedKey) {
 }
 
 /**
+ * Quote options for a flow message — the REGRESSION GUARD for the original
+ * delivery bug. Baileys' sendMessage quote path calls
+ * normalizeMessageContent(quoted.message): passing only { key } crashes with
+ * 'Cannot read properties of undefined'. Only quote when the full message
+ * payload is present (the same shape as every working repo reply).
+ *
+ * @returns {{ quoted: object } | {}}
+ */
+function buildFlowQuoteOptions(quotedMsg) {
+    return (quotedMsg && quotedMsg.message) ? { quoted: quotedMsg } : {};
+}
+
+/**
  * Fallback button set in the SIMPLE shape this repo's button library is
  * proven to render on real panels (the same { id, text } shape used by
  * commands/general/botinfo.js). Both buttons are quick-reply style: their
@@ -209,6 +222,7 @@ module.exports = {
     checkAddQuota,
     removeRegistryEntry,
     buildCodeMessage,
+    buildFlowQuoteOptions,
     buildNativeFlowContent,
     buildFlowQuoted,
     buildSimpleButtons,
