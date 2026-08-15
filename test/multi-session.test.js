@@ -988,6 +988,36 @@ function test(name, fn) {
         assert.strictEqual(cancel.copy_code, '.delbot 2348154853640');
     });
 
+    await test('buildSimpleButtons: botinfo-style { id, text } shape with flow ids', () => {
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
+        const simple = flow.buildSimpleButtons(payload);
+        assert.strictEqual(simple.text, payload.text);
+        assert.strictEqual(simple.buttons.length, 2);
+        assert.deepStrictEqual(simple.buttons, [
+            { id: 'addbot_copy_b1', text: '📋 Copy Code' },
+            { id: 'addbot_cancel_b1', text: '❌ Cancel' },
+        ]);
+    });
+
+    await test('buildSimpleButtons payload passes gifted-btns validation (panel-proven shape)', async () => {
+        // commands/general/botinfo.js sends this exact { id, text } shape and
+        // its buttons render on the user's real panel. Pin that path: the
+        // library validates the payload BEFORE touching the socket, so a
+        // recording socket is enough to distinguish accepted vs rejected.
+        const { sendButtons } = require('gifted-btns');
+        const recorder = { sendMessage: async () => ({}) };
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
+        const simple = flow.buildSimpleButtons(payload);
+        let validationError = null;
+        try {
+            await sendButtons(recorder, 'x@g.us', simple, {});
+        } catch (e) {
+            // 'Missing baileys internals' = payload VALID (needs real socket).
+            if (!/Missing baileys internals/.test(e.message)) validationError = e;
+        }
+        assert.strictEqual(validationError, null);
+    });
+
     await test('parseAddbotButton: copy / cancel / garbage', () => {
         assert.deepStrictEqual(flow.parseAddbotButton('addbot_copy_b1'), { action: 'copy', botId: 'b1' });
         assert.deepStrictEqual(flow.parseAddbotButton('addbot_cancel_xyz'), { action: 'cancel', botId: 'xyz' });

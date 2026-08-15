@@ -621,16 +621,32 @@ async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
     for (let attempt = 0; attempt < FLOW_SEND_ATTEMPTS; attempt++) {
         for (const bot of candidates) {
             if (!bot.sock || bot.botState !== 'connected') continue
+
+            // 1) Native-flow relay (real copy buttons) — built directly from
+            //    the Baileys proto, no third-party library.
             if (content.buttons) {
                 try {
                     const relay = addbotFlow.buildNativeFlowContent(require('@whiskeysockets/baileys').proto, content)
                     await bot.sock.relayMessage(chatJid, relay, {})
-                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered to the requesting chat via ${bot.id}.`, 'cyan')
+                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (native-flow buttons).`, 'cyan')
                     return true
                 } catch (e) {
-                    log(`[ FLOW:${viaBotId} ] Native-flow send via ${bot.id} failed (${e?.message || e}); trying fallbacks.`, 'yellow')
+                    log(`[ FLOW:${viaBotId} ] Native-flow send via ${bot.id} failed (${e?.message || e}); trying simple buttons.`, 'yellow')
+                }
+                // 2) gifted-btns with the SIMPLE button shape ({ id, text })
+                //    — the format proven on real panels (botinfo.js style).
+                try {
+                    const { sendButtons } = require('gifted-btns')
+                    const simple = addbotFlow.buildSimpleButtons(content)
+                    await sendButtons(bot.sock, chatJid, simple, quoteOpt)
+                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (simple buttons).`, 'cyan')
+                    return true
+                } catch (e) {
+                    log(`[ FLOW:${viaBotId} ] Simple-buttons send via ${bot.id} failed (${e?.message || e}); falling back to plain text.`, 'yellow')
                 }
             }
+
+            // 3) Plain text — information always reaches the chat.
             try {
                 await bot.sock.sendMessage(chatJid, { text: content.text || String(content) }, quoteOpt)
                 log(`[ FLOW:${viaBotId} ] Message delivered as plain text via ${bot.id}.`, 'cyan')

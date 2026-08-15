@@ -156,6 +156,24 @@ function buildNativeFlowContent(proto, payload) {
     };
 }
 
+/**
+ * Fallback button set in the SIMPLE shape this repo's button library is
+ * proven to render on real panels (the same { id, text } shape used by
+ * commands/general/botinfo.js). Both buttons are quick-reply style: their
+ * ids round-trip through buttonsResponseMessage.selectedButtonId and are
+ * routed to the live flow by handler.js exactly like the native-flow ids.
+ */
+function buildSimpleButtons(payload) {
+    return {
+        text: payload.text,
+        footer: payload.footer || 'June X — live pairing',
+        buttons: [
+            { id: `${BUTTON_COPY_PREFIX}${payload.botId}`, text: '📋 Copy Code' },
+            { id: `${BUTTON_CANCEL_PREFIX}${payload.botId}`, text: '❌ Cancel' },
+        ],
+    };
+}
+
 /** Terminal status texts for the flow (sent in the same chat at the end). */
 function buildStatusMessage(state, phone = '') {
     const p = phone ? `\n📱 Phone: ${phone}` : '';
@@ -197,6 +215,7 @@ module.exports = {
     removeRegistryEntry,
     buildCodeMessage,
     buildNativeFlowContent,
+    buildSimpleButtons,
     buildStatusMessage,
     parseAddbotButton,
 };
