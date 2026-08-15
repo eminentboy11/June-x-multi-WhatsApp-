@@ -855,6 +855,32 @@ function test(name, fn) {
         assert.strictEqual(soCmd.superOwnerOnly, undefined);
     });
 
+    console.log('\n[18] platform gate regression: no fromMe bypass for superOwnerOnly');
+    const h2 = require('../handler');
+
+    await test('fromMe from a NON-Super-Owner account does NOT pass the platform gate', () => {
+        // Reproduces the real bug: the 909 account holder messaged the bot in
+        // its own "Message yourself" chat (msg.key.fromMe = true). Platform
+        // authority must stay number-based — fromMe must NOT auto-grant it.
+        const msg = { key: { fromMe: true, remoteJid: `${OTHER_NUMBER}@s.whatsapp.net` } };
+        const resolvedSender = `${OTHER_NUMBER}@s.whatsapp.net`;
+        assert.strictEqual(h2.platformGatePassed(msg, resolvedSender), false);
+    });
+
+    await test('the Super Owner passes the platform gate even without fromMe', () => {
+        const msg = { key: { fromMe: false, remoteJid: 'g@g.us' } };
+        const resolvedSender = `${SUPER_NUMBER}@s.whatsapp.net`;
+        assert.strictEqual(h2.platformGatePassed(msg, resolvedSender), true);
+    });
+
+    await test('session-level isOwner still honors fromMe semantics (unchanged behavior)', () => {
+        // The fromMe shortcut remains for SESSION-level owner checks only.
+        // (isOwner itself is number-based; the fromMe OR lives at the gate
+        // sites. This test pins the number-based behavior for non-owners.)
+        assert.strictEqual(h2.isOwner(`${OTHER_NUMBER}@s.whatsapp.net`), false);
+        assert.strictEqual(h2.isOwner(`${SUPER_NUMBER}@s.whatsapp.net`), true);
+    });
+
     console.log('\n──────────────────────────────────────────');
     console.log(`  ${passed} passed, ${failed} failed`);
     if (failed > 0) {

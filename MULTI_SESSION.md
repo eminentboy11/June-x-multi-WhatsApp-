@@ -233,6 +233,10 @@ from hardcoded source numbers, a WhatsApp command, or a session setting.
   ONLY against the persisted Super Owner. Before establishment, the legacy
   `config.ownerNumber` list authorizes as a bootstrap fallback; afterwards it
   loses platform authority.
+- **No fromMe shortcut**: messaging a bot from its own account grants only
+  SESSION-level owner rights — never platform authority. A session's account
+  holder who is not the Super Owner cannot run `.addbot`, even from the bot's
+  own "Message yourself" chat (regression-tested).
 - **Session-level commands** (`ownerOnly`) remain the union of
   `config.ownerNumber` (future session owners) + the Super Owner.
 - **Privacy**: the Super Owner number is never printed in logs or the

@@ -291,6 +291,13 @@ const isOwner = (sender) => {
 const isPlatformOwner = (sender) => platformOwnerCheck(sender);
 const isSuperOwner = (sender) => superOwnerCheck(sender);
 
+// Platform-command gate: the ONLY thing that grants superOwnerOnly access is
+// the resolved sender's number matching the persisted deployment Super Owner
+// (or config.ownerNumber during the bootstrap window). Deliberately ignores
+// msg.key.fromMe — messaging the bot from its own account grants session-level
+// owner rights, NEVER platform authority. Exported for regression tests.
+const platformGatePassed = (_msg, resolvedSender) => isPlatformOwner(resolvedSender);
+
 const isSudo = (sender) => {
   if (!sender) return false;
   // Normalize: strip @domain and :deviceId so "1234:7@s.whatsapp.net" → "1234"
@@ -1304,7 +1311,11 @@ const handleMessage = async (sock, msg) => {
 
     const senderIsOwner = msg.key.fromMe || isOwner(resolvedSender);
     const senderIsSudo  = senderIsOwner || isSudo(resolvedSender);
-    const senderIsPlatformOwner = msg.key.fromMe || isPlatformOwner(resolvedSender);
+    // Platform authority is STRICTLY number-based. No fromMe shortcut: the
+    // account holder of a session is not the deployment Super Owner just
+    // because they message the bot's own chat. (fromMe still grants
+    // SESSION-level owner rights via isOwner — separate concept.)
+    const senderIsPlatformOwner = platformGatePassed(msg, resolvedSender);
 
     // Self mode — bot only responds to its own messages (self-bot mode)
     if (config.selfMode && !msg.key.fromMe) return;
@@ -2603,6 +2614,7 @@ module.exports = {
   isOwner,
   isSuperOwner,
   isPlatformOwner,
+  platformGatePassed,
   isAdmin,
   isBotAdmin,
   isMod,
