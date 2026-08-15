@@ -140,6 +140,7 @@ class BotInstance {
         // is the transient target consumed while a pairing cycle is live.
         this._pairingCodeRequested = false;
         this._pairingPhone = null;
+        this._lastPairingCode = null; // for .addbot in-chat "Copy Code" button
         this.pairingAttempts = 0;      // codes issued in the current cycle
         this.pairingExhausted = false; // limit reached -> parked as needs-login
         this.loginMethod = null;

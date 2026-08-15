@@ -1,17 +1,24 @@
 /**
- * AddBot Command - Hot-add a new session while the bot is running (Owner Only)
+ * AddBot Command - Hot-add a new session while the bot is running
+ * (PLATFORM-LEVEL — Super Owner only)
  *
  * Usage: .addbot <phone> <sessionId?>
  *
- * Appends a validated entry to the existing JUNE_SESSIONS registry (the sole
- * session configuration source) and reuses the existing JUNE_SESSIONS
- * hot-reconciliation pipeline — no second hot-add implementation, no restart,
- * and existing sessions are never disturbed. Duplicate/conflicting sessions
- * (same phone = same storage identity, same sessionId = same credential) are
- * rejected.
+ * LIVE FLOW (in the same chat where .addbot was run):
+ *   .addbot 2348165321909
+ *   → ⏳ reaction on the command message (no processing text spam)
+ *   → 🔑 pairing-code message WITH buttons (Copy Code / Cancel)
+ *   → terminal status in the same chat:
+ *       ✅ Bot session connected!  (or ⚠️/❌ failure, limit, cancelled)
+ *   → ✅ / ⚠️ final reaction on the original command message
+ *
+ * Existing hot-add pipeline reused — no second implementation, no restart,
+ * existing sessions untouched. Quotas: JUNE_MAX_SESSIONS + WhatsApp's
+ * 4-devices-per-number cap.
  */
 
 const { validateSessionEntry, VALID_PREFIXES } = require('../../utils/sessionManager');
+const { getCurrentBotId } = require('../../utils/botContext');
 
 module.exports = {
   name: 'addbot',
@@ -32,6 +39,7 @@ module.exports = {
     // 2) Validate the sessionId against the supported session-ID formats.
     const check = validateSessionEntry({ phone: rawPhone, sessionId: rawSessionId });
     if (!check.ok) {
+      try { await extra.react('⚠️'); } catch (_) {}
       if (check.reason === 'invalid-phone') {
         return extra.reply(
           '⚠️ *Invalid phone number.*\n\n' +
@@ -47,33 +55,48 @@ module.exports = {
       );
     }
 
-    // 3) + 4) Register through the existing pipeline (index.js hook).
+    // 3) + 4) Register through the existing pipeline, tagged with the chat
+    // that requested the add (the pairing code and status come back HERE).
     const hook = global.__JUNE_ADD_SESSION;
     if (typeof hook !== 'function') {
+      try { await extra.react('⚠️'); } catch (_) {}
       return extra.reply('❌ Live session registration is not available in this build.');
     }
 
-    const result = await hook({ phone: check.phone, sessionId: check.sessionId });
+    const result = await hook({ phone: check.phone, sessionId: check.sessionId }, {
+      chatJid: msg.key.remoteJid,
+      viaBotId: getCurrentBotId(),
+      quotedKey: msg.key,
+    });
+
     if (!result.ok) {
+      try { await extra.react('⚠️'); } catch (_) {}
       if (result.reason === 'duplicate') {
         return extra.reply(
           `❌ *Session already registered.*\n\n` +
           `A session with phone *${check.phone}*${check.sessionId ? ` or sessionId *${check.sessionId}*` : ''} already exists.\n` +
-          `Remove the existing entry from JUNE_SESSIONS first, or use a different number.`
+          `Remove the existing entry first (.delbot) or use a different number.`
+        );
+      }
+      if (result.reason === 'quota') {
+        return extra.reply(
+          `⚠️ *Session limit reached* (${result.total}/${result.limit}).\n\n` +
+          `Remove a session with *.delbot <phone>* first, or raise JUNE_MAX_SESSIONS on the server.`
+        );
+      }
+      if (result.reason === 'device-limit') {
+        return extra.reply(
+          `⚠️ *Device limit for this number.*\n\n` +
+          `This number already has ${result.limit} linked devices (WhatsApp's cap).\n` +
+          `Unlink one in WhatsApp → Settings → Linked Devices, then try again.`
         );
       }
       return extra.reply(`❌ Could not add the session: ${result.reason || 'unknown error'}`);
     }
 
-    // 5) Concise confirmation. The session manager takes over from here.
-    const persistNote = result.persisted
-      ? ''
-      : '\n⚠️ Not written to .env (no JUNE_SESSIONS line in the file) — add it to your panel env to survive restarts.';
-    return extra.reply(
-      '✅ *Bot session added*\n' +
-      `📱 Phone: ${check.phone}\n` +
-      `🔑 Session: ${check.sessionId || '(pairing-code login)'}\n` +
-      `🟢 Status: Starting...${persistNote}`
-    );
+    // 5) Progress = reactions only. The pairing code message and the
+    // terminal status arrive in this same chat automatically.
+    try { await extra.react('⏳'); } catch (_) {}
+    return null;
   },
 };

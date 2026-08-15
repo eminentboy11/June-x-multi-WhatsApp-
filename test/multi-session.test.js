@@ -594,20 +594,32 @@ function test(name, fn) {
         assert.strictEqual(registry.length, 1);
     });
 
-    await test('addbot command: valid input routes to the hot-add hook with confirmation', async () => {
+    await test('addbot command: valid input routes to the hook WITH chat meta — reaction only, no text spam', async () => {
         const oldHook = global.__JUNE_ADD_SESSION;
+        const { runInBot } = require('../utils/botContext');
         let calledWith = null;
+        let calledMeta = null;
         let replies = [];
-        global.__JUNE_ADD_SESSION = (entry) => {
+        let reactions = [];
+        global.__JUNE_ADD_SESSION = (entry, meta) => {
             calledWith = entry;
-            return Promise.resolve({ ok: true, phone: entry.phone, sessionId: entry.sessionId, persisted: true });
+            calledMeta = meta;
+            return Promise.resolve({ ok: true, id: '2348165321909', phone: entry.phone, sessionId: entry.sessionId, persisted: true });
         };
-        const extra = { reply: async (t) => { replies.push(t); } };
-        await addbotCmd.execute({}, {}, ['+234 816 532 1909', 'JUNE-MD:~xxxxx'], extra);
+        const msg = { key: { remoteJid: 'chat@g.us', id: 'MSGID1' } };
+        const extra = {
+            reply: async (t) => { replies.push(t); },
+            react: async (e) => { reactions.push(e); },
+        };
+        await runInBot('via-bot', () => addbotCmd.execute({}, msg, ['+234 816 532 1909', 'JUNE-MD:~xxxxx'], extra));
         assert.deepStrictEqual(calledWith, { phone: '2348165321909', sessionId: 'JUNE-MD:~xxxxx' });
-        assert.ok(replies[0].includes('✅'));
-        assert.ok(replies[0].includes('2348165321909'));
-        assert.ok(replies[0].includes('Starting'));
+        // flow meta: same-chat delivery + which session delivers + quote key
+        assert.strictEqual(calledMeta.chatJid, 'chat@g.us');
+        assert.strictEqual(calledMeta.viaBotId, 'via-bot');
+        assert.deepStrictEqual(calledMeta.quotedKey, msg.key);
+        // progress = reactions only; NO processing text messages
+        assert.deepStrictEqual(reactions, ['⏳']);
+        assert.strictEqual(replies.length, 0);
         global.__JUNE_ADD_SESSION = oldHook;
     });
 
@@ -639,9 +651,23 @@ function test(name, fn) {
         const oldHook = global.__JUNE_ADD_SESSION;
         let replies = [];
         global.__JUNE_ADD_SESSION = () => Promise.resolve({ ok: false, reason: 'duplicate' });
-        const extra = { reply: async (t) => { replies.push(t); } };
-        await addbotCmd.execute({}, {}, ['2348165321909', ''], extra);
+        const extra = { reply: async (t) => { replies.push(t); }, react: async () => {} };
+        await addbotCmd.execute({}, { key: { remoteJid: 'c@g.us' } }, ['2348165321909', ''], extra);
         assert.ok(replies[0].includes('already registered'));
+        global.__JUNE_ADD_SESSION = oldHook;
+    });
+
+    await test('addbot command: quota and device-limit rejections explain themselves', async () => {
+        const oldHook = global.__JUNE_ADD_SESSION;
+        let replies = [];
+        const extra = { reply: async (t) => { replies.push(t); }, react: async () => {} };
+        const msg = { key: { remoteJid: 'c@g.us' } };
+        global.__JUNE_ADD_SESSION = () => Promise.resolve({ ok: false, reason: 'quota', total: 10, limit: 10 });
+        await addbotCmd.execute({}, msg, ['2348165321909', ''], extra);
+        assert.ok(replies[0].includes('Session limit reached'));
+        global.__JUNE_ADD_SESSION = () => Promise.resolve({ ok: false, reason: 'device-limit', limit: 4 });
+        await addbotCmd.execute({}, msg, ['2348165321909', ''], extra);
+        assert.ok(replies[1].includes('Device limit'));
         global.__JUNE_ADD_SESSION = oldHook;
     });
 
@@ -879,6 +905,170 @@ function test(name, fn) {
         // sites. This test pins the number-based behavior for non-owners.)
         assert.strictEqual(h2.isOwner(`${OTHER_NUMBER}@s.whatsapp.net`), false);
         assert.strictEqual(h2.isOwner(`${SUPER_NUMBER}@s.whatsapp.net`), true);
+    });
+
+    console.log('\n[19] addbot flow — quotas, registry removal, buttons, status messages');
+    const flow = require('../utils/addbotFlow');
+
+    await test('parseMaxSessions: default 10, rejects invalid values', () => {
+        assert.strictEqual(flow.parseMaxSessions(undefined), 10);
+        assert.strictEqual(flow.parseMaxSessions('25'), 25);
+        assert.strictEqual(flow.parseMaxSessions('0'), 10);
+        assert.strictEqual(flow.parseMaxSessions('abc'), 10);
+    });
+
+    await test('checkAddQuota: allows under the cap, blocks at the global limit', () => {
+        const registry = [{ phone: '1' }, { phone: '2' }];
+        assert.strictEqual(flow.checkAddQuota({ registry, runningPhones: [], phone: '3', max: '10' }).ok, true);
+        const blocked = flow.checkAddQuota({ registry, runningPhones: [], phone: '3', max: '2' });
+        assert.strictEqual(blocked.ok, false);
+        assert.strictEqual(blocked.reason, 'quota');
+        assert.strictEqual(blocked.limit, 2);
+    });
+
+    await test('checkAddQuota: blocks the 5th device on the same WhatsApp number', () => {
+        const registry = [
+            { phone: '2348154853640' }, { phone: '2348154853640' },
+            { phone: '2348154853640' }, { phone: '2348154853640' },
+        ];
+        const blocked = flow.checkAddQuota({ registry, runningPhones: [], phone: '2348154853640', max: '10' });
+        assert.strictEqual(blocked.ok, false);
+        assert.strictEqual(blocked.reason, 'device-limit');
+        assert.strictEqual(blocked.limit, 4);
+    });
+
+    await test('removeRegistryEntry: by phone, by id, unknown — caller array untouched', () => {
+        const registry = [
+            { sessionId: '', phone: '2348154853640' },
+            { sessionId: 'JUNE-MD:~x', phone: '2348165321909', id: 'client-one' },
+        ];
+        const byPhone = flow.removeRegistryEntry(registry, '2348154853640');
+        assert.strictEqual(byPhone.ok, true);
+        assert.strictEqual(byPhone.registry.length, 1);
+        const byId = flow.removeRegistryEntry(registry, 'client-one');
+        assert.strictEqual(byId.ok, true);
+        assert.strictEqual(byId.removed.phone, '2348165321909');
+        const unknown = flow.removeRegistryEntry(registry, 'nope');
+        assert.strictEqual(unknown.ok, false);
+        assert.strictEqual(unknown.reason, 'unknown');
+        assert.strictEqual(registry.length, 2); // untouched
+    });
+
+    await test('buildCodeMessage: code, buttons with ids + copy_code, cancel button', () => {
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 2, max: 5, phone: '2348154853640', botId: 'b1' });
+        assert.ok(payload.text.includes('ABCD-1234'));
+        assert.ok(payload.text.includes('(2/5)'));
+        assert.strictEqual(payload.buttons.length, 2);
+        const copy = JSON.parse(payload.buttons[0].buttonParamsJson);
+        const cancel = JSON.parse(payload.buttons[1].buttonParamsJson);
+        assert.strictEqual(copy.id, 'addbot_copy_b1');
+        assert.strictEqual(copy.copy_code, 'ABCD-1234');
+        assert.strictEqual(cancel.id, 'addbot_cancel_b1');
+    });
+
+    await test('parseAddbotButton: copy / cancel / garbage', () => {
+        assert.deepStrictEqual(flow.parseAddbotButton('addbot_copy_b1'), { action: 'copy', botId: 'b1' });
+        assert.deepStrictEqual(flow.parseAddbotButton('addbot_cancel_xyz'), { action: 'cancel', botId: 'xyz' });
+        assert.strictEqual(flow.parseAddbotButton('btn_menu'), null);
+        assert.strictEqual(flow.parseAddbotButton(''), null);
+    });
+
+    await test('buildStatusMessage: terminal states carry phone + next steps', () => {
+        assert.ok(flow.buildStatusMessage('connected', '2348154853640').includes('✅'));
+        assert.ok(flow.buildStatusMessage('pairing-limit', '2348154853640').includes('.repairbot 2348154853640'));
+        assert.ok(flow.buildStatusMessage('cancelled', '2348154853640').includes('❌'));
+        assert.ok(flow.buildStatusMessage('failed', '2348154853640').includes('❌'));
+    });
+
+    console.log('\n[20] .delbot / .bots / .repairbot commands');
+    const delbotCmd = require('../commands/owner/delbot');
+    const botsCmd = require('../commands/owner/bots');
+    const repairbotCmd = require('../commands/owner/repairbot');
+
+    await test('delbot: valid identifier routes to the removal hook with ✅ reaction', async () => {
+        const oldHook = global.__JUNE_REMOVE_SESSION;
+        let calledWith = null;
+        let replies = [];
+        let reactions = [];
+        global.__JUNE_REMOVE_SESSION = (id) => { calledWith = id; return Promise.resolve({ ok: true, removed: { phone: '2348165321909' }, persisted: true }); };
+        const extra = { reply: async (t) => { replies.push(t); }, react: async (e) => { reactions.push(e); } };
+        await delbotCmd.execute({}, { key: { remoteJid: 'c@g.us' } }, ['2348165321909'], extra);
+        assert.strictEqual(calledWith, '2348165321909');
+        assert.ok(replies[0].includes('Session removed'));
+        assert.deepStrictEqual(reactions, ['✅']);
+        global.__JUNE_REMOVE_SESSION = oldHook;
+    });
+
+    await test('delbot: unknown session shows a clear error', async () => {
+        const oldHook = global.__JUNE_REMOVE_SESSION;
+        let replies = [];
+        global.__JUNE_REMOVE_SESSION = () => Promise.resolve({ ok: false, reason: 'unknown' });
+        const extra = { reply: async (t) => { replies.push(t); }, react: async () => {} };
+        await delbotCmd.execute({}, { key: { remoteJid: 'c@g.us' } }, ['nope'], extra);
+        assert.ok(replies[0].includes('No session matches'));
+        global.__JUNE_REMOVE_SESSION = oldHook;
+    });
+
+    await test('delbot: missing identifier shows usage', async () => {
+        let replies = [];
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await delbotCmd.execute({}, { key: { remoteJid: 'c@g.us' } }, [], extra);
+        assert.ok(replies[0].includes('Usage'));
+    });
+
+    await test('bots: renders the fleet snapshot with states and pairing info', async () => {
+        const oldHook = global.__JUNE_SESSIONS_SNAPSHOT;
+        global.__JUNE_SESSIONS_SNAPSHOT = () => [
+            { id: 'a', name: 'June X 640', state: 'connected', account: '+234****640', connectedAt: Date.now(), pairingAttempts: 0, pairingExhausted: false },
+            { id: 'b', name: 'June X 909', state: 'needs-login', account: null, connectedAt: null, pairingAttempts: 5, pairingExhausted: true },
+        ];
+        let replies = [];
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await botsCmd.execute({}, {}, [], extra);
+        const text = replies[0];
+        assert.ok(text.includes('June X 640'));
+        assert.ok(text.includes('CONNECTED'));
+        assert.ok(text.includes('June X 909'));
+        assert.ok(text.includes('NEEDS-LOGIN'));
+        assert.ok(text.includes('pairing limit reached'));
+        global.__JUNE_SESSIONS_SNAPSHOT = oldHook;
+    });
+
+    await test('bots: empty fleet shows a placeholder', async () => {
+        const oldHook = global.__JUNE_SESSIONS_SNAPSHOT;
+        global.__JUNE_SESSIONS_SNAPSHOT = () => [];
+        let replies = [];
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await botsCmd.execute({}, {}, [], extra);
+        assert.ok(replies[0].includes('No sessions registered'));
+        global.__JUNE_SESSIONS_SNAPSHOT = oldHook;
+    });
+
+    await test('repairbot: routes to the hook WITH chat meta (code flows back here)', async () => {
+        const oldHook = global.__JUNE_REPAIR_SESSION;
+        const { runInBot } = require('../utils/botContext');
+        let calledWith = null;
+        let calledMeta = null;
+        let reactions = [];
+        global.__JUNE_REPAIR_SESSION = (id, meta) => { calledWith = id; calledMeta = meta; return Promise.resolve({ ok: true, id: 'b1' }); };
+        const msg = { key: { remoteJid: 'chat@g.us', id: 'MSGID2' } };
+        const extra = { reply: async () => {}, react: async (e) => { reactions.push(e); } };
+        await runInBot('via-bot', () => repairbotCmd.execute({}, msg, ['2348165321909'], extra));
+        assert.strictEqual(calledWith, '2348165321909');
+        assert.strictEqual(calledMeta.chatJid, 'chat@g.us');
+        assert.strictEqual(calledMeta.viaBotId, 'via-bot');
+        assert.deepStrictEqual(reactions, ['⏳']);
+        global.__JUNE_REPAIR_SESSION = oldHook;
+    });
+
+    await test('repairbot: already-online session is reported, not repaired', async () => {
+        const oldHook = global.__JUNE_REPAIR_SESSION;
+        let replies = [];
+        global.__JUNE_REPAIR_SESSION = () => Promise.resolve({ ok: false, reason: 'online', id: 'b1' });
+        const extra = { reply: async (t) => { replies.push(t); }, react: async () => {} };
+        await repairbotCmd.execute({}, { key: { remoteJid: 'c@g.us' } }, ['b1'], extra);
+        assert.ok(replies[0].includes('already connected'));
+        global.__JUNE_REPAIR_SESSION = oldHook;
     });
 
     console.log('\n──────────────────────────────────────────');

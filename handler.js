@@ -809,6 +809,16 @@ const handleMessage = async (sock, msg) => {
     const buttonId = extractButtonId(content, msg);
     if (buttonId) {
 
+      // Live addbot-flow buttons (copy code / cancel) are handled by the
+      // session bridge in index.js — never routed as commands.
+      if (String(buttonId).startsWith('addbot_')) {
+        const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
+        if (typeof addbotButtonHook === 'function') {
+          await addbotButtonHook(buttonId, from, sender, msg).catch(() => {});
+        }
+        return;
+      }
+
       // Helper to build the standard extra object for command execution
       const makeExtra = async () => ({
         from,

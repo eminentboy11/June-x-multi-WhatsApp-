@@ -87,7 +87,7 @@ JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId"
 - **Auth**: SQLite-backed Signal keys with integrity validation, backups, quarantines, session-ID fingerprints, remote auth mirror (Postgres / MongoDB) with recovery
 - **Notes system** (`addnote` / `mynotes`) per user, per bot
 - Group stats, warning system, muting, bot modes, font styles, sticker tools, yt/media downloaders, TTS, ephoto360/textmaker/design logos
-- Auto status view/react, always-online, auto-download status, pairing-code login with **sessionId+phone auto-fallback**, per-session **pairing-code budget**, **hot-add/hot-remove sessions without restart** (`.addbot <phone> <sessionId?>` from WhatsApp too), per-session **console log prefixes** (`[ JUNEX ULTRA 909 ]`), `.env` watcher, graceful shutdown
+- Auto status view/react, always-online, auto-download status, pairing-code login with **sessionId+phone auto-fallback**, per-session **pairing-code budget**, **hot-add/hot-remove sessions without restart** — from WhatsApp too: `.addbot` (in-chat pairing code with copy/cancel buttons + reaction progress), `.delbot`, `.bots`, `.repairbot`, per-session **console log prefixes** (`[ JUNEX ULTRA 909 ]`), `.env` watcher, graceful shutdown
 - **Startup report** is a single-session presentation feature: shown only when the process starts with exactly 1 session — skipped entirely with 2+ sessions, and never shown for runtime hot-added sessions
 - **Deployment Super Owner**: established once from the first initial session's verified WhatsApp number, locked in the anchor database — platform commands (`.addbot`) resolve only against it; the connected message shows `Super Owner: ✅/❌` per session (details in [MULTI_SESSION.md](MULTI_SESSION.md))
 
@@ -135,7 +135,8 @@ See **`.env.example`** for a ready-to-copy template (single legacy session, mult
 | `JUNE_DB_FILE` / `JUNE_DB_DIR` | database path for the default session |
 | `JUNE_FORCE_SESSION_BOOTSTRAP` | `true` = force re-bootstrap from `sessionId` |
 | `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds back to `.env`'s `JUNE_SESSIONS` line |
-| `JUNE_PAIRING_MAX_ATTEMPTS` | pairing codes per login/recovery cycle (default **5**); after the limit the session parks as `needs-login` until `.restart`/process restart |
+| `JUNE_PAIRING_MAX_ATTEMPTS` | pairing codes per login/recovery cycle (default **5**); after the limit the session parks as `needs-login` until `.restart`/`.repairbot`/process restart |
+| `JUNE_MAX_SESSIONS` | runtime `.addbot` quota — max total sessions (default **10**); per-number WhatsApp device cap (4) always applies |
 | `JUNE_SESSIONS_POLL_MS` | hot-add/hot-remove registry poll interval (default 15000) |
 | `PORT` | dashboard port (default 5000) |
 

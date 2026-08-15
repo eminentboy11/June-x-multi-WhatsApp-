@@ -79,22 +79,53 @@ phone — no manual intervention, no `needs-login` parking:
 A QR event while a phone is configured also triggers a pairing code even when
 the `sessionId` path produced it — so the combo self-heals end to end.
 
-#### `.addbot` — hot-add a session from WhatsApp (owner)
+#### `.addbot` — hot-add a session from WhatsApp (Super Owner)
 
 ```
 .addbot <phone> <sessionId?>
 .addbot 2348165321909 JUNE-MD:~xxxxx
 ```
 
-- Validates the phone and the sessionId against the supported formats
-  (`JUNE-MD:~`, `Ultra-X:~`, `June-Ultra:~`, `June::~`); the sessionId is
-  optional — without it the new session uses pairing-code login.
-- Appends the entry to the existing `JUNE_SESSIONS` registry (process env and
-  the `.env` line) and reuses the same reconciliation/hot-add pipeline — no
-  second implementation, no restart, existing sessions untouched.
-- Duplicate/conflicting sessions (same phone = same storage identity, same
-  sessionId = same credential) are rejected with a clear message.
-- Confirmation: `✅ Bot session added` + phone/sessionId/status.
+**Live in-chat flow** (everything happens in the chat where you ran it):
+
+1. `.addbot …` → ⏳ reaction on your command message — no processing spam
+2. 🔑 pairing-code message with **buttons** (📋 Copy Code / ❌ Cancel)
+3. terminal status in the same chat: ✅ connected, ⚠️ pairing limit,
+   ❌ cancelled/failed — with a final ✅/⚠️ reaction on the command
+
+- Validates phone + sessionId formats; the sessionId is optional (pairing
+  login without it).
+- Appends to the existing `JUNE_SESSIONS` registry and reuses the SAME
+  hot-add pipeline — no restart, existing sessions untouched.
+- Duplicates rejected (same phone = same storage identity, same sessionId =
+  same credential).
+- Quotas: `JUNE_MAX_SESSIONS` global cap (default 10) and WhatsApp's
+  4-linked-devices-per-number cap.
+
+#### `.delbot` — hot-remove a session (Super Owner)
+
+```
+.delbot <phone|id>
+```
+
+Removes the registry entry and hot-removes ONLY that session (socket,
+timers, DB handle, adapter pools) via the existing reconciliation pipeline.
+If it kills an in-flight `.addbot` flow, the flow reports ❌ cancelled.
+
+#### `.bots` — fleet status card (Super Owner)
+
+Shows every session: 🟢 connected / 🟡 connecting / 🔴 needs-login, masked
+account, pairing attempts and connection time. Read-only.
+
+#### `.repairbot` — re-arm a parked session (Super Owner)
+
+```
+.repairbot <phone|id>
+```
+
+Reboots a parked session (needs-login / pairing-exhausted) with a FRESH
+pairing cycle — the new code and the connection status arrive in the same
+chat. Connected sessions are left untouched.
 
 #### Startup report is a single-session feature
 
