@@ -79,6 +79,34 @@ phone — no manual intervention, no `needs-login` parking:
 A QR event while a phone is configured also triggers a pairing code even when
 the `sessionId` path produced it — so the combo self-heals end to end.
 
+#### `.addbot` — hot-add a session from WhatsApp (owner)
+
+```
+.addbot <phone> <sessionId?>
+.addbot 2348165321909 JUNE-MD:~xxxxx
+```
+
+- Validates the phone and the sessionId against the supported formats
+  (`JUNE-MD:~`, `Ultra-X:~`, `June-Ultra:~`, `June::~`); the sessionId is
+  optional — without it the new session uses pairing-code login.
+- Appends the entry to the existing `JUNE_SESSIONS` registry (process env and
+  the `.env` line) and reuses the same reconciliation/hot-add pipeline — no
+  second implementation, no restart, existing sessions untouched.
+- Duplicate/conflicting sessions (same phone = same storage identity, same
+  sessionId = same credential) are rejected with a clear message.
+- Confirmation: `✅ Bot session added` + phone/sessionId/status.
+
+#### Startup report is a single-session feature
+
+- Process starts with **exactly 1 session** → the full startup report prints
+  as before.
+- Process starts with **2+ sessions** → the report box is skipped entirely
+  (no per-session copies).
+- **Hot-added** sessions never print the report — only their normal
+  session/login/connection logs.
+- If the session count later drops from 2 to 1, the report still does **not**
+  appear — it is an initial-startup, single-session presentation feature.
+
 #### Pairing-code budget (configurable)
 
 Every login/recovery cycle issues at most **5 pairing codes**

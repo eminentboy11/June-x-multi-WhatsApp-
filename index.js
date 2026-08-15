@@ -147,9 +147,11 @@ const {
     SessionManager,
     loadSessionRegistry,
     parseSessionsJson,
+    addSessionEntry,
     sessionLogLabel,
     sessionLogPrefix,
     parsePairingMaxAttempts,
+    VALID_PREFIXES,
 } = require('./utils/sessionManager')
 const {
     atomicWriteFile,
@@ -564,6 +566,59 @@ function syncJuneSessionsFromEnvFile() {
 
 global.__JUNE_SYNC_SESSIONS = syncJuneSessionsFromEnvFile
 
+/**
+ * Rewrite the .env file's JUNE_SESSIONS line in place (single source of
+ * truth). Returns false when the file has no JUNE_SESSIONS line — the value
+ * is then platform-managed and cannot be edited at runtime.
+ */
+function writeJuneSessionsLineToEnv(newValue) {
+    try {
+        if (!fs.existsSync(envPath)) return false
+        const envContent = fs.readFileSync(envPath, 'utf8')
+        if (!/^JUNE_SESSIONS=.*$/m.test(envContent)) return false
+        global._suppressEnvWatcherUntil = Date.now() + 3000
+        atomicWriteFile(
+            envPath,
+            envContent.replace(/^JUNE_SESSIONS=.*$/m, `JUNE_SESSIONS=${newValue}`)
+        )
+        _lastEnvJuneSessions = newValue // our own write — no watcher reaction needed
+        return true
+    } catch (_) {
+        return false
+    }
+}
+
+/**
+ * .addbot runtime hook: validate + append a session to the JUNE_SESSIONS
+ * registry (process.env and, when possible, the .env line), then reuse the
+ * existing reconciliation pipeline for the hot-add. No second hot-add
+ * implementation — existing sessions are never touched.
+ */
+async function addSessionViaRegistry(entry = {}) {
+    const base = addSessionEntry(parseSessionsJson(process.env.JUNE_SESSIONS) || [], entry)
+    if (!base.ok) return base
+
+    // The runtime registry may be ahead of (or behind) the env registry —
+    // check the running sessions for storage/credential conflicts too.
+    const phone = base.entry.phone
+    const sessionId = base.entry.sessionId
+    const runningConflict = sessionManager.list().some((bot) =>
+        bot.phone === phone || (sessionId && bot.sessionId === sessionId)
+    )
+    if (runningConflict) return { ok: false, reason: 'duplicate' }
+
+    const value = JSON.stringify(base.registry)
+    process.env.JUNE_SESSIONS = value
+    const persisted = writeJuneSessionsLineToEnv(value)
+
+    // Reuse the existing hot-add pipeline (debounced, deduped reconcile).
+    scheduleSessionReconcile()
+
+    return { ok: true, phone, sessionId, persisted }
+}
+
+global.__JUNE_ADD_SESSION = addSessionViaRegistry
+
 // ─── Cleanup Functions ────────────────────────────────────────────────────────
 
 function clearSessionFiles(bot) {
@@ -753,8 +808,6 @@ function quarantineCurrentSessionForReplacement(bot) {
 // ─── Session Format Validator ─────────────────────────────────────────────────
 // Session ID formats: JUNE-MD:~<base64> | Ultra-X:~<base64> | June-Ultra:~<base64>
 
-const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'June::~']
-
 function validateSessionIdFormat(sessionId) {
     const value = String(sessionId || '').trim()
     if (!value) return true // absence is fine — handled by the login flow
@@ -867,12 +920,12 @@ async function autoExportSessionToRegistry(bot, force = false) {
             return
         }
 
+        // No JUNE_SESSIONS line in the file -> registry is platform-managed;
+        // nothing file-based to update at runtime.
         if (!fs.existsSync(envPath)) return
         const envContent = fs.readFileSync(envPath, 'utf8')
         const lineMatch = envContent.match(/^JUNE_SESSIONS=.*$/m)
         if (!lineMatch) {
-            // No JUNE_SESSIONS line in the file — the registry is
-            // platform-managed; nothing file-based to update at runtime.
             bot._lastSessionExport = now
             return
         }
@@ -882,15 +935,10 @@ async function autoExportSessionToRegistry(bot, force = false) {
         const target = findRegistryEntryForBot(entries, bot)
         if (!target) return
 
-        global._suppressEnvWatcherUntil = Date.now() + 3000
         target.sessionId = sessionID
         const newValue = JSON.stringify(entries)
-        atomicWriteFile(
-            envPath,
-            envContent.replace(/^JUNE_SESSIONS=.*$/m, `JUNE_SESSIONS=${newValue}`)
-        )
+        if (!writeJuneSessionsLineToEnv(newValue)) return
         process.env.JUNE_SESSIONS = newValue
-        _lastEnvJuneSessions = newValue // our own write — no watcher reaction needed
         bot.sessionId = sessionID
         rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
         bot._lastSessionExport = now
@@ -1173,6 +1221,9 @@ async function reconcileSessions() {
             const bot = sessionManager.register(entry)
             try {
                 await wireBotRuntime(bot)
+                // Runtime hot-add is not an initial startup — the startup
+                // report box must not be shown for the new session.
+                bot.startupReportPrinted = true
                 log(`[ MULTI-SESSION ] Hot-added session "${id}" — existing sessions stay connected.`, 'green')
                 void bootBot(bot).catch((err) => {
                     log(`[ SESSION:${id} ] Hot-add boot failed: ${err?.message || err}`, 'red', true)
@@ -2912,6 +2963,16 @@ async function main() {
             bot.lastError = String(error?.message || error)
             bot.botState = 'needs-login'
         }
+    }
+
+    // The startup report is a SINGLE-SESSION presentation feature. When the
+    // process starts with 2+ sessions, no per-session report boxes are
+    // printed — only the normal session logs (see reconcileSessions for the
+    // runtime hot-add equivalent). Marking the flags before boot guarantees
+    // the report cannot appear later, even if sessions are removed down to
+    // one afterwards.
+    if (sessionManager.list().length > 1) {
+        for (const bot of sessionManager.list()) bot.startupReportPrinted = true
     }
 
     if (!handler) handler = require('./handler')

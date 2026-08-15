@@ -321,6 +321,54 @@ const last3Digits = (value) => {
     return digits ? digits.slice(-3).padStart(3, '0') : '';
 };
 
+// Supported session-ID formats (shared by index.js bootstrap logic and the
+// .addbot command so validation stays in one place).
+const VALID_PREFIXES = ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'June::~'];
+
+const isValidSessionIdFormat = (value) => {
+    const sessionId = String(value || '').trim();
+    return Boolean(sessionId) && VALID_PREFIXES.some((p) => sessionId.startsWith(p));
+};
+
+/**
+ * Validate a raw .addbot-style session entry (phone + optional sessionId).
+ * Returns { ok: false, reason } or { ok: true, phone, sessionId }.
+ */
+function validateSessionEntry(entry = {}) {
+    const phone = digitsOnly(entry.phone);
+    const sessionId = String(entry.sessionId || '').trim();
+    if (!phone || phone.length < 7 || phone.length > 15) {
+        return { ok: false, reason: 'invalid-phone' };
+    }
+    if (sessionId && !isValidSessionIdFormat(sessionId)) {
+        return { ok: false, reason: 'invalid-sessionId' };
+    }
+    return { ok: true, phone, sessionId };
+}
+
+/**
+ * Append a validated entry to a raw registry array, rejecting duplicates
+ * (same phone = same storage identity; same sessionId = same credential).
+ * Pure helper — the runtime registry mutation and hot-add trigger live in
+ * index.js, reusing the existing JUNE_SESSIONS reconciliation pipeline.
+ */
+function addSessionEntry(registry, entry = {}) {
+    const check = validateSessionEntry(entry);
+    if (!check.ok) return check;
+    const list = Array.isArray(registry) ? registry : [];
+    const duplicate = list.some((e) => {
+        if (digitsOnly(e.phone) === check.phone) return true;
+        const sid = String(e.sessionId || '').trim();
+        return Boolean(check.sessionId && sid === check.sessionId);
+    });
+    if (duplicate) return { ok: false, reason: 'duplicate' };
+    return {
+        ok: true,
+        entry: { sessionId: check.sessionId, phone: check.phone },
+        registry: [...list, { sessionId: check.sessionId, phone: check.phone }],
+    };
+}
+
 /**
  * Normalize raw registry entries into fully-qualified session entries.
  *
@@ -446,6 +494,10 @@ module.exports = {
     loadRegistryFromEnv,
     parseSessionsJson,
     normalizeSessionEntries,
+    validateSessionEntry,
+    addSessionEntry,
+    isValidSessionIdFormat,
+    VALID_PREFIXES,
     parsePairingMaxAttempts,
     sessionLogLabel,
     sessionLogPrefix,

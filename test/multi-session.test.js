@@ -549,6 +549,108 @@ function test(name, fn) {
         if (oldEnv === undefined) delete process.env.JUNE_SESSIONS; else process.env.JUNE_SESSIONS = oldEnv;
     });
 
+    console.log('\n[14] .addbot — validation, dedupe and command wiring');
+    const { validateSessionEntry, addSessionEntry, VALID_PREFIXES } = require('../utils/sessionManager');
+    const addbotCmd = require('../commands/owner/addbot');
+
+    await test('validateSessionEntry: valid phone + sessionId', () => {
+        const r = validateSessionEntry({ phone: '+234 816 532 1909', sessionId: 'JUNE-MD:~abc' });
+        assert.strictEqual(r.ok, true);
+        assert.strictEqual(r.phone, '2348165321909');
+        assert.strictEqual(r.sessionId, 'JUNE-MD:~abc');
+    });
+
+    await test('validateSessionEntry: rejects bad phones and bad sessionIds', () => {
+        assert.strictEqual(validateSessionEntry({ phone: 'abc' }).ok, false);
+        assert.strictEqual(validateSessionEntry({ phone: '123' }).ok, false);
+        assert.strictEqual(validateSessionEntry({ phone: '' }).ok, false);
+        const badSid = validateSessionEntry({ phone: '2348165321909', sessionId: 'NOT-A-PREFIX:~x' });
+        assert.strictEqual(badSid.ok, false);
+        assert.strictEqual(badSid.reason, 'invalid-sessionId');
+        // phone-only entry is valid (pairing login)
+        assert.strictEqual(validateSessionEntry({ phone: '2348165321909' }).ok, true);
+    });
+
+    await test('addSessionEntry: appends and rejects duplicates (phone or sessionId)', () => {
+        const registry = [{ sessionId: 'JUNE-MD:~a', phone: '2348154853640' }];
+        const ok = addSessionEntry(registry, { sessionId: '', phone: '2348165321909' });
+        assert.strictEqual(ok.ok, true);
+        assert.strictEqual(ok.registry.length, 2);
+        assert.deepStrictEqual(ok.entry, { sessionId: '', phone: '2348165321909' });
+        // duplicate phone
+        const dupePhone = addSessionEntry(ok.registry, { sessionId: '', phone: '2348154853640' });
+        assert.strictEqual(dupePhone.ok, false);
+        assert.strictEqual(dupePhone.reason, 'duplicate');
+        // duplicate sessionId
+        const dupeSid = addSessionEntry(ok.registry, { sessionId: 'JUNE-MD:~a', phone: '234800000000' });
+        assert.strictEqual(dupeSid.ok, false);
+        // original registry untouched by pure helper
+        assert.strictEqual(registry.length, 1);
+    });
+
+    await test('addSessionEntry: invalid input never mutates the registry', () => {
+        const registry = [{ sessionId: '', phone: '2348154853640' }];
+        assert.strictEqual(addSessionEntry(registry, { phone: 'x' }).ok, false);
+        assert.strictEqual(registry.length, 1);
+    });
+
+    await test('addbot command: valid input routes to the hot-add hook with confirmation', async () => {
+        const oldHook = global.__JUNE_ADD_SESSION;
+        let calledWith = null;
+        let replies = [];
+        global.__JUNE_ADD_SESSION = (entry) => {
+            calledWith = entry;
+            return Promise.resolve({ ok: true, phone: entry.phone, sessionId: entry.sessionId, persisted: true });
+        };
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await addbotCmd.execute({}, {}, ['+234 816 532 1909', 'JUNE-MD:~xxxxx'], extra);
+        assert.deepStrictEqual(calledWith, { phone: '2348165321909', sessionId: 'JUNE-MD:~xxxxx' });
+        assert.ok(replies[0].includes('✅'));
+        assert.ok(replies[0].includes('2348165321909'));
+        assert.ok(replies[0].includes('Starting'));
+        global.__JUNE_ADD_SESSION = oldHook;
+    });
+
+    await test('addbot command: invalid phone is rejected before the hook runs', async () => {
+        const oldHook = global.__JUNE_ADD_SESSION;
+        let called = false;
+        let replies = [];
+        global.__JUNE_ADD_SESSION = () => { called = true; return Promise.resolve({ ok: true }); };
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await addbotCmd.execute({}, {}, ['not-a-number'], extra);
+        assert.strictEqual(called, false);
+        assert.ok(replies[0].includes('Invalid phone'));
+        global.__JUNE_ADD_SESSION = oldHook;
+    });
+
+    await test('addbot command: invalid sessionId is rejected before the hook runs', async () => {
+        const oldHook = global.__JUNE_ADD_SESSION;
+        let called = false;
+        let replies = [];
+        global.__JUNE_ADD_SESSION = () => { called = true; return Promise.resolve({ ok: true }); };
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await addbotCmd.execute({}, {}, ['2348165321909', 'BOGUS:~zzz'], extra);
+        assert.strictEqual(called, false);
+        assert.ok(replies[0].includes('Invalid sessionId'));
+        global.__JUNE_ADD_SESSION = oldHook;
+    });
+
+    await test('addbot command: duplicate rejection surfaces a clear error', async () => {
+        const oldHook = global.__JUNE_ADD_SESSION;
+        let replies = [];
+        global.__JUNE_ADD_SESSION = () => Promise.resolve({ ok: false, reason: 'duplicate' });
+        const extra = { reply: async (t) => { replies.push(t); } };
+        await addbotCmd.execute({}, {}, ['2348165321909', ''], extra);
+        assert.ok(replies[0].includes('already registered'));
+        global.__JUNE_ADD_SESSION = oldHook;
+    });
+
+    console.log('\n[15] startup-report presentation rule (single-session feature)');
+    await test('VALID_PREFIXES shared by the .addbot command and index bootstrap', () => {
+        assert.deepStrictEqual(VALID_PREFIXES, ['JUNE-MD:~', 'Ultra-X:~', 'June-Ultra:~', 'June::~']);
+        assert.ok(VALID_PREFIXES.every((p) => 'JUNE-MD:~x'.startsWith(p) || 'Ultra-X:~x'.startsWith(p) || 'June-Ultra:~x'.startsWith(p) || 'June::~x'.startsWith(p)));
+    });
+
     await test('loadSessionRegistry: no SESSION_ID/JUNE_PAIRING_NUMBER reading anywhere', () => {
         // Set the removed legacy vars — they must be completely ignored.
         const oldSid = process.env.SESSION_ID;

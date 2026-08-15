@@ -87,7 +87,8 @@ JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId"
 - **Auth**: SQLite-backed Signal keys with integrity validation, backups, quarantines, session-ID fingerprints, remote auth mirror (Postgres / MongoDB) with recovery
 - **Notes system** (`addnote` / `mynotes`) per user, per bot
 - Group stats, warning system, muting, bot modes, font styles, sticker tools, yt/media downloaders, TTS, ephoto360/textmaker/design logos
-- Auto status view/react, always-online, auto-download status, pairing-code login with **sessionId+phone auto-fallback**, per-session **pairing-code budget**, **hot-add/hot-remove sessions without restart**, per-session **console log prefixes** (`[ JUNEX ULTRA 909 ]`), `.env`/registry watchers, graceful shutdown
+- Auto status view/react, always-online, auto-download status, pairing-code login with **sessionId+phone auto-fallback**, per-session **pairing-code budget**, **hot-add/hot-remove sessions without restart** (`.addbot <phone> <sessionId?>` from WhatsApp too), per-session **console log prefixes** (`[ JUNEX ULTRA 909 ]`), `.env` watcher, graceful shutdown
+- **Startup report** is a single-session presentation feature: shown only when the process starts with exactly 1 session — skipped entirely with 2+ sessions, and never shown for runtime hot-added sessions
 
 ---
 
