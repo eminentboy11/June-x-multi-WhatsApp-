@@ -1,9 +1,9 @@
 {
   "name": "June X Ultra",
-  "description": "June X Ultra - WhatsApp MD Multi-Device Bot powered by Baileys",
+  "description": "June X Ultra - WhatsApp MD Multi-Device Bot powered by Baileys (multi-session)",
   "repository": "",
   "logo": "",
-  "keywords": ["whatsapp", "baileys", "bot", "node", "md", "june-ultra"],
+  "keywords": ["whatsapp", "baileys", "bot", "node", "md", "june-ultra", "multi-session"],
   "stack": "heroku-24",
   "buildpacks": [
     {
@@ -17,8 +17,8 @@
     }
   },
   "env": {
-    "SESSION_ID": {
-      "description": "June X Ultra session string. Accepted formats: JUNE-MD:~<base64>, Ultra-X:~<base64>, June-Ultra:~<base64>",
+    "JUNE_SESSIONS": {
+      "description": "Session registry (JSON). One session: [{\"sessionId\":\"JUNE-MD:~...\",\"phone\":\"2348...\"}]. Multiple: add more entries. sessionId accepts JUNE-MD:~<base64>, Ultra-X:~<base64>, June-Ultra:~<base64>, June::~<base64>; phone uses pairing-code login.",
       "required": false,
       "value": ""
     }

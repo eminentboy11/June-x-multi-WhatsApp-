@@ -28,8 +28,11 @@ Three ways, in priority order:
 [{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
 ```
 
-**C. Legacy `SESSION_ID`** — nothing changes. The bot runs exactly as before as
-one session with id `JUNE_BOT_ID` (or `BOT_ID`, `OWNER_NUMBER`, else `default`).
+**C. No registry** — the bot boots a single default session with the
+first-run login flow (interactive menu on a TTY, or a clear exit message on
+headless platforms). `JUNE_SESSIONS` is the **only** session configuration
+mechanism — one entry behaves exactly like the old single-session mode, and
+multiple entries boot independently.
 
 Session entry fields:
 
@@ -171,10 +174,9 @@ bot's data.
 - **A session logs out**: only that session's auth is quarantined/cleared and
   it returns to its own login flow; the others keep running.
 - **Session export**: with `JUNE_EXPORT_SESSION_TO_ENV=true`, refreshed creds
-  are written back to `.env` (default session) or `sessions.json` (registry
-  sessions) every 30 minutes.
+  are written back to `sessions.json` (the registry) every 30 minutes.
 - **Logs**: every session-scoped line is tagged with its id, e.g.
-  `[ SESSION_ID:backup ]`, `[ CONFLICT:backup ]`, `[ AUTH:backup ]`. In
+  `[ sessionId:backup ]`, `[ CONFLICT:backup ]`, `[ AUTH:backup ]`. In
   multi-session mode the console prefix itself is also per session —
   `[ JUNEX ULTRA 909 ]` — using the last 3 digits of the session's WhatsApp
   number (`[ JUNEX ULTRA main ]` before the number is known). Single-session /

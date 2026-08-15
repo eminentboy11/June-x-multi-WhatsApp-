@@ -491,6 +491,60 @@ function test(name, fn) {
         const bot2 = new BotInstance({ id: '2348165321909', phone: '' });
         assert.strictEqual(sessionLogPrefix(bot2, true), '[ JUNEX ULTRA 909 ]');
     });
+
+    console.log('\n[13] JUNE_SESSIONS as the sole session configuration');
+    const smModule = require('../utils/sessionManager');
+
+    await test('loadSessionRegistry: no registry -> single default session (first-run flow)', async () => {
+        const oldEnv = process.env.JUNE_SESSIONS;
+        delete process.env.JUNE_SESSIONS;
+        // sessions.json is absent in the test sandbox (cleanup guarantees it)
+        const entries = loadSessionRegistry();
+        assert.strictEqual(entries.length, 1);
+        assert.strictEqual(entries[0].id, require('../utils/botContext').DEFAULT_BOT_ID);
+        assert.strictEqual(entries[0].phone, '');
+        assert.strictEqual(entries[0].sessionId, '');
+        if (oldEnv) process.env.JUNE_SESSIONS = oldEnv;
+    });
+
+    await test('loadSessionRegistry: one env entry behaves like single-session mode', () => {
+        const oldEnv = process.env.JUNE_SESSIONS;
+        process.env.JUNE_SESSIONS = '[{"sessionId":"JUNE-MD:~abc","phone":"2348154853640"}]';
+        const entries = loadSessionRegistry();
+        assert.strictEqual(entries.length, 1);
+        assert.strictEqual(entries[0].id, '2348154853640');
+        assert.strictEqual(entries[0].sessionId, 'JUNE-MD:~abc');
+        assert.strictEqual(entries[0].phone, '2348154853640');
+        if (oldEnv === undefined) delete process.env.JUNE_SESSIONS; else process.env.JUNE_SESSIONS = oldEnv;
+    });
+
+    await test('loadSessionRegistry: multiple entries boot from the same pipeline', () => {
+        const oldEnv = process.env.JUNE_SESSIONS;
+        process.env.JUNE_SESSIONS = '[{"sessionId":"JUNE-MD:~a","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]';
+        const entries = loadSessionRegistry();
+        assert.strictEqual(entries.length, 2);
+        assert.deepStrictEqual(entries.map((e) => e.id), ['2348154853640', '2348165321909']);
+        assert.strictEqual(entries[0].sessionId, 'JUNE-MD:~a');
+        assert.strictEqual(entries[1].sessionId, '');
+        if (oldEnv === undefined) delete process.env.JUNE_SESSIONS; else process.env.JUNE_SESSIONS = oldEnv;
+    });
+
+    await test('loadSessionRegistry: no SESSION_ID/JUNE_PAIRING_NUMBER reading anywhere', () => {
+        // Set the removed legacy vars — they must be completely ignored.
+        const oldSid = process.env.SESSION_ID;
+        const oldPin = process.env.JUNE_PAIRING_NUMBER;
+        const oldReg = process.env.JUNE_SESSIONS;
+        process.env.SESSION_ID = 'JUNE-MD:~shouldBeIgnored';
+        process.env.JUNE_PAIRING_NUMBER = '234899999999';
+        delete process.env.JUNE_SESSIONS;
+        const entries = loadSessionRegistry();
+        assert.strictEqual(entries.length, 1); // only the default session
+        assert.strictEqual(entries[0].sessionId, ''); // legacy var ignored
+        assert.strictEqual(entries[0].phone, '');      // legacy var ignored
+        if (oldSid === undefined) delete process.env.SESSION_ID; else process.env.SESSION_ID = oldSid;
+        if (oldPin === undefined) delete process.env.JUNE_PAIRING_NUMBER; else process.env.JUNE_PAIRING_NUMBER = oldPin;
+        if (oldReg === undefined) delete process.env.JUNE_SESSIONS; else process.env.JUNE_SESSIONS = oldReg;
+    });
     const { SessionManager } = require('../utils/sessionManager');
 
     await test('SessionManager.remove stops ONLY that session', async () => {

@@ -40,10 +40,12 @@ npm start
 
 ### Define your sessions
 
-Three ways, in priority order:
+`JUNE_SESSIONS` is the **only** session configuration mechanism. One session
+and multiple sessions use exactly the same registry and boot pipeline — the
+only difference is the number of entries.
 
-**1. `sessions.json`** at the project root (recommended) — the simple format
-is just two fields per session:
+**`sessions.json`** at the project root (recommended) — the simple format is
+just two fields per session:
 
 ```json
 { "sessions": [
@@ -52,13 +54,14 @@ is just two fields per session:
 ] }
 ```
 
-**2. `JUNE_SESSIONS` env** (JSON, one line) — ideal for hosted panels:
+**`JUNE_SESSIONS` env** (JSON, one line) — ideal for hosted panels:
 
 ```json
 [{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId":"","phone":"2348165321909"}]
 ```
 
-**3. Legacy `SESSION_ID`** in `.env` — single session, exactly like before.
+With no registry at all, the bot boots a single default session with the
+first-run login flow (interactive menu, or a clear exit message headless).
 
 #### Session entry fields
 
@@ -131,15 +134,13 @@ See **`.env.example`** for a ready-to-copy template (single legacy session, mult
 
 | Variable | Purpose |
 |---|---|
-| `SESSION_ID` | legacy single-session id (`JUNE-MD:~…`, `Ultra-X:~…`, …) |
-| `JUNE_PAIRING_NUMBER` | legacy single-session pairing phone |
-| `JUNE_SESSIONS` | multi-session registry (JSON, one line) — alternative to `sessions.json` |
+| `JUNE_SESSIONS` | the sole session registry (JSON, one line) — alternative to `sessions.json` |
 | `JUNE_BOT_ID` | default session id / mirror `bot_id` |
 | `DATABASE_URL` | PostgreSQL mirror (per-bot rows separated by `bot_id` automatically) |
 | `MONGODB_URI` / `MONGO_URL` | MongoDB mirror (per-bot `botId` records) |
 | `JUNE_DB_FILE` / `JUNE_DB_DIR` | database path for the default session |
 | `JUNE_FORCE_SESSION_BOOTSTRAP` | `true` = force re-bootstrap from `sessionId` |
-| `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds (`.env` / `sessions.json`) |
+| `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds back to `sessions.json` |
 | `JUNE_PAIRING_MAX_ATTEMPTS` | pairing codes per login/recovery cycle (default **5**); after the limit the session parks as `needs-login` until `.restart`/process restart |
 | `JUNE_SESSIONS_POLL_MS` | hot-add/hot-remove registry poll interval (default 15000) |
 | `PORT` | dashboard port (default 5000) |

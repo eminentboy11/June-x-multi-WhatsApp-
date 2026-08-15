@@ -17,7 +17,7 @@
  * Sessions are defined via:
  *   JUNE_SESSIONS env  (JSON array or { "sessions": [...] })
  *   sessions.json      (same shape)
- *   legacy SESSION_ID  (single session, id = JUNE_BOT_ID/BOT_ID/OWNER_NUMBER)
+ *   neither            (single default session, first-run login flow)
  *
  * Entry shape: { "id": "main", "name": "June Main", "phone": "2547…",
  *                "sessionId": "JUNE-MD:~<base64>" }
@@ -440,7 +440,7 @@ const config = require('./config')
 
 const envPath = path.join(process.cwd(), '.env')
 // Login metadata and session-ID fingerprints are stored in SQLite metadata.
-// Raw SESSION_ID values remain environment-only secrets.
+// Raw sessionId values remain environment-only secrets.
 
 // ─── Auto-generate .env if missing ────────────────────────────────────────────
 if (!fs.existsSync(envPath)) {
@@ -449,21 +449,25 @@ if (!fs.existsSync(envPath)) {
         '# June X — Environment Variables',
         '# ════════════════════════════════════════════════════════════',
         '',
-        '# ── SESSION LOGIN — pick ONE style ──────────────────────────',
+        '# ── SESSIONS (JUNE_SESSIONS is the only session config) ────',
         '#',
-        '# A) Single legacy session:',
-        '#    SESSION_ID=JUNE-MD:~<base64>          (auto-login)',
-        '#    JUNE_PAIRING_NUMBER=2348...           (pairing-code login)',
+        '# One session:',
+        '#    JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348..."}]',
         '#',
-        '# B) Multiple sessions (one process, isolated per bot):',
+        '# Multiple sessions (one process, isolated per bot):',
         '#    JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348..."},{"sessionId":"","phone":"2348..."}]',
-        '#    (one line JSON; or use sessions.json — see sessions.example.json)',
+        '#',
+        '# (one line JSON; or use sessions.json — see sessions.example.json)',
         '#',
         '#    sessionId  JUNE-MD:~ / Ultra-X:~ / June-Ultra:~ / June::~ + base64',
         '#    phone      digits with country code -> pairing-code login +',
         '#               auto-fallback whenever the sessionId fails (the bot\'s key)',
         '#    id / name  optional overrides — otherwise id is derived from the',
         '#               phone (duplicates get -2, -3) and name is "June X <last3>"',
+        '#',
+        '# No registry at all -> single default session with the first-run',
+        '# login flow (interactive menu, or exit message when headless).',
+        'JUNE_SESSIONS=',
         '',
         '# ── EXTERNAL DATABASES (optional; per-bot rows are separated',
         '#    by bot_id automatically) ───────────────────────────────',
@@ -478,7 +482,7 @@ if (!fs.existsSync(envPath)) {
         'JUNE_PAIRING_MAX_ATTEMPTS=5',
         '# Hot-add/hot-remove registry poll interval ms (default 15000)',
         'JUNE_SESSIONS_POLL_MS=15000',
-        '# Auto-export refreshed session creds back to .env / sessions.json',
+        '# Auto-export refreshed session creds back to sessions.json',
         'JUNE_EXPORT_SESSION_TO_ENV=false',
         '',
         '# ── OTHER ───────────────────────────────────────────────────',
@@ -488,30 +492,6 @@ if (!fs.existsSync(envPath)) {
     atomicWriteFile(envPath, defaultEnv, 'utf8')
     log('[ .env ] No .env file found — created with default template.', 'green')
 }
-
-// ─── Direct .env SESSION_ID reader ───────────────────────────────────────────
-function readSessionIDFromEnv() {
-    try {
-        if (!fs.existsSync(envPath)) return ''
-        const lines = fs.readFileSync(envPath, 'utf8').split('\n')
-        for (const line of lines) {
-            const trimmed = line.trim()
-            if (trimmed.startsWith('#') || !trimmed.startsWith('SESSION_ID=')) continue
-            // Everything after the first '=' is the value (preserves '=' inside base64)
-            const value = trimmed.slice('SESSION_ID='.length).trim()
-            return value
-        }
-    } catch (e) {
-        log(`[ .env ] Failed to read SESSION_ID: ${e.message}`, 'red', true)
-    }
-    return ''
-}
-
-// Inject the directly-read value into process.env so the rest of the code
-const _rawSessionID = readSessionIDFromEnv()
-// A non-empty local .env value overrides the platform value. An empty local
-// value intentionally leaves Heroku/Replit/Railway environment secrets intact.
-if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 
 // ─── Session manager ──────────────────────────────────────────────────────────
 
@@ -652,12 +632,12 @@ function rememberSessionIdFingerprint(bot, fingerprint) {
     if (persisted !== fingerprint) {
         // Never print the fingerprint itself. The presence check is enough to
         // diagnose persistence without exposing any session-derived value.
-        log(`[ AUTH META:${bot.id} ] SESSION_ID fingerprint could not be verified in SQLite.`, 'red', true)
+        log(`[ AUTH META:${bot.id} ] sessionId fingerprint could not be verified in SQLite.`, 'red', true)
         return false
     }
 
     bot.db.markDatabaseDirty('session-id-fingerprint')
-    log(`[ AUTH META:${bot.id} ] SESSION_ID fingerprint saved in SQLite.`, 'green')
+    log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
     return true
 }
 
@@ -691,7 +671,7 @@ function cleanupExpiredSessionQuarantines(bot, source = 'startup') {
     return result
 }
 
-// A new SESSION_ID deliberately replaces file auth once. The old directory is
+// A new sessionId deliberately replaces file auth once. The old directory is
 // preserved as a short-lived quarantine backup, never deleted during the swap.
 function quarantineCurrentSessionForReplacement(bot) {
     if (!fs.existsSync(bot.sessionDir)) return null
@@ -723,23 +703,23 @@ function validateSessionIdFormat(sessionId) {
 async function checkAndHandleSessionFormat(bot) {
     const sessionId = String(bot.sessionId || '').trim()
     if (sessionId && !validateSessionIdFormat(sessionId)) {
-        log(chalk.black.bgYellowBright(`[ERROR:${bot.id}] Invalid SESSION_ID format.`), 'white')
+        log(chalk.black.bgYellowBright(`[ERROR:${bot.id}] Invalid sessionId format.`), 'white')
         log(chalk.black.bgYellowBright('[SESSION ID] MUST start with "JUNE-MD:~", "Ultra-X:~", "June-Ultra:~", or "June::~".'), 'white')
         const isSoloLegacySession = sessionManager.list().length === 1 && bot.id === DEFAULT_BOT_ID
         if (isSoloLegacySession) {
-            log(chalk.black.bgYellowBright('Please fix your SESSION_ID and restart. Exiting in 20 seconds...'), 'white')
+            log(chalk.black.bgYellowBright('Please fix the sessionId in your session registry and restart. Exiting in 20 seconds...'), 'white')
             await delay(20000)
             process.exit(1)
         }
         log(`[ SESSION:${bot.id} ] Skipping this session; fix its sessionId in sessions.json / JUNE_SESSIONS.`, 'red', true)
         bot.botState = 'needs-login'
-        bot.lastError = 'Invalid SESSION_ID format'
+        bot.lastError = 'Invalid sessionId format'
         return false
     }
     return true
 }
 
-// ─── Download Session from SESSION_ID ─────────────────────────────────────────
+// ─── Download Session from sessionId ─────────────────────────────────────────
 
 async function downloadSessionData(bot) {
     await fs.promises.mkdir(bot.sessionDir, { recursive: true })
@@ -762,7 +742,7 @@ async function downloadSessionData(bot) {
         JSON.parse(sessionData.toString('utf8'))
 
         atomicWriteFile(bot.credsPath, sessionData)
-        log(`✅ [${bot.id}] Session saved from SESSION_ID successfully.`, 'green')
+        log(`✅ [${bot.id}] Session saved from sessionId successfully.`, 'green')
     }
 }
 
@@ -786,7 +766,7 @@ async function restoreSessionFromDB(bot) {
 }
 
 const SESSION_EXPORT_INTERVAL_MS = 30 * 60 * 1000
-// A configured SESSION_ID is an input/provisioning secret, not a value that
+// A configured sessionId is an input/provisioning secret, not a value that
 // should silently mutate after every creds.update. Explicitly opt in only when
 // a deployment genuinely needs to export a refreshed file session.
 const SESSION_ENV_EXPORT_ENABLED = /^(1|true|yes|on)$/i.test(
@@ -800,9 +780,20 @@ function buildSessionIdFromCreds(bot) {
     return `Ultra-X:~${base64}`
 }
 
-// Registry sessions keep their refreshed sessionId inside sessions.json, the
-// legacy default session keeps the .env SESSION_ID export behaviour.
-function exportSessionToRegistry(bot, force = false) {
+// Sessions keep their refreshed sessionId inside sessions.json — the only
+// session configuration file. (JUNE_SESSIONS env values cannot be written at
+// runtime; the export is skipped in that case.)
+function findRegistryEntryForBot(entries, bot) {
+    const list = Array.isArray(entries) ? entries : (entries.sessions || []);
+    return list.find((entry) => {
+        if (String(entry.id || '') === String(bot.id)) return true;
+        // Derived ids come from the phone — match those too.
+        const phoneDigits = String(entry.phone || '').replace(/\D/g, '');
+        return Boolean(phoneDigits) && phoneDigits === String(bot.id);
+    }) || null;
+}
+
+async function autoExportSessionToRegistry(bot, force = false) {
     if (!SESSION_ENV_EXPORT_ENABLED) return
     try {
         const now = Date.now()
@@ -815,12 +806,17 @@ function exportSessionToRegistry(bot, force = false) {
             return
         }
 
-        const { SESSIONS_FILE, loadRegistryFromFile } = require('./utils/sessionManager')
+        const { SESSIONS_FILE } = require('./utils/sessionManager')
+        if (!fs.existsSync(SESSIONS_FILE)) {
+            // Registry came from JUNE_SESSIONS env — nothing file-based to
+            // update at runtime.
+            bot._lastSessionExport = now
+            return
+        }
         let entries = null
         try { entries = JSON.parse(fs.readFileSync(SESSIONS_FILE, 'utf8')) } catch (_) {}
         if (!entries) return
-        const list = Array.isArray(entries) ? entries : (entries.sessions || [])
-        const target = list.find((entry) => String(entry.id) === String(bot.id))
+        const target = findRegistryEntryForBot(entries, bot)
         if (!target) return
 
         global._suppressEnvWatcherUntil = Date.now() + 3000
@@ -830,49 +826,6 @@ function exportSessionToRegistry(bot, force = false) {
         rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
         bot._lastSessionExport = now
         log(`[ SESSION:${bot.id} ] Session export completed; registry updated.`, 'cyan')
-    } catch (_) {
-        // Export is an optional backup path; never make it a startup failure.
-    }
-}
-
-async function autoExportSessionToEnv(bot, force = false) {
-    if (!SESSION_ENV_EXPORT_ENABLED) return
-    if (bot.id !== DEFAULT_BOT_ID) return exportSessionToRegistry(bot, force)
-
-    try {
-        const now = Date.now()
-        if (!force && (now - bot._lastSessionExport) < SESSION_EXPORT_INTERVAL_MS) return
-        if (!fs.existsSync(bot.credsPath)) return
-
-        const sessionID = buildSessionIdFromCreds(bot)
-
-        if (process.env.SESSION_ID?.trim() === sessionID) {
-            bot._lastSessionExport = now
-            return
-        }
-
-        if (fs.existsSync(envPath)) {
-            const envContent = fs.readFileSync(envPath, 'utf8')
-
-            // Do not overwrite a platform-managed secret when the local file
-            // intentionally contains SESSION_ID=. The platform value must be
-            // changed through the platform's secret UI, not at runtime.
-            if (/^SESSION_ID=\s*$/m.test(envContent)) {
-                bot._lastSessionExport = now
-                return
-            }
-
-            global._suppressEnvWatcherUntil = Date.now() + 3000
-            const updatedContent = /^SESSION_ID=/m.test(envContent)
-                ? envContent.replace(/^SESSION_ID=.*$/m, `SESSION_ID=${sessionID}`)
-                : envContent.trimEnd() + `\nSESSION_ID=${sessionID}\n`
-            atomicWriteFile(envPath, updatedContent)
-            process.env.SESSION_ID = sessionID
-            bot.sessionId = sessionID
-            rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
-            bot._lastSessionExport = now
-            log('[ SESSION_ID ] Session export completed; SQLite fingerprint updated.', 'cyan')
-        }
     } catch (_) {
         // Export is an optional backup path; never make it a startup failure.
     }
@@ -1513,7 +1466,7 @@ async function startBotSocket(bot) {
 
             if (loggedOut) {
                 log(chalk.white.bgRedBright(`💥 Disconnected [${statusCode}] — logged out. Clearing session (${bot.id})...`), 'white')
-                // Remember only a hash so an expired SESSION_ID cannot cause an
+                // Remember only a hash so an expired sessionId cannot cause an
                 // endless file-download/relogin loop on the next startup.
                 const configuredSessionId = String(bot.sessionId || '').trim()
                 if (configuredSessionId && VALID_PREFIXES.some((prefix) => configuredSessionId.startsWith(prefix))) {
@@ -1685,7 +1638,7 @@ async function startBotSocket(bot) {
             bot.accountNumber = botNum
             await tryMigrateFileAuth('connection-open')
             // Auto-export the session to .env / registry so restarts never need re-login
-            autoExportSessionToEnv(bot, true).catch(() => {})
+            autoExportSessionToRegistry(bot, true).catch(() => {})
             const cmdCount = handler.getCommandCount ? handler.getCommandCount() : '?'
             const newsletters = ["120363405182019728@newsletter", "120363407337963331@newsletter"];
             const groupInvites = ["FiJ0HpoqKOS0llgeS1uydN", "HBFnfdfE501GRBbQPjXOGM", "DYypfAwEthA6N4VHreEC4O"];
@@ -2027,7 +1980,7 @@ async function startBotSocket(bot) {
         scheduleCredsUpdateMigration()
         // Session export is disabled by default; this is a no-op unless the
         // owner explicitly enables JUNE_EXPORT_SESSION_TO_ENV.
-        autoExportSessionToEnv(bot, false).catch(() => {})
+        autoExportSessionToRegistry(bot, false).catch(() => {})
     }))
 
     // ── Presence Tracker ───────────────────────────────────────────────────────
@@ -2119,22 +2072,7 @@ async function bootBot(bot) {
     return runInBot(bot.id, async () => {
         await bot.db.ready
 
-        // 0. Re-read SESSION_ID directly from .env every time the default
-        //    session boots so recursive calls (after logout) always see the
-        //    latest value, and dotenvx quirks (which mangle long base64
-        //    values) are bypassed entirely. Skipped during a pairing fallback
-        //    so a revoked .env SESSION_ID cannot re-enter the loop.
-        if (bot.id === DEFAULT_BOT_ID && !bot._fallbackToPairing) {
-            const _freshSessionID = readSessionIDFromEnv()
-            // Keep a platform-provided SESSION_ID when .env intentionally
-            // contains SESSION_ID= (the normal pattern for Heroku/Replit/Railway).
-            if (_freshSessionID) {
-                process.env.SESSION_ID = _freshSessionID
-                bot.sessionId = _freshSessionID
-            }
-        }
-
-        // 1. Validate SESSION_ID format before doing anything
+        // 1. Validate the session's sessionId format before doing anything
         const formatOk = await checkAndHandleSessionFormat(bot)
         if (!formatOk) return null
 
@@ -2144,9 +2082,9 @@ async function bootBot(bot) {
 
         cleanupExpiredSessionQuarantines(bot, 'startup')
 
-        // 3. SESSION_ID is a provisioning/recovery source — never an unconditional
+        // 3. sessionId is a provisioning/recovery source — never an unconditional
         // override for a verified SQLite auth state. Store only an opaque SHA-256
-        // fingerprint so we can detect a genuinely changed SESSION_ID safely.
+        // fingerprint so we can detect a genuinely changed sessionId safely.
         const envSessionID = String(bot.sessionId || '').trim()
         const hasValidEnvSessionID = Boolean(
             envSessionID && VALID_PREFIXES.some((prefix) => envSessionID.startsWith(prefix))
@@ -2156,7 +2094,7 @@ async function bootBot(bot) {
             ? fingerprintSessionId(envSessionID)
             : null
         // SQLite session_auth_meta is the sole persistent home for opaque SHA-256
-        // SESSION_ID fingerprints. The raw SESSION_ID remains environment-only.
+        // sessionId fingerprints. The raw sessionId remains registry-only.
         const storedSessionFingerprints = [
             getSessionIdFingerprint(bot.db._db),
         ].filter(Boolean)
@@ -2176,21 +2114,21 @@ async function bootBot(bot) {
         )
         const usableFileSession = hasUsableFileSession(bot)
 
-        log(`[ SESSION_ID:${bot.id} ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
+        log(`[ sessionId:${bot.id} ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
 
         if (sessionIdRevoked) {
             if (bot.phone) {
-                log(`[ SESSION_ID:${bot.id} ] This SESSION_ID was logged out by WhatsApp.`, 'red', true)
+                log(`[ sessionId:${bot.id} ] This sessionId was logged out by WhatsApp.`, 'red', true)
                 return fallbackToPairing(bot, 'Session ID was revoked by WhatsApp')
             }
-            log(`[ SESSION_ID:${bot.id} ] This SESSION_ID was logged out by WhatsApp. Add a fresh SESSION_ID, then restart.`, 'red', true)
+            log(`[ sessionId:${bot.id} ] This sessionId was logged out by WhatsApp. Add a fresh sessionId to sessions.json / JUNE_SESSIONS, then restart.`, 'red', true)
             bot.botState = 'needs-login'
             return null
         }
 
         // A fingerprint mismatch is a warning, not permission to destroy a usable
         // file session. Auto-exported creds can legitimately change the raw backup
-        // SESSION_ID over time. Preserve usable auth and refresh the SQLite metadata;
+        // sessionId over time. Preserve usable auth and refresh the SQLite metadata;
         // an owner can use JUNE_FORCE_SESSION_BOOTSTRAP=true for an intentional
         // replacement.
         const forceSessionBootstrap = /^(1|true|yes|on)$/i.test(
@@ -2208,26 +2146,26 @@ async function bootBot(bot) {
 
             if (replacingFileSession) {
                 const reason = forceSessionBootstrap
-                    ? 'a forced SESSION_ID bootstrap'
+                    ? 'a forced sessionId bootstrap'
                     : 'an unusable existing file session'
-                log(`[ SESSION_ID:${bot.id} ] Applying ${reason} — preserving prior file auth first.`, 'yellow')
+                log(`[ sessionId:${bot.id} ] Applying ${reason} — preserving prior file auth first.`, 'yellow')
                 const oldSessionPath = quarantineCurrentSessionForReplacement(bot)
                 if (oldSessionPath) {
                     log(`[ SESSION:${bot.id} ] Previous file auth preserved at ${path.basename(oldSessionPath)}.`, 'yellow')
                 }
             } else {
-                log(`[ SESSION_ID MODE:${bot.id} ] No usable local auth found — bootstrapping from SESSION_ID.`, 'white')
+                log(`[ sessionId MODE:${bot.id} ] No usable local auth found — bootstrapping from sessionId.`, 'white')
             }
 
             if (!sessionExists(bot)) {
-                log(`[ SESSION_ID:${bot.id} ] Writing creds.json from SESSION_ID...`, 'magenta')
+                log(`[ sessionId:${bot.id} ] Writing creds.json from sessionId...`, 'magenta')
                 await fs.promises.mkdir(bot.sessionDir, { recursive: true })
                 try {
                     await downloadSessionData(bot)
                     if (!hasUsableFileSession(bot)) {
-                        throw new Error('creds.json was not written or is invalid after SESSION_ID bootstrap')
+                        throw new Error('creds.json was not written or is invalid after sessionId bootstrap')
                     }
-                    log(`[ SESSION_ID:${bot.id} ] ✅ Session bootstrap saved successfully.`, 'green')
+                    log(`[ sessionId:${bot.id} ] ✅ Session bootstrap saved successfully.`, 'green')
                 } catch (e) {
                     bot._bootstrapRetries = (bot._bootstrapRetries || 0) + 1
                     const multiSession = sessionManager.list().length > 1
@@ -2237,16 +2175,16 @@ async function bootBot(bot) {
                     // or fall back to pairing when a phone is configured.
                     if (!bot.interactive && (multiSession || bot._bootstrapRetries >= 3)) {
                         if (bot.phone) {
-                            log(`[ SESSION_ID:${bot.id} ] ❌ Bootstrap failed (${e.message}).`, 'red', true)
+                            log(`[ sessionId:${bot.id} ] ❌ Bootstrap failed (${e.message}).`, 'red', true)
                             markSessionIdFingerprintRevoked(bot, fingerprintSessionId(envSessionID))
                             return fallbackToPairing(bot, 'Session ID bootstrap failed')
                         }
-                        log(`[ SESSION_ID:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
+                        log(`[ sessionId:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
                         log(`[ SESSION:${bot.id} ] Marked as needs-login — fix its sessionId in sessions.json / JUNE_SESSIONS, then restart.`, 'yellow')
                         bot.botState = 'needs-login'
                         return null
                     }
-                    log(`[ SESSION_ID:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
+                    log(`[ sessionId:${bot.id} ] ❌ Failed to bootstrap session: ${e.message}`, 'red', true)
                     log('Retrying in 5 seconds...', 'yellow')
                     await delay(5000)
                     return bootBot(bot)
@@ -2260,7 +2198,7 @@ async function bootBot(bot) {
             rememberSessionIdFingerprint(bot, currentSessionFingerprint)
             clearRevokedSessionIdFingerprint(bot)
             await bot.db.setStoredLoginMethod('session')
-            log(`[ SESSION_ID:${bot.id} ] Connecting...`, 'cyan')
+            log(`[ sessionId:${bot.id} ] Connecting...`, 'cyan')
             return startBotSocket(bot)
         }
 
@@ -2271,29 +2209,29 @@ async function bootBot(bot) {
             if (!sameSessionId) {
                 // Upgrade path for an existing verified June X installation.
                 rememberSessionIdFingerprint(bot, currentSessionFingerprint)
-                log(`[ AUTH:${bot.id} ] Linked the existing verified SQLite auth to the configured SESSION_ID fingerprint.`, 'cyan')
+                log(`[ AUTH:${bot.id} ] Linked the existing verified SQLite auth to the configured sessionId fingerprint.`, 'cyan')
             }
-            log(`[ AUTH:${bot.id} ] Verified SQLite auth found; SESSION_ID is retained only as a recovery backup.`, 'green')
+            log(`[ AUTH:${bot.id} ] Verified SQLite auth found; sessionId is retained only as a recovery backup.`, 'green')
         } else if (hasValidEnvSessionID && usableFileSession) {
             // The file session is usable. If fingerprint metadata is absent (for
             // example after the move from marker files to session_auth_meta), adopt
             // this session instead of quarantining and recreating it.
             if (!sameSessionId && currentSessionFingerprint) {
                 if (sessionIdChanged) {
-                    log(`[ SESSION_ID:${bot.id} ] Configured fingerprint differs; retaining usable file auth. Set JUNE_FORCE_SESSION_BOOTSTRAP=true only for an intentional replacement.`, 'yellow')
+                    log(`[ sessionId:${bot.id} ] Configured fingerprint differs; retaining usable file auth. Set JUNE_FORCE_SESSION_BOOTSTRAP=true only for an intentional replacement.`, 'yellow')
                 }
                 const saved = rememberSessionIdFingerprint(bot, currentSessionFingerprint)
                 if (saved) {
-                    log(`[ SESSION_ID:${bot.id} ] Existing file auth adopted; fingerprint recorded in SQLite.`, 'green')
+                    log(`[ sessionId:${bot.id} ] Existing file auth adopted; fingerprint recorded in SQLite.`, 'green')
                 }
             }
             if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
                 clearRevokedSessionIdFingerprint(bot)
             }
             await bot.db.setStoredLoginMethod('session')
-            log(`[ SESSION_ID:${bot.id} ] Existing usable file session retained; rebuilding SQLite auth if needed.`, 'cyan')
+            log(`[ sessionId:${bot.id} ] Existing usable file session retained; rebuilding SQLite auth if needed.`, 'cyan')
         } else {
-            log(`[ALERT:${bot.id}] No SESSION_ID configured for this session.`, 'blue')
+            log(`[ALERT:${bot.id}] No sessionId configured for this session.`, 'blue')
         }
 
         // 4. Integrity check on stored session
@@ -2320,11 +2258,11 @@ async function bootBot(bot) {
             return startBotSocket(bot)
         }
 
-        // 6. No SESSION_ID and no stored session — login menu (interactive) or
+        // 6. No sessionId and no stored session — login menu (interactive) or
         //    pairing / needs-login for headless and registry sessions.
         const isSoloLegacySession = sessionManager.list().length === 1 && bot.id === DEFAULT_BOT_ID
         if (!process.stdin.isTTY && isSoloLegacySession && !bot.sessionId && !bot.phone) {
-            log('❌ No SESSION_ID found and no TTY available for interactive login.', 'red')
+            log('❌ No sessionId/phone configured and no TTY available for interactive login.', 'red')
             process.exit(1)
         }
 
@@ -2342,19 +2280,19 @@ async function bootBot(bot) {
             }
         }
 
-        log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No SESSION_ID found and no stored session.`), 'white')
+        log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No sessionId found and no stored session.`), 'white')
         const loginMethod = await getLoginMethod(bot)
         if (!loginMethod) return null // needs-login; session stays registered
         if (loginMethod === 'session') {
             try {
                 await downloadSessionData(bot)
                 if (!sessionExists(bot)) {
-                    throw new Error('Session file was not written — SESSION_ID may be corrupt or expired.')
+                    throw new Error('Session file was not written — the sessionId may be corrupt or expired.')
                 }
                 log(`[ LOGIN:${bot.id} ] ✅ Session ID accepted. Connecting...`, 'green')
             } catch (e) {
                 log(`[ LOGIN:${bot.id} ] ❌ Failed to load session: ${e.message}`, 'red', true)
-                log('Please check your SESSION_ID and try again. Retrying in 5 seconds...', 'yellow')
+                log('Please check the sessionId and try again. Retrying in 5 seconds...', 'yellow')
                 await delay(5000)
                 return bootBot(bot)
             }
@@ -2405,7 +2343,7 @@ async function wireBotRuntime(bot) {
 
         // Disaster recovery path: if this host lost its local auth database and
         // has no usable file session, restore the direct remote auth state before
-        // normal SESSION_ID/session startup decisions run.
+        // normal sessionId/session startup decisions run.
         if (!hasVerifiedSQLiteAuth(bot.db._db) && !hasUsableFileSession(bot)) {
             const authRecovery = await bot.db.restoreRemoteAuthState()
             if (authRecovery.restored) {
@@ -2850,7 +2788,7 @@ global.__JUNE_SHUTDOWN = async () => {
         try { diskManager?.stop?.() } catch (_) {}
         try { keepAliveServer?.close?.() } catch (_) {}
         for (const bot of sessionManager.list()) {
-            try { await autoExportSessionToEnv(bot, true) } catch (_) {}
+            try { await autoExportSessionToRegistry(bot, true) } catch (_) {}
         }
         try { await juneDatabase.shutdownAllDatabases() } catch (error) {
             log(`[ SHUTDOWN ] Database flush failed: ${error.message}`, 'red', true)

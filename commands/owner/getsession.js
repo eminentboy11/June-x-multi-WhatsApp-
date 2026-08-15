@@ -47,9 +47,8 @@ module.exports = {
         `✅ Your session ID is ready!\n\n` +
         `📋 *How to use:*\n` +
         `1️⃣ Copy the session ID sent below\n` +
-        `2️⃣ Open your bot's environment secrets\n` +
-        `3️⃣ Set *SESSION_ID* to the copied value\n` +
-        `4️⃣ Restart the bot — no QR scan needed!\n\n` +
+        `2️⃣ Paste it as the *sessionId* field of this bot's entry in sessions.json (or JUNE_SESSIONS)\n` +
+        `3️⃣ Restart the bot — no QR scan needed!\n\n` +
         `⚠️ *Keep this secret!* Anyone with this ID\n` +
         `   can access your WhatsApp account.\n\n` +
         `╰━━━━━━━━━━━━━━━━━━━━━━━━━━━╯`;

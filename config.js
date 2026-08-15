@@ -22,9 +22,8 @@ const baseConfig = {
     
     botName: 'JuneX-Ultra',
     prefix: '.',
-    version: '3.4.0',
+    version: '3.5.0',
     sessionName: '',
-    sessionID: process.env.SESSION_ID || '',
     newsletterJid: '',
     JUNE_API_URL: 'https://june-ultra-ai-test-model.onrender.com',
     JUNE_BOT_ID:  'june-ultra-main',

@@ -8,9 +8,13 @@
  * A session is registered from:
  *   1. `JUNE_SESSIONS` env — JSON array or { sessions: [...] }
  *   2. `sessions.json` at the project root — same shape
- *   3. legacy `SESSION_ID` / .env — one session, id = JUNE_BOT_ID fallback
+ *   3. neither — one default session with no credentials, which behaves
+ *      exactly like the old first-run flow (interactive login menu, or a
+ *      clear exit message on headless platforms)
  *
- * Entry shape:
+ * Entry shape (simple):
+ *   { phone: '2547...', sessionId: 'JUNE-MD:~...' }
+ * Entry shape (full, optional overrides):
  *   { id: 'main', name: 'June Main', phone: '2547...', sessionId: 'JUNE-MD:~...' }
  *
  * The actual Baileys boot lives in index.js (startBotSocket); the manager
@@ -415,34 +419,26 @@ function loadRegistryFromEnv() {
     return parseSessionsJson(process.env.JUNE_SESSIONS);
 }
 
-function buildLegacyEntry() {
-    const sessionId = String(process.env.SESSION_ID || '').trim();
-    const phone = String(process.env.JUNE_PAIRING_NUMBER || '').trim();
-    return {
-        id: DEFAULT_BOT_ID,
-        name: process.env.JUNE_BOT_NAME || 'June X (main)',
-        phone,
-        sessionId,
-        interactive: true,
-    };
-}
-
+/**
+ * JUNE_SESSIONS is the sole session configuration mechanism. When no registry
+ * exists at all, a single default session (no credentials) is returned so the
+ * first-run flow behaves exactly like the old single-session mode: the
+ * interactive login menu on a TTY, or a clear exit message headless.
+ */
 function loadSessionRegistry() {
-    // Priority: JUNE_SESSIONS env > sessions.json > legacy SESSION_ID.
+    // Priority: JUNE_SESSIONS env > sessions.json.
     const rawEntries = loadRegistryFromEnv() || loadRegistryFromFile();
     if (rawEntries && rawEntries.length > 0) {
         const clean = normalizeSessionEntries(rawEntries);
-        if (clean.length > 0) {
-            // A registry entry with the default bot id REPLACES the legacy env
-            // entry; otherwise the legacy SESSION_ID still gets its own session.
-            const hasDefault = clean.some((entry) => String(entry.id) === DEFAULT_BOT_ID);
-            if (!hasDefault && (process.env.SESSION_ID || process.env.JUNE_PAIRING_NUMBER)) {
-                clean.push(buildLegacyEntry());
-            }
-            return clean;
-        }
+        if (clean.length > 0) return clean;
     }
-    return [buildLegacyEntry()];
+    return [{
+        id: DEFAULT_BOT_ID,
+        name: 'June X (main)',
+        phone: '',
+        sessionId: '',
+        interactive: true,
+    }];
 }
 
 /**
