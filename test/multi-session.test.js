@@ -966,6 +966,28 @@ function test(name, fn) {
         assert.strictEqual(cancel.id, 'addbot_cancel_b1');
     });
 
+    await test('buildNativeFlowContent: relayable protobuf carries the flow ids (library-free)', () => {
+        // This repo's Baileys (rc14) has no native-flow button support, and
+        // the gifted-btns wrapper crashed at send time on a real panel. The
+        // flow therefore builds the interactiveMessage protobuf directly —
+        // no third-party button library in the critical path.
+        const { proto } = require('@whiskeysockets/baileys');
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
+        const relay = flow.buildNativeFlowContent(proto, payload);
+        const im = relay.viewOnceMessage.message.interactiveMessage;
+        assert.strictEqual(im.body.text, payload.text);
+        assert.strictEqual(im.footer.text, payload.footer);
+        assert.strictEqual(im.nativeFlowMessage.buttons.length, 2);
+        assert.strictEqual(im.nativeFlowMessage.buttons[0].name, 'cta_copy');
+        assert.strictEqual(im.nativeFlowMessage.buttons[1].name, 'cta_copy');
+        const copy = JSON.parse(im.nativeFlowMessage.buttons[0].buttonParamsJson);
+        const cancel = JSON.parse(im.nativeFlowMessage.buttons[1].buttonParamsJson);
+        assert.strictEqual(copy.id, 'addbot_copy_b1');
+        assert.strictEqual(copy.copy_code, 'ABCD-1234');
+        assert.strictEqual(cancel.id, 'addbot_cancel_b1');
+        assert.strictEqual(cancel.copy_code, '.delbot 2348154853640');
+    });
+
     await test('parseAddbotButton: copy / cancel / garbage', () => {
         assert.deepStrictEqual(flow.parseAddbotButton('addbot_copy_b1'), { action: 'copy', botId: 'b1' });
         assert.deepStrictEqual(flow.parseAddbotButton('addbot_cancel_xyz'), { action: 'cancel', botId: 'xyz' });

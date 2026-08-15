@@ -598,50 +598,78 @@ function writeJuneSessionsLineToEnv(newValue) {
  * implementation — existing sessions are never touched.
  */
 // ─── Live addbot flow (in-chat code delivery, buttons, reactions) ────────────
-// newBotId -> { chatJid, viaBotId, quotedKey, phone }: where to deliver the
-// pairing code and terminal status, and which session's socket to use.
+// newBotId -> { chatJid, viaBotId, quotedKey, phone, lastCode, lastAttempt,
+//               statusText }: where to deliver the pairing code and terminal
+//               status, and which session's socket to deliver with.
 const _pendingAddRequests = new Map()
 
+const FLOW_SEND_ATTEMPTS = 3
+const FLOW_SEND_RETRY_DELAY_MS = 1500
+
+// Delivery is library-free: Baileys rc14 has no native-flow button support
+// and the gifted-btns wrapper has crashed on real panels (obfuscated
+// internals). The interactive message is built from the proto directly and
+// relayed; any failure falls back to plain text, tries other connected
+// sessions, and retries — nothing silently disappears.
 async function sendFlowMessage(viaBotId, chatJid, content, quotedKey) {
-    const via = sessionManager.get(viaBotId)
-    if (!via?.sock || via.botState !== 'connected') return false
     const quoteOpt = quotedKey ? { quoted: { key: quotedKey } } : {}
-    if (content.buttons) {
-        try {
-            const { sendButtons } = require('gifted-btns')
-            await sendButtons(via.sock, chatJid, content, quoteOpt)
-            return true
-        } catch (buttonError) {
-            // Button delivery failed (library/socket constraint) — the
-            // information must still reach the chat: fall back to plain text.
-            log(`[ FLOW:${viaBotId} ] Button delivery failed (${buttonError?.message || buttonError}); falling back to plain text.`, 'yellow')
+    const candidates = [
+        sessionManager.get(viaBotId),
+        ...sessionManager.list().filter((b) => String(b.id) !== String(viaBotId)),
+    ].filter(Boolean)
+
+    for (let attempt = 0; attempt < FLOW_SEND_ATTEMPTS; attempt++) {
+        for (const bot of candidates) {
+            if (!bot.sock || bot.botState !== 'connected') continue
+            if (content.buttons) {
+                try {
+                    const relay = addbotFlow.buildNativeFlowContent(require('@whiskeysockets/baileys').proto, content)
+                    await bot.sock.relayMessage(chatJid, relay, {})
+                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered to the requesting chat via ${bot.id}.`, 'cyan')
+                    return true
+                } catch (e) {
+                    log(`[ FLOW:${viaBotId} ] Native-flow send via ${bot.id} failed (${e?.message || e}); trying fallbacks.`, 'yellow')
+                }
+            }
+            try {
+                await bot.sock.sendMessage(chatJid, { text: content.text || String(content) }, quoteOpt)
+                log(`[ FLOW:${viaBotId} ] Message delivered as plain text via ${bot.id}.`, 'cyan')
+                return true
+            } catch (e) {
+                log(`[ FLOW:${viaBotId} ] Plain-text send via ${bot.id} failed (${e?.message || e}).`, 'yellow')
+            }
+        }
+        if (attempt < FLOW_SEND_ATTEMPTS - 1) {
+            await new Promise((r) => setTimeout(r, FLOW_SEND_RETRY_DELAY_MS))
         }
     }
-    try {
-        await via.sock.sendMessage(chatJid, { text: content.text || String(content) }, quoteOpt)
-        return true
-    } catch (_) {
-        return false
-    }
+    return false
 }
 
 async function reactFlowMessage(viaBotId, chatJid, emoji, key) {
-    const via = sessionManager.get(viaBotId)
-    if (!via?.sock || !key) return false
-    try {
-        await via.sock.sendMessage(chatJid, { react: { text: emoji, key } })
-        return true
-    } catch (_) {
-        return false
+    if (!key) return false
+    const candidates = [
+        sessionManager.get(viaBotId),
+        ...sessionManager.list().filter((b) => String(b.id) !== String(viaBotId)),
+    ].filter(Boolean)
+    for (const bot of candidates) {
+        if (!bot.sock || bot.botState !== 'connected') continue
+        try {
+            await bot.sock.sendMessage(chatJid, { react: { text: emoji, key } })
+            return true
+        } catch (_) { /* try the next session */ }
     }
+    return false
 }
 
 function deliverPairingCodeToRequester(bot, code, attempt) {
     const pending = _pendingAddRequests.get(bot.id)
     if (!pending) {
         log(`[ FLOW:${bot.id} ] Pairing code generated but no live .addbot request is waiting for it (console-only delivery).`, 'yellow')
-        return false
+        return Promise.resolve(false)
     }
+    pending.lastCode = code
+    pending.lastAttempt = attempt
     const payload = addbotFlow.buildCodeMessage({
         code,
         attempt,
@@ -649,18 +677,46 @@ function deliverPairingCodeToRequester(bot, code, attempt) {
         phone: bot.phone || pending.phone,
         botId: bot.id,
     })
-    return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedKey)
+    return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedKey).then((ok) => {
+        if (!ok) {
+            log(`[ FLOW:${bot.id} ] Code delivery failed for now — will retry on the next code or reconnect.`, 'yellow')
+        }
+        return ok
+    })
 }
 
 async function deliverAddbotFlowStatus(bot, state, detail) {
     const pending = _pendingAddRequests.get(bot.id)
     if (!pending) return
-    _pendingAddRequests.delete(bot.id)
     let text = addbotFlow.buildStatusMessage(state, pending.phone)
     if (detail) text += `\n\n_${String(detail).slice(0, 120)}_`
-    await sendFlowMessage(pending.viaBotId, pending.chatJid, { text }, pending.quotedKey)
+    pending.statusText = text
+    const ok = await sendFlowMessage(pending.viaBotId, pending.chatJid, { text }, pending.quotedKey)
     await reactFlowMessage(pending.viaBotId, pending.chatJid,
         state === 'connected' ? '✅' : '⚠️', pending.quotedKey)
+    if (ok) _pendingAddRequests.delete(bot.id)
+    else log(`[ FLOW:${bot.id} ] Status delivery failed — retrying when the delivering session reconnects.`, 'yellow')
+}
+
+// When the delivering session reconnects, re-attempt any outstanding flow
+// messages (the latest code, or a pending terminal status).
+async function retryPendingFlowDeliveries(viaBotId) {
+    for (const [newBotId, pending] of [..._pendingAddRequests.entries()]) {
+        if (String(pending.viaBotId) !== String(viaBotId)) continue
+        if (pending.statusText) {
+            const ok = await sendFlowMessage(viaBotId, pending.chatJid, { text: pending.statusText }, pending.quotedKey)
+            if (ok) _pendingAddRequests.delete(newBotId)
+        } else if (pending.lastCode) {
+            const payload = addbotFlow.buildCodeMessage({
+                code: pending.lastCode,
+                attempt: pending.lastAttempt || 1,
+                max: PAIRING_MAX_ATTEMPTS,
+                phone: pending.phone,
+                botId: newBotId,
+            })
+            await sendFlowMessage(viaBotId, pending.chatJid, payload, pending.quotedKey)
+        }
+    }
 }
 
 async function addSessionViaRegistry(entry = {}, meta = {}) {
@@ -1962,6 +2018,10 @@ async function startBotSocket(bot) {
             if (_pendingAddRequests.has(bot.id)) {
                 await deliverAddbotFlowStatus(bot, 'connected')
             }
+            // This session may be the DELIVERY channel for another pending
+            // flow — re-attempt any outstanding code/status messages now
+            // that its socket is live again.
+            await retryPendingFlowDeliveries(bot.id).catch(() => {})
             await tryMigrateFileAuth('connection-open')
             // Auto-export the session to .env / registry so restarts never need re-login
             autoExportSessionToRegistry(bot, true).catch(() => {})

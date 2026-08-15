@@ -74,13 +74,16 @@ function removeRegistryEntry(registry, identifier) {
 
 /** The in-chat pairing-code message with copy/cancel buttons.
  *
- * NOTE: gifted-btns (this repo's button library) only accepts `cta_copy`
- * button types. Both buttons therefore use `name: 'cta_copy'`:
- *   - Copy Code  -> copy_code = the pairing code
- *   - Cancel     -> copy_code = the .delbot command (harmless clipboard side
- *                   effect), carrying the addbot_cancel_ id for the handler
- * Buttons carry an `id` inside buttonParamsJson so handler.js extractButtonId
- * can route the tap back to the live flow.
+ * The message travels as a NATIVE FLOW interactive message (see
+ * buildNativeFlowContent). Buttons are `cta_copy` type — the only button type
+ * WhatsApp accepts for copy actions, and the one the repo's button library
+ * wraps. Both buttons carry an `id` inside buttonParamsJson so the tap can be
+ * routed back to the live flow by handler.js (extractButtonId reads
+ * interactiveResponseMessage.nativeFlowResponseMessage.paramsJson).
+ *
+ * Copy Code -> copy_code = the pairing code.
+ * Cancel    -> copy_code = the .delbot command (harmless clipboard side
+ *             effect; the tap, when delivered, cancels the flow properly).
  */
 function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
     const copyId = `${BUTTON_COPY_PREFIX}${botId}`;
@@ -96,6 +99,11 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
             `3️⃣ Enter the code above\n\n` +
             `⏳ _Waiting for pairing…_`,
         footer: 'June X — live pairing',
+        code,
+        attempt,
+        max,
+        phone,
+        botId,
         buttons: [
             {
                 name: 'cta_copy',
@@ -114,6 +122,37 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
                 }),
             },
         ],
+    };
+}
+
+/**
+ * Build the relayable protobuf content for the native-flow buttons message.
+ *
+ * This repo's Baileys (rc14) has no built-in native-flow button support, and
+ * the gifted-btns wrapper has proven unreliable on some panels (obfuscated
+ * internals crashing at send time). We therefore construct the
+ * viewOnceMessage.message.interactiveMessage protobuf directly and send it
+ * via sock.relayMessage — no third-party library in the critical path.
+ *
+ * @param {object} proto  Baileys' WAProto (`require('@whiskeysockets/baileys').proto`)
+ */
+function buildNativeFlowContent(proto, payload) {
+    const IM = proto.Message.InteractiveMessage;
+    return {
+        viewOnceMessage: {
+            message: {
+                interactiveMessage: IM.create({
+                    body: IM.Body.create({ text: payload.text }),
+                    footer: IM.Footer.create({ text: payload.footer || '' }),
+                    nativeFlowMessage: IM.NativeFlowMessage.create({
+                        buttons: payload.buttons.map((b) => ({
+                            name: b.name,
+                            buttonParamsJson: b.buttonParamsJson,
+                        })),
+                    }),
+                }),
+            },
+        },
     };
 }
 
@@ -157,6 +196,7 @@ module.exports = {
     checkAddQuota,
     removeRegistryEntry,
     buildCodeMessage,
+    buildNativeFlowContent,
     buildStatusMessage,
     parseAddbotButton,
 };
