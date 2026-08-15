@@ -875,7 +875,7 @@ const handleMessage = async (sock, msg) => {
           extra.isSudo = extra.isOwner || extra.isSudo;
           extra.isMod = extra.isSudo;
           if (dynCmd.superOwnerOnly && !extra.isPlatformOwner) {
-            await sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
+            await sock.sendMessage(from, { text: config.messages.superOwnerOnly }, { quoted: msg });
             return;
           }
           if (dynCmd.ownerOnly && !extra.isOwner && !extra.isSudo) {
@@ -1341,7 +1341,7 @@ const handleMessage = async (sock, msg) => {
     // against the persisted deployment Super Owner (legacy config.ownerNumber
     // authorizes just during the pre-establishment bootstrap window).
     if (command.superOwnerOnly && !senderIsPlatformOwner) {
-      return sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
+      return sock.sendMessage(from, { text: config.messages.superOwnerOnly }, { quoted: msg });
     }
 
     if (command.ownerOnly && !senderIsOwner && !senderIsSudo) {
