@@ -269,6 +269,22 @@ function test(name, fn) {
         assert.strictEqual(sessionLogLabel('9'), 'JUNE ULTRA 009');
     });
 
+    await test('sessionLogPrefix: classic in single mode, tagged per session in multi mode', () => {
+        const { sessionLogPrefix, BotInstance } = require('../utils/sessionManager');
+        const bot = new BotInstance({ id: 'main' });
+        // Single-session / legacy mode — always the classic prefix.
+        assert.strictEqual(sessionLogPrefix(bot, false), '[ JUNEX ULTRA ]');
+        assert.strictEqual(sessionLogPrefix(null, true), '[ JUNEX ULTRA ]');
+        // Multi-session mode, number known → last 3 digits.
+        bot.accountNumber = '2348165321909';
+        assert.strictEqual(sessionLogPrefix(bot, true), '[ JUNEX ULTRA 909 ]');
+        bot.accountNumber = '2348154853640';
+        assert.strictEqual(sessionLogPrefix(bot, true), '[ JUNEX ULTRA 640 ]');
+        // Multi-session mode, number not known yet → session id tag.
+        bot.accountNumber = null;
+        assert.strictEqual(sessionLogPrefix(bot, true), '[ JUNEX ULTRA main ]');
+    });
+
     console.log('\n[9] per-session restart command');
     const restartCmd = require('../commands/owner/restart');
 

@@ -51,6 +51,24 @@ function sessionLogLabel(number) {
     return `JUNE ULTRA ${last3}`;
 }
 
+/**
+ * Console log prefix for a session-aware log line.
+ *
+ * Single-session / legacy mode keeps the classic prefix:
+ *   sessionLogPrefix(bot, false) -> '[ JUNEX ULTRA ]'
+ * In multi-session mode the prefix carries the session's tag — the last 3
+ * digits of its WhatsApp number, or the session id before the number is known:
+ *   sessionLogPrefix(bot, true)  -> '[ JUNEX ULTRA 909 ]' | '[ JUNEX ULTRA main ]'
+ */
+function sessionLogPrefix(bot, multiSession) {
+    if (bot && multiSession) {
+        const digits = String(bot.accountNumber || '').replace(/\D/g, '');
+        const tag = digits ? digits.slice(-3).padStart(3, '0') : String(bot.id);
+        return `[ JUNEX ULTRA ${tag} ]`;
+    }
+    return '[ JUNEX ULTRA ]';
+}
+
 class BotInstance {
     constructor(entry = {}) {
         this.id = String(entry.id || DEFAULT_BOT_ID);
@@ -349,6 +367,7 @@ module.exports = {
     parseSessionsJson,
     parsePairingMaxAttempts,
     sessionLogLabel,
+    sessionLogPrefix,
     SESSIONS_FILE,
     DEFAULT_BOT_ID,
 };

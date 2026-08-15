@@ -141,11 +141,12 @@ const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
 const { applyFont } = require('./utils/fontConverter')
-const { runInBot, DEFAULT_BOT_ID } = require('./utils/botContext')
+const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/botContext')
 const {
     SessionManager,
     loadSessionRegistry,
     sessionLogLabel,
+    sessionLogPrefix,
     parsePairingMaxAttempts,
 } = require('./utils/sessionManager')
 const {
@@ -177,8 +178,28 @@ process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 
 // ─── Centralized Logger ───────────────────────────────────────────────────────
 
+// Late-bound reference so log() can be called during module init, before the
+// session manager exists. Assigned right after the manager is constructed.
+let sessionManagerRef = null
+
+// ─── Per-session log prefix ─────────────────────────────────────────────────
+// Single-session / legacy mode keeps the classic '[ JUNEX ULTRA ]'.
+// In multi-session mode every log line is tagged with the session that threw
+// it: '[ JUNEX ULTRA 909 ]' (last 3 digits of that session's number) or
+// '[ JUNEX ULTRA main ]' before the number is known. Falls back silently to
+// the classic prefix whenever the context cannot be resolved.
+function logPrefixLabel() {
+    try {
+        const bot = sessionManagerRef?.get(getCurrentBotId())
+        const multiSession = Boolean(sessionManagerRef) && sessionManagerRef.list().length > 1
+        return sessionLogPrefix(bot, multiSession)
+    } catch (_) {
+        return '[ JUNEX ULTRA ]'
+    }
+}
+
 function log(message, color = 'white', isError = false) {
-    const prefix = chalk.blue.bold('[ JUNEX ULTRA ]')
+    const prefix = chalk.blue.bold(logPrefixLabel())
     const logFunc = isError ? console.error : console.log
     const coloredMessage = chalk[color] ? chalk[color](message) : message
     if (message.includes('\n') || message.includes('════')) {
@@ -495,6 +516,7 @@ if (_rawSessionID) process.env.SESSION_ID = _rawSessionID
 // ─── Session manager ──────────────────────────────────────────────────────────
 
 const sessionManager = new SessionManager()
+sessionManagerRef = sessionManager
 
 // How many pairing codes may be issued per login/recovery cycle before the
 // session parks itself as needs-login. Per-session counters are isolated;
