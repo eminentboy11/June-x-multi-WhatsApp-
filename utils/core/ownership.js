@@ -23,8 +23,8 @@
 
 'use strict';
 
-const database = require('../database');
-const config = require('../config');
+const database = require('../../database');
+const config = require('../../config');
 
 const SUPER_OWNER_KEY = 'superOwner';
 
