@@ -10,6 +10,7 @@
 const STATE_ICONS = {
   connected: '🟢',
   connecting: '🟡',
+  paused: '⏸️',
   'needs-login': '🔴',
   disconnected: '⚪',
 };

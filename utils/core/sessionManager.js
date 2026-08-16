@@ -539,11 +539,11 @@ function loadRegistryFromEnv() {
  * interactive login menu on a TTY, or a clear exit message headless.
  */
 function loadSessionRegistry() {
-    // JUNE_SESSIONS is the sole session registry.
+    // JUNE_SESSIONS is the sole session registry. Paused entries remain in the
+    // persistent registry but are deliberately excluded from startup wiring.
     const rawEntries = loadRegistryFromEnv();
-    if (rawEntries && rawEntries.length > 0) {
-        const clean = normalizeSessionEntries(rawEntries);
-        if (clean.length > 0) return clean;
+    if (rawEntries) {
+        return normalizeSessionEntries(rawEntries).filter(entry => entry.paused !== true);
     }
     return [{
         id: DEFAULT_BOT_ID,

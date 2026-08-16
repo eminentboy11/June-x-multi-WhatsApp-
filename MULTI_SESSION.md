@@ -112,15 +112,28 @@ the `sessionId` path produced it — so the combo self-heals end to end.
 - Quotas: `JUNE_MAX_SESSIONS` global cap (default 10) and WhatsApp's
   4-linked-devices-per-number cap.
 
-#### `.delbot` — hot-remove a session (Super Owner)
+#### `.delbot` — permanently delete a session (Super Owner)
 
 ```
 .delbot <phone|id>
 ```
 
-Removes the registry entry and hot-removes ONLY that session (socket,
-timers, DB handle, adapter pools) via the existing reconciliation pipeline.
-If it kills an in-flight `.addbot` flow, the flow reports ❌ cancelled.
+Permanently removes the registry entry, stops/unlinks the session, clears its
+local and remote authentication/data, and deletes bot-specific session/database
+artifacts. Adding the number again requires fresh pairing. If it kills an
+in-flight `.addbot` flow, that flow reports ❌ cancelled.
+
+#### `.pausebot` / `.resumebot` — temporary stop and resume (Super Owner)
+
+```
+.pausebot <phone|id>
+.resumebot <phone|id>
+```
+
+Pause stores `paused:true` on the existing `JUNE_SESSIONS` entry and stops only
+its runtime resources. Authentication, settings and database files remain.
+Resume clears the flag and hot-starts the session using its stored auth, without
+pairing. Paused state survives loader/process restarts.
 
 #### `.bots` — fleet status card (Super Owner)
 

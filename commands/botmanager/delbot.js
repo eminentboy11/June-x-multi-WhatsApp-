@@ -4,16 +4,16 @@
  *
  * Usage: .delbot <phone|id>
  *
- * Removes the entry from the JUNE_SESSIONS registry and reuses the existing
- * reconciliation pipeline — ONLY that session stops (socket, timers, database
- * handle, adapter pools); every other session keeps running untouched.
+ * Permanently removes the registry entry, unlinks/stops the session, clears
+ * authentication and deletes its bot-specific local/remote data. Use
+ * .pausebot instead when authentication should be preserved.
  */
 
 module.exports = {
   name: 'delbot',
   aliases: ['removesession', 'rmbot', 'deletebot'],
   category: 'botmanager',
-  description: 'Remove a bot session from the running process (hot-remove)',
+  description: 'Permanently delete a bot session and its stored authentication',
   usage: '.delbot <phone|id>',
   superOwnerOnly: true,
   superOwnerSessionOnly: true,
@@ -51,8 +51,9 @@ module.exports = {
       ? ''
       : '\n⚠️ Not written to .env (no JUNE_SESSIONS line in the file) — update your panel env too.';
     return extra.reply(
-      `🗑️ *Session removed*\n${label}\n\n` +
-      `Only that session stops — every other session keeps running.${persistNote}`
+      `🗑️ *Bot permanently deleted*\n${label}\n\n` +
+      `Registry entry, authentication and bot-specific stored data were removed.\n` +
+      `Adding this number again will require a fresh pairing.${persistNote}`
     );
   },
 };

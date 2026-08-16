@@ -81,17 +81,44 @@ function checkAddQuota({ registry = [], runningPhones = [], phone, max }) {
  * Pure registry removal: match by explicit id first, then by phone digits.
  * Never mutates the caller's array.
  */
-function removeRegistryEntry(registry, identifier) {
-    const list = Array.isArray(registry) ? [...registry] : [];
+function findRegistryEntryIndex(registry, identifier) {
+    const list = Array.isArray(registry) ? registry : [];
     const raw = String(identifier || '').trim();
     const needle = digitsOnly(identifier);
-    const idx = list.findIndex((e) =>
-        String(e.id || '') === raw ||
-        (needle && digitsOnly(e.phone) === needle)
+    return list.findIndex((entry) =>
+        String(entry?.id || '') === raw ||
+        (needle && digitsOnly(entry?.phone) === needle)
     );
+}
+
+function removeRegistryEntry(registry, identifier) {
+    const list = Array.isArray(registry) ? [...registry] : [];
+    const idx = findRegistryEntryIndex(list, identifier);
     if (idx === -1) return { ok: false, reason: 'unknown', registry: list };
     const [removed] = list.splice(idx, 1);
     return { ok: true, registry: list, removed };
+}
+
+/** Mark one persistent registry entry paused/active without deleting it. */
+function setRegistryPaused(registry, identifier, paused) {
+    const list = (Array.isArray(registry) ? registry : []).map(entry => ({ ...entry }));
+    const idx = findRegistryEntryIndex(list, identifier);
+    if (idx === -1) return { ok: false, reason: 'unknown', registry: list };
+
+    const current = list[idx]?.paused === true;
+    const next = paused === true;
+    if (current === next) {
+        return {
+            ok: false,
+            reason: next ? 'already-paused' : 'already-active',
+            registry: list,
+            entry: list[idx],
+        };
+    }
+
+    if (next) list[idx].paused = true;
+    else delete list[idx].paused;
+    return { ok: true, registry: list, entry: list[idx], paused: next };
 }
 
 /**
@@ -296,7 +323,9 @@ module.exports = {
     FLOW_STABILIZE_CAP_MS,
     countSessionsForPhone,
     checkAddQuota,
+    findRegistryEntryIndex,
     removeRegistryEntry,
+    setRegistryPaused,
     buildCodeMessage,
     buildFlowQuoteOptions,
     buildNativeFlowContent,

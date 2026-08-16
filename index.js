@@ -808,34 +808,143 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
  * JUNE_SESSIONS registry and reuse the existing reconciliation pipeline for
  * the hot-remove. No second hot-remove implementation.
  */
-async function removeSessionViaRegistry(identifier = '') {
+function registryIdentity(registry, identifier) {
+    const index = addbotFlow.findRegistryEntryIndex(registry, identifier)
+    if (index < 0) return null
+    const normalized = normalizeSessionEntries(registry)
+    return { index, raw: registry[index], normalized: normalized[index] }
+}
+
+function sessionStoragePaths(botId, bot = null) {
+    const safeId = String(botId).replace(/[^a-zA-Z0-9_.-]/g, '-')
+    const dbHealth = (() => { try { return bot?.db?.getDatabaseHealth?.() } catch (_) { return null } })()
+    const dbDir = path.resolve(process.env.JUNE_DB_DIR || path.join(__dirname, 'database'))
+    const dbFile = dbHealth?.file || (String(botId) === String(DEFAULT_BOT_ID)
+        ? path.resolve(process.env.JUNE_DB_FILE || path.join(dbDir, 'june-ultra.db'))
+        : path.join(dbDir, `june-${safeId}.db`))
+    const sessionDir = bot?.sessionDir || (String(botId) === String(DEFAULT_BOT_ID)
+        ? path.join(process.cwd(), 'session')
+        : path.join(process.cwd(), 'sessions', String(botId)))
+    return { dbFile, sessionDir }
+}
+
+function removeSessionArtifacts(sessionDir) {
+    try { fs.rmSync(sessionDir, { recursive: true, force: true }) } catch (_) {}
+    try {
+        const parent = path.dirname(sessionDir)
+        const base = path.basename(sessionDir)
+        if (!fs.existsSync(parent)) return
+        for (const name of fs.readdirSync(parent)) {
+            if (name.startsWith(`${base}.quarantine-`) || name.startsWith(`${base}.incomplete-`)) {
+                try { fs.rmSync(path.join(parent, name), { recursive: true, force: true }) } catch (_) {}
+            }
+        }
+    } catch (_) {}
+}
+
+function removeDatabaseArtifacts(dbFile) {
+    for (const file of [dbFile, `${dbFile}.backup`, `${dbFile}-wal`, `${dbFile}-shm`]) {
+        try { fs.rmSync(file, { force: true }) } catch (_) {}
+    }
+}
+
+async function permanentlyForgetSession(identity) {
+    const botId = String(identity.normalized?.id || identity.raw?.id || identity.raw?.phone || '')
+    const runningBot = sessionManager.get(botId)
+    const paths = sessionStoragePaths(botId, runningBot)
+
+    if (runningBot) {
+        runningBot.terminatePairingCycle('delbot-permanent')
+        runningBot._shutdownRequested = true
+        const sock = runningBot.sock
+        if (sock) {
+            // Prevent the normal logged-out handler from starting recovery while
+            // this deliberate permanent deletion unlinks the companion device.
+            try { sock.ev?.removeAllListeners?.() } catch (_) {}
+            try {
+                await Promise.race([
+                    Promise.resolve(sock.logout?.()),
+                    new Promise(resolve => setTimeout(resolve, 5000)),
+                ])
+            } catch (_) {}
+        }
+        await sessionManager.remove(botId)
+    }
+
+    // Open paused/offline databases too, so local tables and configured remote
+    // mirrors are cleared before their files and adapter instances disappear.
+    const pg = pgAdapter.forBot(botId)
+    const mongo = mongoAdapter.forBot(botId)
+    await Promise.allSettled([pg.init?.(), mongo.init?.()])
+    const db = runningBot?.db || juneDatabase.registerBotDatabase(botId, { pg, mongo })
+    try {
+        await db.ready
+        await db.resetDatabase({ includeSession: true })
+        try { await db.clearRemoteAuthState?.() } catch (_) {}
+        try { await db.flushBackup?.() } catch (_) {}
+    } catch (error) {
+        log(`[ DELBOT:${botId} ] Database/auth cleanup warning: ${error.message}`, 'yellow')
+    }
+
+    if (String(botId) !== String(DEFAULT_BOT_ID)) {
+        await juneDatabase.unregisterBotDatabase(botId)
+        removeDatabaseArtifacts(paths.dbFile)
+    }
+    pgAdapter.unregister(botId)
+    mongoAdapter.unregister(botId)
+    removeSessionArtifacts(paths.sessionDir)
+
+    _pendingAddRequests.delete(botId)
+    dropPendingChat(botId)
+    return { id: botId, ...paths }
+}
+
+async function setSessionPausedViaRegistry(identifier = '', paused = true) {
     const registry = parseSessionsJson(process.env.JUNE_SESSIONS) || []
-    const res = addbotFlow.removeRegistryEntry(registry, identifier)
-    if (!res.ok) return res
+    const identity = registryIdentity(registry, identifier)
+    if (!identity) return { ok: false, reason: 'unknown' }
+    if (paused && superOwnerStatusFor(identity.normalized?.phone) === '✅') {
+        return { ok: false, reason: 'control-session', id: String(identity.normalized.id) }
+    }
 
-    // Invalidate synchronously, before registry reconciliation or notification
-    // delivery, so queued/stale handlers cannot request or send another code.
-    const removedId = String(res.removed?.id || '')
-    const removedPhone = addbotFlow.digitsOnly(res.removed?.phone)
-    const runningBot = sessionManager.list().find((bot) =>
-        (removedId && String(bot.id) === removedId) ||
-        (removedPhone && addbotFlow.digitsOnly(bot.phone) === removedPhone)
-    )
-    runningBot?.terminatePairingCycle('delbot')
+    const result = addbotFlow.setRegistryPaused(registry, identifier, paused)
+    if (!result.ok) return result
 
-    const value = JSON.stringify(res.registry)
+    const botId = String(identity.normalized.id)
+    if (paused) sessionManager.get(botId)?.terminatePairingCycle('pausebot')
+
+    const value = JSON.stringify(result.registry)
     process.env.JUNE_SESSIONS = value
     const persisted = writeJuneSessionsLineToEnv(value)
+    await reconcileSessions()
+    scheduleSessionReconcile()
+    return { ok: true, id: botId, entry: result.entry, paused, persisted }
+}
 
-    // If this removal kills an in-flight addbot flow, close the flow first.
-    for (const [botId, pending] of _pendingAddRequests) {
-        if (removedPhone && addbotFlow.digitsOnly(pending.phone) === removedPhone) {
-            await deliverAddbotFlowStatus({ id: botId }, 'cancelled')
+async function removeSessionViaRegistry(identifier = '') {
+    const registry = parseSessionsJson(process.env.JUNE_SESSIONS) || []
+    const identity = registryIdentity(registry, identifier)
+    if (!identity) return { ok: false, reason: 'unknown' }
+
+    const res = addbotFlow.removeRegistryEntry(registry, identifier)
+    if (!res.ok) return res
+    const removedPhone = addbotFlow.digitsOnly(identity.raw?.phone)
+    const botId = String(identity.normalized.id)
+
+    // If this removal kills an in-flight addbot flow, close its chat flow first.
+    for (const [pendingBotId, pending] of _pendingAddRequests) {
+        if (String(pendingBotId) === botId ||
+            (removedPhone && addbotFlow.digitsOnly(pending.phone) === removedPhone)) {
+            await deliverAddbotFlowStatus({ id: pendingBotId }, 'cancelled')
         }
     }
 
+    const cleanup = await permanentlyForgetSession(identity)
+    const value = JSON.stringify(res.registry)
+    process.env.JUNE_SESSIONS = value
+    const persisted = writeJuneSessionsLineToEnv(value)
     scheduleSessionReconcile()
-    return { ok: true, removed: res.removed, persisted }
+    return { ok: true, removed: res.removed, id: botId, cleanup, persisted, permanent: true }
 }
 
 /**
@@ -939,11 +1048,42 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
     }
 }
 
+function fleetSnapshot() {
+    const live = new Map(sessionManager.snapshot().map(state => [String(state.id), state]))
+    const entries = normalizeSessionEntries(parseSessionsJson(process.env.JUNE_SESSIONS) || [])
+    const snapshot = []
+
+    for (const entry of entries) {
+        const id = String(entry.id)
+        if (live.has(id)) {
+            snapshot.push(live.get(id))
+            live.delete(id)
+        } else if (entry.paused === true) {
+            snapshot.push({
+                id,
+                name: entry.name,
+                state: 'paused',
+                connected: false,
+                account: null,
+                connectedAt: null,
+                pairingAttempts: 0,
+                pairingExhausted: false,
+                paused: true,
+                error: null,
+            })
+        }
+    }
+    snapshot.push(...live.values())
+    return snapshot
+}
+
 global.__JUNE_ADD_SESSION = addSessionViaRegistry
 global.__JUNE_REMOVE_SESSION = removeSessionViaRegistry
+global.__JUNE_PAUSE_SESSION = (identifier) => setSessionPausedViaRegistry(identifier, true)
+global.__JUNE_RESUME_SESSION = (identifier) => setSessionPausedViaRegistry(identifier, false)
 global.__JUNE_REPAIR_SESSION = repairSessionByIdentifier
 global.__JUNE_ADD_BOT_BUTTON = handleAddbotButton
-global.__JUNE_SESSIONS_SNAPSHOT = () => sessionManager.snapshot()
+global.__JUNE_SESSIONS_SNAPSHOT = fleetSnapshot
 
 // ─── Cleanup Functions ────────────────────────────────────────────────────────
 
@@ -1559,7 +1699,10 @@ async function reconcileSessions() {
         // JUNE_SESSIONS (process.env) is the sole registry. The .env watcher /
         // poll keep process.env in sync with the .env file line.
         const rawEntries = parseSessionsJson(process.env.JUNE_SESSIONS)
-        const entries = normalizeSessionEntries(rawEntries || [])
+        const registryEntries = normalizeSessionEntries(rawEntries || [])
+        // Paused entries remain persisted in JUNE_SESSIONS but are absent from
+        // the desired live set, so normal hot-remove cleanup stops them safely.
+        const entries = registryEntries.filter(entry => entry.paused !== true)
         const desired = entries.map((entry) => String(entry.id))
         const desiredSet = new Set(desired)
         const currentSet = new Set(sessionManager.ids())
