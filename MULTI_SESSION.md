@@ -89,9 +89,10 @@ the `sessionId` path produced it — so the combo self-heals end to end.
 **Live in-chat flow** (everything happens in the chat where you ran it):
 
 1. `.addbot …` → ⏳ reaction on your command message — no processing spam
-2. 🔑 pairing-code message delivered as **plain text** into the same chat
-   (code + linking steps + a *.delbot <phone>* cancel hint) — button delivery
-   proved unreliable across panel environments and was removed by design
+2. 🔑 pairing-code message delivered into the same chat with quick-reply
+   buttons (📋 Copy Code / ❌ Cancel — the panel-proven `{ id, text }` style
+   botinfo.js uses). If button delivery ever fails, the same message falls
+   back to plain text automatically, so the code always arrives.
 3. terminal status in the same chat: ✅ connected, ⚠️ pairing limit,
    ❌ cancelled/failed — with a final ✅/⚠️ reaction on the command
 

@@ -606,11 +606,12 @@ const _pendingAddRequests = new Map()
 const FLOW_SEND_ATTEMPTS = 3
 const FLOW_SEND_RETRY_DELAY_MS = 1500
 
-// Delivery is PLAIN TEXT ONLY by design. IMPORTANT quoting rule: Baileys'
-// sendMessage quote path reads quoted.message — passing only { key } crashes
-// with "Cannot read properties of undefined" (the original delivery bug).
-// The FULL command message is therefore stored and passed as the quote, with
-// a no-quote fallback so a bad quote can never block delivery again.
+// Delivery order (all paths now use the FIXED full-message quote):
+//   1) gifted-btns with the panel-proven quick-reply style ({ id, text } —
+//      the same shape botinfo.js sends and which renders on real panels)
+//   2) plain text (guaranteed to render)
+// Button delivery failures are loud ([ FLOW ] logs) and always fall through
+// to text — the code can never be lost again.
 async function sendFlowMessage(viaBotId, chatJid, content, quotedMsg) {
     const candidates = [
         sessionManager.get(viaBotId),
@@ -621,9 +622,24 @@ async function sendFlowMessage(viaBotId, chatJid, content, quotedMsg) {
     // Baileys' quote path reads quoted.message — only quote when the full
     // message payload is present (pure helper, regression-tested).
     const quoteOpt = addbotFlow.buildFlowQuoteOptions(quotedMsg)
+
     for (let attempt = 0; attempt < FLOW_SEND_ATTEMPTS; attempt++) {
         for (const bot of candidates) {
             if (!bot.sock || bot.botState !== 'connected') continue
+
+            // 1) Buttons — the panel-proven quick-reply path.
+            if (content?.withButtons) {
+                try {
+                    const { sendButtons } = require('gifted-btns')
+                    await sendButtons(bot.sock, chatJid, addbotFlow.buildSimpleButtons(content), quoteOpt)
+                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (quick-reply buttons).`, 'cyan')
+                    return true
+                } catch (e) {
+                    log(`[ FLOW:${viaBotId} ] Button send via ${bot.id} failed (${e?.message || e}); falling back to plain text.`, 'yellow')
+                }
+            }
+
+            // 2) Plain text — always renders.
             try {
                 await bot.sock.sendMessage(chatJid, { text }, quoteOpt)
                 log(`[ FLOW:${viaBotId} ] Message delivered via ${bot.id} (plain text).`, 'cyan')

@@ -72,12 +72,15 @@ function removeRegistryEntry(registry, identifier) {
     return { ok: true, registry: list, removed };
 }
 
-/** The in-chat pairing-code message — PLAIN TEXT ONLY.
+/**
+ * The in-chat pairing-code message.
  *
- * Button delivery proved unreliable across panel environments, so by design
- * this is a simple text message: the code, the linking steps, and a cancel
- * hint (the .delbot command). The unused button builders remain in this
- * module for a future opt-in, but the live flow never sends buttons.
+ * The TEXT always carries the code (so the message is fully usable even
+ * without buttons). `withButtons: true` asks the delivery layer to attach the
+ * panel-proven quick-reply buttons (buildSimpleButtons) — the exact
+ * { id, text } style that commands/general/botinfo.js sends through
+ * gifted-btns and which renders on real panels. If button delivery fails for
+ * any reason, the plain text alone is delivered.
  */
 function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
     return {
@@ -89,8 +92,8 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
             `1️⃣ Open WhatsApp → Settings\n` +
             `2️⃣ Linked Devices → *Link a Device*\n` +
             `3️⃣ Enter the code above\n\n` +
-            `⏳ _Waiting for pairing…_\n` +
-            `❌ _Cancel with_ *.delbot ${phone}*`,
+            `⏳ _Waiting for pairing…_`,
+        withButtons: true,
         code,
         attempt,
         max,

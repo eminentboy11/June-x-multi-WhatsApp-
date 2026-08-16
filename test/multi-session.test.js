@@ -958,13 +958,44 @@ function test(name, fn) {
         assert.strictEqual(registry.length, 2); // untouched
     });
 
-    await test('buildCodeMessage: PLAIN TEXT ONLY — code, steps and .delbot cancel hint, no buttons', () => {
+    await test('buildCodeMessage: code always in the text; buttons flagged as optional', () => {
         const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 2, max: 5, phone: '2348154853640', botId: 'b1' });
         assert.ok(payload.text.includes('ABCD-1234'));
         assert.ok(payload.text.includes('(2/5)'));
         assert.ok(payload.text.includes('2348154853640'));
-        assert.ok(payload.text.includes('.delbot 2348154853640'), 'cancel hint present');
-        assert.strictEqual(payload.buttons, undefined, 'buttons removed by design');
+        // Buttons are an OPTIONAL layer on top of a complete text message —
+        // if button delivery fails, this text alone is what gets delivered.
+        assert.strictEqual(payload.withButtons, true);
+        assert.strictEqual(payload.buttons, undefined, 'no inline button array on the payload');
+    });
+
+    await test('buildSimpleButtons: panel-proven { id, text } quick-reply shape with flow ids', () => {
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
+        const simple = flow.buildSimpleButtons(payload);
+        assert.strictEqual(simple.text, payload.text);
+        assert.deepStrictEqual(simple.buttons, [
+            { id: 'addbot_copy_b1', text: '📋 Copy Code' },
+            { id: 'addbot_cancel_b1', text: '❌ Cancel' },
+        ]);
+    });
+
+    await test('buildSimpleButtons payload passes gifted-btns validation (botinfo.js-proven shape)', async () => {
+        // commands/general/botinfo.js sends this exact { id, text } shape via
+        // sendButtons and its buttons render on the real panel. The library
+        // validates the payload BEFORE touching the socket, so a recording
+        // socket distinguishes accepted from rejected.
+        const { sendButtons } = require('gifted-btns');
+        const recorder = { sendMessage: async () => ({}) };
+        const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
+        const simple = flow.buildSimpleButtons(payload);
+        let validationError = null;
+        try {
+            await sendButtons(recorder, 'x@g.us', simple, {});
+        } catch (e) {
+            // 'Missing baileys internals' = payload VALID (needs real socket).
+            if (!/Missing baileys internals/.test(e.message)) validationError = e;
+        }
+        assert.strictEqual(validationError, null);
     });
 
     await test('buildFlowQuoteOptions: regression guard — key-only quotes can never crash delivery', () => {
