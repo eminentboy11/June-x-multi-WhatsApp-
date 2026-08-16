@@ -145,9 +145,9 @@ const { applyFont } = require('./utils/fontConverter')
 const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/core/botContext')
 const { claimSuperOwner, superOwnerStatusFor, isPlatformOwner } = require('./utils/core/ownership')
 const addbotFlow = require('./utils/core/addbotFlow')
-const { requestPairingCodeForCycle } = require('./utils/core/pairingLifecycle')
 const {
     SessionManager,
+    requestPairingCodeForCycle,
     loadSessionRegistry,
     parseSessionsJson,
     addSessionEntry,
@@ -423,7 +423,7 @@ function printStartupReport(data = {}) {
     ];
 
     //console.clear();
-    console.log(lines.join('\n'));
+    // console.log(lines.join('\n'));
 
     // Log actual remote adapter state without exposing connection strings.
     const configuredExternalForLog = (dbInfo.databases || []).filter((entry) => entry.configured)
@@ -435,7 +435,7 @@ function printStartupReport(data = {}) {
         log('[ DATABASE ] A configured external database is unavailable; using SQLite safely.', 'yellow');
     }
     if (configuredExternalForLog.length === 0) {
-        log('[ DATABASE ] No external database configured (using SQLite only)', 'cyan');
+        // log('[ DATABASE ] No external database configured (using SQLite only)', 'cyan');
     }
 }
 
@@ -488,9 +488,9 @@ if (!fs.existsSync(envPath)) {
         'MONGODB_URI=',
         '',
         '# ── SESSION / PAIRING TUNING (optional) ─────────────────────',
-        '# Pairing codes issued per login/recovery cycle (default 5);',
+        '# Pairing codes issued per login/recovery cycle (default 3);',
         '# after the limit the session parks as needs-login until .restart',
-        'JUNE_PAIRING_MAX_ATTEMPTS=5',
+        'JUNE_PAIRING_MAX_ATTEMPTS=3',
         '# Hot-add/hot-remove registry poll interval ms (default 15000)',
         'JUNE_SESSIONS_POLL_MS=15000',
         '# Auto-export refreshed session creds back to .env JUNE_SESSIONS',
@@ -501,7 +501,7 @@ if (!fs.existsSync(envPath)) {
         '# PORT=5000',
     ].join('\n')
     atomicWriteFile(envPath, defaultEnv, 'utf8')
-    log('[ .env ] No .env file found — created with default template.', 'green')
+    // log('[ .env ] No .env file found — created with default template.', 'green')
 }
 
 // ─── Session manager ──────────────────────────────────────────────────────────
@@ -1073,7 +1073,7 @@ function rememberSessionIdFingerprint(bot, fingerprint) {
     }
 
     bot.db.markDatabaseDirty('session-id-fingerprint')
-    log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
+    // log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
     return true
 }
 
@@ -1176,7 +1176,7 @@ async function downloadSessionData(bot) {
         JSON.parse(sessionData.toString('utf8'))
 
         atomicWriteFile(bot.credsPath, sessionData)
-        log(`✅ [${bot.id}] Session saved from sessionId successfully.`, 'green')
+        // log(`✅ [${bot.id}] Session saved from sessionId successfully.`, 'green')
     }
 }
 
@@ -1262,7 +1262,7 @@ async function autoExportSessionToRegistry(bot, force = false) {
         bot.sessionId = sessionID
         rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
         bot._lastSessionExport = now
-        log(`[ SESSION:${bot.id} ] Session export completed; .env JUNE_SESSIONS updated.`, 'cyan')
+        // log(`[ SESSION:${bot.id} ] Session export completed; .env JUNE_SESSIONS updated.`, 'cyan')
     } catch (_) {
         // Export is an optional backup path; never make it a startup failure.
     }
@@ -1285,7 +1285,7 @@ async function getLoginMethod(bot) {
     // (_fallbackToPairing is set when a configured sessionId was rejected;
     // headless/panel sessions always prefer the phone when present.)
     if (bot.phone && !sessionExists(bot) && (!process.stdin.isTTY || bot._fallbackToPairing)) {
-        log(`[ LOGIN:${bot.id} ] Phone configured — using pairing-code login.`, 'cyan')
+        // log(`[ LOGIN:${bot.id} ] Phone configured — using pairing-code login.`, 'cyan')
         await bot.db.setStoredLoginMethod('number')
         return 'number'
     }
@@ -1349,7 +1349,7 @@ async function requestPairingCode(socket, bot) {
         // to decide whether pairing is active; BotInstance generation does that.
         const hasChatDelivery = _pendingAddRequests.has(bot.id)
         const stabilizeMs = addbotFlow.flowStabilizeMs(PAIRING_STABILIZE_MS, hasChatDelivery)
-        log(`Waiting ${stabilizeMs}ms for socket to stabilize... (${bot.id}${hasChatDelivery ? ' — live flow' : ''})`, 'yellow')
+        // log(`Waiting ${stabilizeMs}ms for socket to stabilize... (${bot.id}${hasChatDelivery ? ' — live flow' : ''})`, 'yellow')
 
         const result = await requestPairingCodeForCycle({
             bot,
@@ -1367,7 +1367,7 @@ async function requestPairingCode(socket, bot) {
                 // again inside delivery before any in-chat code is sent.
                 bot._lastPairingCode = code
                 log(chalk.black.bgCyanBright(`\n🔑 [${bot.id}] Your Pairing Code (${reservation.attempt}/${reservation.limit}): ${code}\n`), 'white')
-                log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
+                // log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
                 await deliverPairingCodeToRequester(bot, socket, reservation, code)
             },
             onExhausted: async () => {
@@ -1459,7 +1459,7 @@ async function handle408Error(bot, statusCode) {
     errorState.last_error_timestamp = Date.now()
     bot.db.setSessionErrorState(errorState)
 
-    log(`Connection Timeout (408) [${bot.id}]. Retry ${bot.errorRetryCount}/${MAX_RETRIES}`, 'yellow')
+    // log(`Connection Timeout (408) [${bot.id}]. Retry ${bot.errorRetryCount}/${MAX_RETRIES}`, 'yellow')
 
     if (bot.errorRetryCount >= MAX_RETRIES) {
         log(chalk.black.bgYellowBright(`[MAX TIMEOUTS:${bot.id}] ${MAX_RETRIES} reached. Waiting 60s before next attempt...`), 'white')
@@ -1488,7 +1488,7 @@ async function checkSessionIntegrityAndClean(bot) {
             return
         }
         clearSessionFiles(bot)
-        log(`Cleanup done (${bot.id}). Waiting 3 seconds...`, 'yellow')
+        // log(`Cleanup done (${bot.id}). Waiting 3 seconds...`, 'yellow')
         await delay(3000)
     }
 }
@@ -1501,7 +1501,7 @@ async function checkSessionIntegrityAndClean(bot) {
 
 function checkEnvStatus() {
     try {
-        log('[ WATCHER ] Hot-reload: monitoring .env JUNE_SESSIONS for live changes...', 'green')
+        // log('[ WATCHER ] Hot-reload: monitoring .env JUNE_SESSIONS for live changes...', 'green')
         global._envWatcher = fs.watch(envPath, { persistent: false }, (eventType, filename) => {
             if (eventType !== 'change') return
             // Suppress when we ourselves wrote the session update.
@@ -1941,14 +1941,14 @@ async function startBotSocket(bot) {
                 bot.botState = 'disconnected'
                 bot.connectedAt = null
                 clearSessionFiles(bot)
-                log(`Session cleared (${bot.id}). Returning to login flow in 10 seconds...`, 'yellow')
+                // log(`Session cleared (${bot.id}). Returning to login flow in 10 seconds...`, 'yellow')
                 if (bot.hasActivePairingCycle() && _pendingAddRequests.has(bot.id)) {
                     // An active live pairing cycle is waiting for its next code;
                     // terminal-notification retries alone do not qualify.
                     await delay(1500)
                 } else {
                     for (let i = 10; i > 0; i--) {
-                        log(`Restarting login in ${i}s... (${bot.id})`, 'cyan')
+                        // log(`Restarting login in ${i}s... (${bot.id})`, 'cyan')
                         await delay(1000)
                     }
                 }
@@ -2049,7 +2049,7 @@ async function startBotSocket(bot) {
                 }
 
                 if (showConnectionClosedLog) {
-                    log(`Connection closed (${statusCode}) [${bot.id}]. Reconnecting in ${waitMs / 1000}s...`, 'yellow')
+                    // log(`Connection closed (${statusCode}) [${bot.id}]. Reconnecting in ${waitMs / 1000}s...`, 'yellow')
                 }
                 await new Promise(resolve => {
                     bot._reconnectTimer = setTimeout(resolve, waitMs)
@@ -2582,7 +2582,7 @@ async function bootBot(bot) {
 
         // 2. Restore the persisted retry counter from SQLite KV.
         bot.errorRetryCount = bot.db.getSessionErrorState().count
-        log(`Initial 408 retry count (${bot.id}): ${bot.errorRetryCount}`, 'yellow')
+        // log(`Initial 408 retry count (${bot.id}): ${bot.errorRetryCount}`, 'yellow')
 
         cleanupExpiredSessionQuarantines(bot, 'startup')
 
@@ -2658,11 +2658,11 @@ async function bootBot(bot) {
                     log(`[ SESSION:${bot.id} ] Previous file auth preserved at ${path.basename(oldSessionPath)}.`, 'yellow')
                 }
             } else {
-                log(`[ sessionId MODE:${bot.id} ] No usable local auth found — bootstrapping from sessionId.`, 'white')
+                // log(`[ sessionId MODE:${bot.id} ] No usable local auth found — bootstrapping from sessionId.`, 'white')
             }
 
             if (!sessionExists(bot)) {
-                log(`[ sessionId:${bot.id} ] Writing creds.json from sessionId...`, 'magenta')
+                // log(`[ sessionId:${bot.id} ] Writing creds.json from sessionId...`, 'magenta')
                 await fs.promises.mkdir(bot.sessionDir, { recursive: true })
                 try {
                     await downloadSessionData(bot)
@@ -2702,7 +2702,7 @@ async function bootBot(bot) {
             rememberSessionIdFingerprint(bot, currentSessionFingerprint)
             clearRevokedSessionIdFingerprint(bot)
             await bot.db.setStoredLoginMethod('session')
-            log(`[ sessionId:${bot.id} ] Connecting...`, 'cyan')
+            // log(`[ sessionId:${bot.id} ] Connecting...`, 'cyan')
             return startBotSocket(bot)
         }
 
@@ -2713,7 +2713,7 @@ async function bootBot(bot) {
             if (!sameSessionId) {
                 // Upgrade path for an existing verified June X installation.
                 rememberSessionIdFingerprint(bot, currentSessionFingerprint)
-                log(`[ AUTH:${bot.id} ] Linked the existing verified SQLite auth to the configured sessionId fingerprint.`, 'cyan')
+                // log(`[ AUTH:${bot.id} ] Linked the existing verified SQLite auth to the configured sessionId fingerprint.`, 'cyan')
             }
            // log(`[ AUTH:${bot.id} ] Verified SQLite auth found; sessionId is retained only as a recovery backup.`, 'green')
         } else if (hasValidEnvSessionID && usableFileSession) {
@@ -2726,16 +2726,16 @@ async function bootBot(bot) {
                 }
                 const saved = rememberSessionIdFingerprint(bot, currentSessionFingerprint)
                 if (saved) {
-                    log(`[ sessionId:${bot.id} ] Existing file auth adopted; fingerprint recorded in SQLite.`, 'green')
+                    // log(`[ sessionId:${bot.id} ] Existing file auth adopted; fingerprint recorded in SQLite.`, 'green')
                 }
             }
             if (revokedSessionFingerprints.length > 0 && !sessionIdRevoked) {
                 clearRevokedSessionIdFingerprint(bot)
             }
             await bot.db.setStoredLoginMethod('session')
-            log(`[ sessionId:${bot.id} ] Existing usable file session retained; rebuilding SQLite auth if needed.`, 'cyan')
+            // log(`[ sessionId:${bot.id} ] Existing usable file session retained; rebuilding SQLite auth if needed.`, 'cyan')
         } else {
-            log(`[ALERT:${bot.id}] No sessionId configured for this session.`, 'blue')
+            // log(`[ALERT:${bot.id}] No sessionId configured for this session.`, 'blue')
         }
 
         // 4. Integrity check on stored session
@@ -2743,14 +2743,14 @@ async function bootBot(bot) {
 
         // 5. Use existing stored session if valid
         if (sessionExists(bot)) {
-            log(`[ALERT:${bot.id}] Valid stored session found.`, 'green')
+            // log(`[ALERT:${bot.id}] Valid stored session found.`, 'green')
             return startBotSocket(bot)
         }
 
         // 5b. A verified SQLite auth state is complete on its own. Do not
         // reconstruct only creds.json from the legacy session table.
         if (hasVerifiedSQLiteAuth(bot.db._db)) {
-            log(`[ AUTH:${bot.id} ] Verified SQLite auth found; starting without session files.`, 'green')
+            // log(`[ AUTH:${bot.id} ] Verified SQLite auth found; starting without session files.`, 'green')
             await bot.db.setStoredLoginMethod('session')
             return startBotSocket(bot)
         }
@@ -2779,7 +2779,7 @@ async function bootBot(bot) {
             return null
         }
 
-        log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No sessionId found and no stored session.`), 'white')
+        // log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No sessionId found and no stored session.`), 'white')
         const loginMethod = await getLoginMethod(bot)
         if (!loginMethod) return null // needs-login; session stays registered
         if (loginMethod === 'number' && !bot.hasActivePairingCycle()) {
@@ -2859,7 +2859,7 @@ async function wireBotRuntime(bot) {
             // Ensure an already healthy deployment mirrors the current auth state
             // without waiting for the next creds.update event.
             if (bot.db.scheduleRemoteAuthMirror('startup')) {
-                log(`[ AUTH MIRROR:${bot.id} ] External auth state mirror scheduled.`, 'cyan')
+                // log(`[ AUTH MIRROR:${bot.id} ] External auth state mirror scheduled.`, 'cyan')
             }
         }
 
@@ -3330,7 +3330,7 @@ async function main() {
     // older value, and platform env vars are only used when the file has no
     // JUNE_SESSIONS line at all).
     if (syncJuneSessionsFromEnvFile()) {
-        log('[ MULTI-SESSION ] Applied JUNE_SESSIONS from .env.', 'cyan')
+        // log('[ MULTI-SESSION ] Applied JUNE_SESSIONS from .env.', 'cyan')
     }
 
     const entries = loadSessionRegistry()
@@ -3341,7 +3341,7 @@ async function main() {
     }
     log(`[ MULTI-SESSION ] ${unique.length} session(s) registered: ${unique.join(', ')}`, 'cyan')
     if (unique.length > 1) {
-        log('[ MULTI-SESSION ] Multi-session mode: each session uses its own SQLite database (june-<id>.db) and auth directory.', 'cyan')
+        // log('[ MULTI-SESSION ] Multi-session mode: each session uses its own SQLite database (june-<id>.db) and auth directory.', 'cyan')
     }
 
     // Wire every session: database, config, remote adapters, recovery.

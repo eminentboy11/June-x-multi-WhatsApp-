@@ -104,7 +104,7 @@ function removeRegistryEntry(registry, identifier) {
  * gifted-btns and which renders on real panels. If button delivery fails for
  * any reason, the plain text alone is delivered.
  */
-function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
+function buildCodeMessage({ code, attempt = 1, max = 3, phone = '', botId }) {
     return {
         text:
             `🔑 *Pairing Code* (${attempt}/${max})\n\n` +

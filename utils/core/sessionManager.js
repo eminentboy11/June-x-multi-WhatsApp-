@@ -195,7 +195,7 @@ class BotInstance {
      * never reserve the same slot or exceed the configured maximum.
      */
     reservePairingAttempt(maxAttempts, socket, generation = this._pairingGeneration) {
-        const limit = Math.max(1, Math.floor(Number(maxAttempts) || 5));
+        const limit = Math.min(3, Math.max(1, Math.floor(Number(maxAttempts) || 3)));
         if (!this.hasActivePairingCycle(generation)) {
             return { ok: false, reason: 'inactive-or-stale', generation };
         }
@@ -555,12 +555,98 @@ function loadSessionRegistry() {
 }
 
 /**
- * Parse JUNE_PAIRING_MAX_ATTEMPTS. Default 5 pairing codes per login/recovery
- * cycle; anything below 1 falls back to the default.
+ * Perform one race-safe pairing-code request inside an existing cycle.
+ * Kept beside BotInstance because it operates exclusively on that lifecycle.
+ */
+async function requestPairingCodeForCycle(options = {}) {
+    const {
+        bot,
+        socket,
+        maxAttempts = 3,
+        stabilizeMs = 0,
+        delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        requestCode = (phone) => socket.requestPairingCode(phone),
+        onCode = async () => {},
+        onExhausted = async () => {},
+    } = options;
+
+    if (!bot || !socket) return { ok: false, reason: 'missing-state' };
+
+    const generation = bot.getPairingGeneration();
+    if (!bot.isPairingSocketCurrent(generation, socket)) {
+        return { ok: false, reason: 'inactive-or-stale', generation };
+    }
+
+    if (stabilizeMs > 0) await delay(stabilizeMs);
+
+    if (!bot.isPairingSocketCurrent(generation, socket)) {
+        return { ok: false, reason: 'inactive-or-stale', generation };
+    }
+
+    // Synchronous reservation enforces the cap before WhatsApp is called.
+    const reservation = bot.reservePairingAttempt(maxAttempts, socket, generation);
+    if (!reservation.ok) return reservation;
+
+    let code;
+    try {
+        code = await requestCode(bot._pairingPhone || bot.phone);
+    } catch (error) {
+        return {
+            ok: false,
+            reason: 'request-failed',
+            error,
+            attempt: reservation.attempt,
+            generation,
+        };
+    }
+
+    if (!bot.isPairingRequestCurrent(reservation, socket)) {
+        return {
+            ok: false,
+            reason: 'stale-after-request',
+            generated: true,
+            delivered: false,
+            attempt: reservation.attempt,
+            generation,
+        };
+    }
+
+    await onCode(code, reservation);
+
+    if (!bot.isPairingRequestCurrent(reservation, socket)) {
+        return {
+            ok: false,
+            reason: 'stale-after-delivery',
+            generated: true,
+            delivered: true,
+            attempt: reservation.attempt,
+            generation,
+        };
+    }
+
+    if (reservation.attempt >= reservation.limit) {
+        bot.pairingExhausted = true;
+        bot.botState = 'needs-login';
+        await onExhausted(reservation);
+    }
+
+    return {
+        ok: true,
+        code,
+        attempt: reservation.attempt,
+        limit: reservation.limit,
+        generation,
+        exhausted: bot.pairingExhausted,
+    };
+}
+
+/**
+ * Parse JUNE_PAIRING_MAX_ATTEMPTS. The hard maximum is 3 pairing codes per
+ * login/recovery cycle; invalid values fall back to 3 and larger values clamp.
  */
 function parsePairingMaxAttempts(raw) {
     const n = Math.floor(Number(raw));
-    return Number.isFinite(n) && n >= 1 ? n : 5;
+    return Number.isFinite(n) && n >= 1 ? Math.min(n, 3) : 3;
 }
 
 module.exports = {
@@ -575,6 +661,7 @@ module.exports = {
     isValidSessionIdFormat,
     VALID_PREFIXES,
     parsePairingMaxAttempts,
+    requestPairingCodeForCycle,
     sessionLogLabel,
     sessionLogPrefix,
     DEFAULT_BOT_ID,

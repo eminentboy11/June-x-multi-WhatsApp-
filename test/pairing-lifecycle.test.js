@@ -2,8 +2,12 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { BotInstance, SessionManager } = require('../utils/core/sessionManager');
-const { requestPairingCodeForCycle } = require('../utils/core/pairingLifecycle');
+const {
+    BotInstance,
+    SessionManager,
+    parsePairingMaxAttempts,
+    requestPairingCodeForCycle,
+} = require('../utils/core/sessionManager');
 
 function makeBot(id = 'pairing-test') {
     const bot = new BotInstance({ id, phone: '2348000000000' });
@@ -28,27 +32,27 @@ async function request(bot, socket, options = {}) {
     return requestPairingCodeForCycle({
         bot,
         socket,
-        maxAttempts: 5,
+        maxAttempts: 3,
         stabilizeMs: 0,
         ...options,
     });
 }
 
-test('A: normal cycle progresses 1/5 through 5/5 and parks', async () => {
+test('A: normal cycle progresses 1/3 through 3/3 and parks', async () => {
     const calls = { count: 0 };
     const bot = makeBot();
     const socket = makeSocket(calls);
     bot.sock = socket;
 
     const attempts = [];
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 3; i += 1) {
         const result = await request(bot, socket);
         attempts.push(result.attempt);
     }
 
-    assert.deepEqual(attempts, [1, 2, 3, 4, 5]);
-    assert.equal(calls.count, 5);
-    assert.equal(bot.pairingAttempts, 5);
+    assert.deepEqual(attempts, [1, 2, 3]);
+    assert.equal(calls.count, 3);
+    assert.equal(bot.pairingAttempts, 3);
     assert.equal(bot.pairingExhausted, true);
     assert.equal(bot.botState, 'needs-login');
 });
@@ -85,17 +89,17 @@ test('C: repeated socket replacements do not reset the cycle', async () => {
     assert.equal((await request(bot, socket)).attempt, 2);
 });
 
-test('D: a sixth attempt never calls socket.requestPairingCode', async () => {
+test('D: a fourth attempt never calls socket.requestPairingCode', async () => {
     const calls = { count: 0 };
     const bot = makeBot();
     const socket = makeSocket(calls);
     bot.sock = socket;
-    for (let i = 0; i < 5; i += 1) await request(bot, socket);
+    for (let i = 0; i < 3; i += 1) await request(bot, socket);
 
-    const sixth = await request(bot, socket);
-    assert.equal(sixth.ok, false);
-    assert.equal(sixth.reason, 'exhausted');
-    assert.equal(calls.count, 5);
+    const fourth = await request(bot, socket);
+    assert.equal(fourth.ok, false);
+    assert.equal(fourth.reason, 'exhausted');
+    assert.equal(calls.count, 3);
 });
 
 test('E: an old socket is rejected before it can request or deliver a code', async () => {
@@ -203,7 +207,7 @@ test('G: session deletion invalidates queued pairing requests', async () => {
     assert.equal(bot.hasActivePairingCycle(), false);
 });
 
-test('H: repair terminates the old cycle and starts a new cycle at 1/5', async () => {
+test('H: repair terminates the old cycle and starts a new cycle at 1/3', async () => {
     const calls = { count: 0 };
     const bot = makeBot();
     let socket = makeSocket(calls, 'OLD');
@@ -221,7 +225,7 @@ test('H: repair terminates the old cycle and starts a new cycle at 1/5', async (
     assert.equal((await request(bot, socket)).attempt, 1);
 });
 
-test('I: concurrent triggers reserve no more than five total requests', async () => {
+test('I: concurrent triggers reserve no more than three total requests', async () => {
     const calls = { count: 0 };
     const bot = makeBot();
     const socket = makeSocket(calls);
@@ -232,9 +236,9 @@ test('I: concurrent triggers reserve no more than five total requests', async ()
     );
     const successful = results.filter((result) => result.ok);
 
-    assert.equal(calls.count, 5);
-    assert.equal(successful.length, 5);
-    assert.deepEqual(successful.map((result) => result.attempt).sort(), [1, 2, 3, 4, 5]);
+    assert.equal(calls.count, 3);
+    assert.equal(successful.length, 3);
+    assert.deepEqual(successful.map((result) => result.attempt).sort(), [1, 2, 3]);
     assert.equal(bot.pairingExhausted, true);
     assert.equal(bot.botState, 'needs-login');
 });
@@ -258,4 +262,17 @@ test('J: requests use the hard-coded JUNEXBOT custom pairing code', async () => 
     assert.equal(result.ok, true);
     assert.deepEqual(received, [{ phone: '2348000000000', customCode: 'JUNEXBOT' }]);
     assert.equal(result.code, 'JUNEXBOT');
+});
+
+test('K: configured pairing limits are capped at three', () => {
+    assert.equal(parsePairingMaxAttempts(undefined), 3);
+    assert.equal(parsePairingMaxAttempts('5'), 3);
+    assert.equal(parsePairingMaxAttempts('99'), 3);
+    assert.equal(parsePairingMaxAttempts('2'), 2);
+});
+
+test('L: compatibility imports share the consolidated core instances', () => {
+    assert.equal(require('../utils/sessionManager'), require('../utils/core/sessionManager'));
+    assert.equal(require('../utils/addbotFlow'), require('../utils/core/addbotFlow'));
+    assert.equal(require('../utils/botContext'), require('../utils/core/botContext'));
 });

@@ -150,8 +150,8 @@ chat. Connected sessions are left untouched.
 
 #### Pairing-code budget (configurable)
 
-Every login/recovery cycle issues at most **5 pairing codes**
-(`JUNE_PAIRING_MAX_ATTEMPTS`, default 5). If none of them is paired:
+Every login/recovery cycle issues at most **3 pairing codes**
+(`JUNE_PAIRING_MAX_ATTEMPTS`, default 3). If none of them is paired:
 
 - the session stops generating codes and reconnecting,
 - it parks as `needs-login` (dashboard shows "pairing limit reached"),
@@ -160,7 +160,7 @@ Every login/recovery cycle issues at most **5 pairing codes**
 
 The counter is **per session** and resets automatically after a successful
 pairing. A new WhatsApp logout after a previously successful pairing starts a
-**fresh 5-code cycle automatically** — the configured phone number is never
+**fresh 3-code cycle automatically** — the configured phone number is never
 cleared, so no process restart is ever needed.
 
 ### 🔥 Hot-add / hot-remove sessions (no restart)
