@@ -43,6 +43,12 @@ function hasSuperOwner() {
     return Boolean(getSuperOwner());
 }
 
+function sessionMatchesSuperOwner(sessionNumber, superOwner) {
+    const session = normalizeNumber(sessionNumber);
+    const owner = normalizeNumber(superOwner);
+    return Boolean(session && owner && session === owner);
+}
+
 /**
  * Does this sender match the persisted deployment Super Owner?
  * (false whenever no Super Owner has been established yet)
@@ -68,6 +74,25 @@ function isPlatformOwner(sender) {
     } catch (_) {
         return false;
     }
+}
+
+/**
+ * Platform authority for a specific bot session.
+ *
+ * A deployment Super Owner may control the fleet, but platform commands must
+ * execute only on the session that established that deployment ownership.
+ * Without this second check, every connected bot sees the same Super Owner
+ * sender and replies to the same management command.
+ *
+ * During the pre-establishment bootstrap window, preserve the legacy
+ * config.ownerNumber fallback. Once ownership is persisted, both the sender
+ * and the current bot session must match it.
+ */
+function isPlatformOwnerForSession(sender, sessionNumber) {
+    if (!isPlatformOwner(sender)) return false;
+    const persisted = getSuperOwner();
+    if (!persisted) return true;
+    return sessionMatchesSuperOwner(sessionNumber, persisted);
 }
 
 /**
@@ -114,8 +139,10 @@ module.exports = {
     normalizeNumber,
     getSuperOwner,
     hasSuperOwner,
+    sessionMatchesSuperOwner,
     isSuperOwner,
     isPlatformOwner,
+    isPlatformOwnerForSession,
     claimSuperOwner,
     superOwnerStatusFor,
 };
