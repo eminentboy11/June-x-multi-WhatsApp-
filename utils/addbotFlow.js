@@ -24,6 +24,28 @@ function parseMaxSessions(raw) {
     return Number.isFinite(n) && n >= 1 ? n : DEFAULT_MAX_SESSIONS;
 }
 
+// ─── Pairing latency tuning ──────────────────────────────────────────────────
+// requestPairingCode historically waits a fixed 3s "for the socket to
+// stabilize". Baileys only emits the QR event once the socket is genuinely
+// ready for requestPairingCode, so for LIVE flows (.addbot / .repairbot) the
+// wait is capped much lower — the code reaches the chat noticeably faster
+// while the legacy flow keeps the original default.
+
+const DEFAULT_STABILIZE_MS = 3000;
+const FLOW_STABILIZE_CAP_MS = 800;
+
+/** JUNE_PAIRING_STABILIZE_MS parser: whole number >= 0, else 3000. */
+function parseStabilizeMs(raw) {
+    const n = Math.floor(Number(raw));
+    return Number.isFinite(n) && n >= 0 ? n : DEFAULT_STABILIZE_MS;
+}
+
+/** Stabilize wait for this request — capped when a live flow is waiting. */
+function flowStabilizeMs(base, flowPending) {
+    const parsed = parseStabilizeMs(base);
+    return flowPending ? Math.min(parsed, FLOW_STABILIZE_CAP_MS) : parsed;
+}
+
 function countSessionsForPhone(entries, phone) {
     const target = digitsOnly(phone);
     if (!target) return 0;
@@ -221,6 +243,10 @@ module.exports = {
     WHATSAPP_DEVICE_CAP,
     digitsOnly,
     parseMaxSessions,
+    parseStabilizeMs,
+    flowStabilizeMs,
+    DEFAULT_STABILIZE_MS,
+    FLOW_STABILIZE_CAP_MS,
     countSessionsForPhone,
     checkAddQuota,
     removeRegistryEntry,

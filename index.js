@@ -512,6 +512,9 @@ sessionManagerRef = sessionManager
 // session parks itself as needs-login. Per-session counters are isolated;
 // this value only sets the shared limit. Configurable: JUNE_PAIRING_MAX_ATTEMPTS.
 const PAIRING_MAX_ATTEMPTS = parsePairingMaxAttempts(process.env.JUNE_PAIRING_MAX_ATTEMPTS)
+// Socket-stabilize wait before requesting a pairing code (legacy flows only;
+// live .addbot/.repairbot flows are capped by addbotFlow.flowStabilizeMs).
+const PAIRING_STABILIZE_MS = addbotFlow.parseStabilizeMs(process.env.JUNE_PAIRING_STABILIZE_MS)
 
 // ─── JUNE_SESSIONS hot-reload (sole registry, .env file) ─────────────────────
 // The .env file's JUNE_SESSIONS line is the single source of truth. Whenever
@@ -764,11 +767,10 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
     process.env.JUNE_SESSIONS = value
     const persisted = writeJuneSessionsLineToEnv(value)
 
-    // Reuse the existing hot-add pipeline (debounced, deduped reconcile).
-    scheduleSessionReconcile()
-
-    // Register the live flow: pairing code + terminal status will be
-    // delivered to the requesting chat through the requesting session.
+    // Register the live flow FIRST (so the pairing code can be delivered the
+    // moment it is generated), then reconcile immediately — no debounce
+    // wait, the hot-add starts right away. reconcileSessions is guarded by
+    // _reconcileRunning, so the watcher/poll can never double-run it.
     const derivedId = (normalizeSessionEntries([base.entry])[0] || {}).id || phone
     if (meta && meta.chatJid && meta.viaBotId) {
         _pendingAddRequests.set(derivedId, {
@@ -778,6 +780,11 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
             phone,
         })
     }
+
+    void reconcileSessions().catch((err) => {
+        log(`[ MULTI-SESSION ] Immediate reconcile failed: ${err?.message || err}`, 'red', true)
+        scheduleSessionReconcile()
+    })
 
     return { ok: true, id: derivedId, phone, sessionId, persisted }
 }
@@ -1286,8 +1293,13 @@ async function requestPairingCode(socket, bot) {
         // Transient pairing target (set by armPairingCycle) falls back to the
         // configured phone. The configured phone itself is never cleared.
         const phone = bot._pairingPhone || bot.phone
-        log(`Waiting 3 seconds for socket to stabilize... (${bot.id})`, 'yellow')
-        await delay(3000)
+        // Live .addbot/.repairbot flows get a much shorter stabilization wait:
+        // the QR event already guarantees the socket is ready for a code, so
+        // the code reaches the chat faster (legacy flows keep the default).
+        const flowPending = _pendingAddRequests.has(bot.id)
+        const stabilizeMs = addbotFlow.flowStabilizeMs(PAIRING_STABILIZE_MS, flowPending)
+        log(`Waiting ${stabilizeMs}ms for socket to stabilize... (${bot.id}${flowPending ? ' — live flow' : ''})`, 'yellow')
+        await delay(stabilizeMs)
         let code = await socket.requestPairingCode(phone)
         code = code?.match(/.{1,4}/g)?.join('-') || code
         const attempt = bot.notePairingAttempt(PAIRING_MAX_ATTEMPTS)
@@ -1858,9 +1870,16 @@ async function startBotSocket(bot) {
                 bot.connectedAt = null
                 clearSessionFiles(bot)
                 log(`Session cleared (${bot.id}). Returning to login flow in 10 seconds...`, 'yellow')
-                for (let i = 10; i > 0; i--) {
-                    log(`Restarting login in ${i}s... (${bot.id})`, 'cyan')
-                    await delay(1000)
+                if (_pendingAddRequests.has(bot.id)) {
+                    // Live flow waiting for this session's code — skip the
+                    // 10s countdown and restart immediately.
+                    log(`[ FLOW:${bot.id} ] Live flow pending — restarting login immediately (skipping countdown).`, 'yellow')
+                    await delay(1500)
+                } else {
+                    for (let i = 10; i > 0; i--) {
+                        log(`Restarting login in ${i}s... (${bot.id})`, 'cyan')
+                        await delay(1000)
+                    }
                 }
                 log(`Restarting login flow... (${bot.id})`, 'green')
                 if (bot.phone) {

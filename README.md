@@ -136,6 +136,7 @@ See **`.env.example`** for a ready-to-copy template (single legacy session, mult
 | `JUNE_FORCE_SESSION_BOOTSTRAP` | `true` = force re-bootstrap from `sessionId` |
 | `JUNE_EXPORT_SESSION_TO_ENV` | `true` = auto-export refreshed creds back to `.env`'s `JUNE_SESSIONS` line |
 | `JUNE_PAIRING_MAX_ATTEMPTS` | pairing codes per login/recovery cycle (default **5**); after the limit the session parks as `needs-login` until `.restart`/`.repairbot`/process restart |
+| `JUNE_PAIRING_STABILIZE_MS` | socket-stabilize wait before requesting a pairing code (default 3000); live `.addbot`/`.repairbot` flows are automatically capped at 800 |
 | `JUNE_MAX_SESSIONS` | runtime `.addbot` quota — max total sessions (default **10**); per-number WhatsApp device cap (4) always applies |
 | `JUNE_SESSIONS_POLL_MS` | hot-add/hot-remove registry poll interval (default 15000) |
 | `PORT` | dashboard port (default 5000) |

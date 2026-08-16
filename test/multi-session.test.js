@@ -941,6 +941,25 @@ function test(name, fn) {
         assert.strictEqual(blocked.limit, 4);
     });
 
+    await test('parseStabilizeMs: default 3000, rejects invalid values', () => {
+        assert.strictEqual(flow.parseStabilizeMs(undefined), 3000);
+        assert.strictEqual(flow.parseStabilizeMs('3000'), 3000);
+        assert.strictEqual(flow.parseStabilizeMs('0'), 0);
+        assert.strictEqual(flow.parseStabilizeMs('-5'), 3000);
+        assert.strictEqual(flow.parseStabilizeMs('abc'), 3000);
+    });
+
+    await test('flowStabilizeMs: live flows cap the wait, legacy keeps the configured value', () => {
+        // live .addbot/.repairbot flow -> capped at 800ms
+        assert.strictEqual(flow.flowStabilizeMs(3000, true), flow.FLOW_STABILIZE_CAP_MS);
+        assert.strictEqual(flow.flowStabilizeMs(3000, false), 3000);
+        // even a configured 5000ms wait is capped for flows
+        assert.strictEqual(flow.flowStabilizeMs('5000', true), flow.FLOW_STABILIZE_CAP_MS);
+        // configured below the cap stays below
+        assert.strictEqual(flow.flowStabilizeMs('500', true), 500);
+        assert.strictEqual(flow.flowStabilizeMs(0, true), 0);
+    });
+
     await test('removeRegistryEntry: by phone, by id, unknown — caller array untouched', () => {
         const registry = [
             { sessionId: '', phone: '2348154853640' },

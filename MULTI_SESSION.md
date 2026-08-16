@@ -98,6 +98,11 @@ the `sessionId` path produced it — so the combo self-heals end to end.
 
 - Validates phone + sessionId formats; the sessionId is optional (pairing
   login without it).
+- **Latency-tuned**: the hot-add reconciles immediately (no debounce), the
+  socket-stabilize wait is capped at 800 ms for live flows (configurable via
+  `JUNE_PAIRING_STABILIZE_MS`, default 3000 for legacy flows), and a logged
+  out number skips its 10 s recovery countdown when a live flow is waiting —
+  the pairing code reaches the chat as fast as the WhatsApp handshake allows.
 - Appends to the existing `JUNE_SESSIONS` registry and reuses the SAME
   hot-add pipeline — no restart, existing sessions untouched.
 - Duplicates rejected (same phone = same storage identity, same sessionId =
