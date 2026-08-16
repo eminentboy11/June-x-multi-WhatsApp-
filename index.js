@@ -145,6 +145,7 @@ const { applyFont } = require('./utils/fontConverter')
 const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/core/botContext')
 const { claimSuperOwner, superOwnerStatusFor, isPlatformOwner } = require('./utils/core/ownership')
 const addbotFlow = require('./utils/core/addbotFlow')
+const { requestPairingCodeForCycle } = require('./utils/core/pairingLifecycle')
 const {
     SessionManager,
     loadSessionRegistry,
@@ -601,9 +602,11 @@ function writeJuneSessionsLineToEnv(newValue) {
  * implementation — existing sessions are never touched.
  */
 // ─── Live addbot flow (in-chat code delivery, reactions) ────────────────────
+// Delivery state only — this map is NOT authoritative pairing state.
+// Pairing activity/generation lives on BotInstance. A terminal notification may
+// remain queued here after pairing has already ended without reactivating it.
 // newBotId -> { chatJid, viaBotId, quotedMsg, phone, lastCode, lastAttempt,
-//               statusText }: where to deliver the pairing code and terminal
-//               status, and which session's socket to deliver with.
+//               statusText }: where to deliver codes/status notifications.
 const _pendingAddRequests = new Map()
 
 const FLOW_SEND_ATTEMPTS = 3
@@ -675,25 +678,27 @@ async function reactFlowMessage(viaBotId, chatJid, emoji, key) {
     return false
 }
 
-function deliverPairingCodeToRequester(bot, code, attempt) {
+async function deliverPairingCodeToRequester(bot, socket, reservation, code) {
+    // Delivery routing may outlive pairing for terminal-message retries, so the
+    // active cycle/socket token — not map presence — authorizes code delivery.
+    if (!bot.isPairingRequestCurrent(reservation, socket)) return false
     const pending = _pendingAddRequests.get(bot.id)
-    if (!pending) {
-        return Promise.resolve(false)
-    }
+    if (!pending || pending.statusText) return false
+
     pending.lastCode = code
-    pending.lastAttempt = attempt
+    pending.lastAttempt = reservation.attempt
+    pending.codeGeneration = reservation.generation
     const payload = addbotFlow.buildCodeMessage({
         code,
-        attempt,
+        attempt: reservation.attempt,
         max: PAIRING_MAX_ATTEMPTS,
         phone: bot.phone || pending.phone,
         botId: bot.id,
     })
-    return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedMsg).then((ok) => {
-        if (!ok) {
-        }
-        return ok
-    })
+
+    // Revalidate immediately before entering the asynchronous send path.
+    if (!bot.isPairingRequestCurrent(reservation, socket)) return false
+    return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedMsg)
 }
 
 async function deliverAddbotFlowStatus(bot, state, detail) {
@@ -724,6 +729,11 @@ async function retryPendingFlowDeliveries(viaBotId) {
                 dropPendingChat(newBotId)
             }
         } else if (pending.lastCode) {
+            const targetBot = sessionManager.get(newBotId)
+            // Never replay a code after success, removal, repair, restart, or
+            // any other generation change. Notification retries are separate
+            // from pairing authority.
+            if (!targetBot?.hasActivePairingCycle(pending.codeGeneration)) continue
             const payload = addbotFlow.buildCodeMessage({
                 code: pending.lastCode,
                 attempt: pending.lastAttempt || 1,
@@ -798,12 +808,21 @@ async function removeSessionViaRegistry(identifier = '') {
     const res = addbotFlow.removeRegistryEntry(registry, identifier)
     if (!res.ok) return res
 
+    // Invalidate synchronously, before registry reconciliation or notification
+    // delivery, so queued/stale handlers cannot request or send another code.
+    const removedId = String(res.removed?.id || '')
+    const removedPhone = addbotFlow.digitsOnly(res.removed?.phone)
+    const runningBot = sessionManager.list().find((bot) =>
+        (removedId && String(bot.id) === removedId) ||
+        (removedPhone && addbotFlow.digitsOnly(bot.phone) === removedPhone)
+    )
+    runningBot?.terminatePairingCycle('delbot')
+
     const value = JSON.stringify(res.registry)
     process.env.JUNE_SESSIONS = value
     const persisted = writeJuneSessionsLineToEnv(value)
 
     // If this removal kills an in-flight addbot flow, close the flow first.
-    const removedPhone = addbotFlow.digitsOnly(res.removed?.phone)
     for (const [botId, pending] of _pendingAddRequests) {
         if (removedPhone && addbotFlow.digitsOnly(pending.phone) === removedPhone) {
             await deliverAddbotFlowStatus({ id: botId }, 'cancelled')
@@ -828,7 +847,9 @@ async function repairSessionByIdentifier(identifier = '', meta = {}) {
     if (bot.botState === 'connected') return { ok: false, reason: 'online', id: bot.id }
     // A repaired session's fresh pairing code + status flow back into the
     // chat that requested the repair (same live-flow bridge as .addbot).
-    if (meta && meta.chatJid && meta.viaBotId && !_pendingAddRequests.has(bot.id)) {
+    if (meta && meta.chatJid && meta.viaBotId) {
+        // A repair is a new operation: replace any stale terminal-notification
+        // delivery record without relying on it as pairing state.
         _pendingAddRequests.set(bot.id, {
             chatJid: meta.chatJid,
             viaBotId: meta.viaBotId,
@@ -837,7 +858,7 @@ async function repairSessionByIdentifier(identifier = '', meta = {}) {
         })
         rememberPendingChat(bot.id, meta.chatJid)
     }
-    const result = await restartBot(bot.id)
+    const result = await restartBot(bot.id, { pairingReason: 'repairbot' })
     return { ok: Boolean(result?.ok), id: bot.id, error: result?.error }
 }
 
@@ -1324,32 +1345,42 @@ async function getLoginMethod(bot) {
 
 async function requestPairingCode(socket, bot) {
     try {
-        // Transient pairing target (set by armPairingCycle) falls back to the
-        // configured phone. The configured phone itself is never cleared.
-        const phone = bot._pairingPhone || bot.phone
-        // Live .addbot/.repairbot flows get a much shorter stabilization wait:
-        // the QR event already guarantees the socket is ready for a code, so
-        // the code reaches the chat faster (legacy flows keep the default).
-        const flowPending = _pendingAddRequests.has(bot.id)
-        const stabilizeMs = addbotFlow.flowStabilizeMs(PAIRING_STABILIZE_MS, flowPending)
-        log(`Waiting ${stabilizeMs}ms for socket to stabilize... (${bot.id}${flowPending ? ' — live flow' : ''})`, 'yellow')
-        await delay(stabilizeMs)
-        let code = await socket.requestPairingCode(phone)
-        code = code?.match(/.{1,4}/g)?.join('-') || code
-        const attempt = bot.notePairingAttempt(PAIRING_MAX_ATTEMPTS)
-        bot._lastPairingCode = code
-        log(chalk.black.bgCyanBright(`\n🔑 [${bot.id}] Your Pairing Code (${attempt}/${PAIRING_MAX_ATTEMPTS}): ${code}\n`), 'white')
-        log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
-        // Live addbot flow: deliver the code into the chat that requested it.
-        deliverPairingCodeToRequester(bot, code, attempt)
-        if (bot.pairingExhausted) {
-            log(chalk.white.bgRedBright(`[ PAIRING:${bot.id} ] Limit reached — ${PAIRING_MAX_ATTEMPTS} codes were issued without a successful pairing.`), 'white')
-            log(`[ PAIRING:${bot.id} ] Parking as needs-login. Send .restart to this session (or restart the process) to begin a fresh pairing cycle.`, 'yellow')
+        // `_pendingAddRequests` affects only delivery latency/UX. It is not used
+        // to decide whether pairing is active; BotInstance generation does that.
+        const hasChatDelivery = _pendingAddRequests.has(bot.id)
+        const stabilizeMs = addbotFlow.flowStabilizeMs(PAIRING_STABILIZE_MS, hasChatDelivery)
+        log(`Waiting ${stabilizeMs}ms for socket to stabilize... (${bot.id}${hasChatDelivery ? ' — live flow' : ''})`, 'yellow')
+
+        const result = await requestPairingCodeForCycle({
+            bot,
+            socket,
+            maxAttempts: PAIRING_MAX_ATTEMPTS,
+            stabilizeMs,
+            delay,
+            onCode: async (rawCode, reservation) => {
+                const code = rawCode?.match(/.{1,4}/g)?.join('-') || rawCode
+                // The lifecycle helper validates before this callback; validate
+                // again inside delivery before any in-chat code is sent.
+                bot._lastPairingCode = code
+                log(chalk.black.bgCyanBright(`\n🔑 [${bot.id}] Your Pairing Code (${reservation.attempt}/${reservation.limit}): ${code}\n`), 'white')
+                log(`\n1. Open WhatsApp → Settings → Linked Devices\n2. Tap "Link a Device"\n3. Enter the code above\n`, 'blue')
+                await deliverPairingCodeToRequester(bot, socket, reservation, code)
+            },
+            onExhausted: async () => {
+                log(chalk.white.bgRedBright(`[ PAIRING:${bot.id} ] Limit reached — ${PAIRING_MAX_ATTEMPTS} codes were issued without a successful pairing.`), 'white')
+                log(`[ PAIRING:${bot.id} ] Parking as needs-login. Send .restart to this session (or restart the process) to begin a fresh pairing cycle.`, 'yellow')
+                await deliverAddbotFlowStatus(bot, 'pairing-limit')
+            },
+        })
+
+        if (!result.ok && result.reason === 'exhausted') {
             bot.botState = 'needs-login'
-            void deliverAddbotFlowStatus(bot, 'pairing-limit')
             return false
         }
-        return true
+        if (!result.ok && !['inactive-or-stale', 'stale-after-request', 'stale-after-delivery'].includes(result.reason)) {
+            log(`Failed to get pairing code (${bot.id}): ${result.error?.message || result.reason}`, 'red', true)
+        }
+        return result.ok && !result.exhausted
     } catch (e) {
         log(`Failed to get pairing code (${bot.id}): ${e.message}`, 'red', true)
         return false
@@ -1529,6 +1560,9 @@ async function reconcileSessions() {
             if (currentSet.has(id)) continue
             const entry = entries.find((e) => String(e.id) === id) || {}
             const bot = sessionManager.register(entry)
+            if (bot.phone) {
+                bot.startPairingCycle(_pendingAddRequests.has(id) ? 'addbot' : 'hot-added-session')
+            }
             try {
                 await wireBotRuntime(bot)
                 // Runtime hot-add is not an initial startup — the startup
@@ -1864,13 +1898,13 @@ async function startBotSocket(bot) {
         const { connection, lastDisconnect, qr } = update
 
         // ── Pairing code flow: intercept QR and request a code instead ──────────
-        if (qr && (bot._pairingPhone || bot.phone) && !_pairingCodeRequested) {
+        if (qr && bot.hasActivePairingCycle() && (bot._pairingPhone || bot.phone) && !_pairingCodeRequested) {
             _pairingCodeRequested = true
-            if (!bot._pairingPhone) bot.armPairingCycle()
             await requestPairingCode(sock, bot)
         }
 
         if (connection === 'close') {
+            const wasPreviouslyConnected = bot._hasConnectedSuccessfully || Boolean(bot.connectedAt)
             // Pairing budget exhausted: park and stop reconnecting. A manual
             // .restart or process restart begins a fresh pairing cycle.
             if (bot.pairingExhausted) {
@@ -1904,9 +1938,9 @@ async function startBotSocket(bot) {
                 bot.connectedAt = null
                 clearSessionFiles(bot)
                 log(`Session cleared (${bot.id}). Returning to login flow in 10 seconds...`, 'yellow')
-                if (_pendingAddRequests.has(bot.id)) {
-                    // Live flow waiting for this session's code — skip the
-                    // 10s countdown and restart immediately.
+                if (bot.hasActivePairingCycle() && _pendingAddRequests.has(bot.id)) {
+                    // An active live pairing cycle is waiting for its next code;
+                    // terminal-notification retries alone do not qualify.
                     await delay(1500)
                 } else {
                     for (let i = 10; i > 0; i--) {
@@ -1916,7 +1950,12 @@ async function startBotSocket(bot) {
                 }
                 log(`Restarting login flow... (${bot.id})`, 'green')
                 if (bot.phone) {
-                    return fallbackToPairing(bot, `Session ${bot.id} was logged out`)
+                    // Only a session that had genuinely connected earns a new
+                    // pairing generation. A 401 during unresolved pairing is
+                    // an internal reconnect and must retain its counter/cycle.
+                    return fallbackToPairing(bot, `Session ${bot.id} was logged out`, {
+                        newCycle: wasPreviouslyConnected,
+                    })
                 }
                 return bootBot(bot)
             } else {
@@ -2042,6 +2081,10 @@ async function startBotSocket(bot) {
                 }
             }
         } else if (connection === 'open') {
+            // First synchronous action: invalidate the generation so every
+            // queued request/stale socket becomes unable to request or deliver.
+            bot.terminatePairingCycle('connected')
+            bot._hasConnectedSuccessfully = true
             bot.isReconnecting = false
             bot.errorRetryCount = 0
             bot.db.clearSessionErrorState()
@@ -2064,10 +2107,8 @@ async function startBotSocket(bot) {
             // Drop only stale replay traffic for a brief, bounded period after
             // reconnect so WhatsApp backlog delivery cannot block live commands.
             replayDrain.markConnectionOpen()
-            // Clear only the TRANSIENT pairing state. The configured phone
-            // survives so the next WhatsApp logout can re-arm pairing
-            // automatically without a process restart.
-            bot.clearPairingState()
+            // Pairing was synchronously terminated at the top of this branch;
+            // the configured phone remains available for a future explicit cycle.
             const botNum = sock.user?.id?.split(':')[0] || 'unknown'
             bot.accountNumber = botNum
             // ── Deployment Super Owner ───────────────────────────────────────
@@ -2505,7 +2546,7 @@ async function startBotSocket(bot) {
 // falls back to pairing-code login with the configured phone instead of
 // parking the session as needs-login.
 
-async function fallbackToPairing(bot, reason) {
+async function fallbackToPairing(bot, reason, { newCycle = false } = {}) {
     log(`[ SESSION:${bot.id} ] ${reason} — falling back to pairing-code login.`, 'yellow')
     if (sessionExists(bot)) {
         try { quarantineCurrentSessionForReplacement(bot) } catch (_) {}
@@ -2513,9 +2554,14 @@ async function fallbackToPairing(bot, reason) {
     bot.sessionId = ''
     bot._fallbackToPairing = true
     bot._bootstrapRetries = 0
-    // Fresh pairing cycle: resets the per-session attempt counter so every
-    // logout/recovery starts with the full pairing-code budget again.
-    bot.armPairingCycle()
+
+    // Internal reconnects preserve the unresolved cycle. Only a genuine
+    // post-connection logout (or another explicit caller) starts a new one.
+    if (newCycle) {
+        bot.startPairingCycle('connected-session-logout')
+    }
+    // Otherwise this is an internal reconnect and the caller's existing cycle
+    // is preserved exactly; fallback never silently creates/resets one.
     bot.botState = 'connecting'
     return bootBot(bot)
 }
@@ -2724,19 +2770,18 @@ async function bootBot(bot) {
         //     (.restart on this session, a process restart, or the interactive
         //     login menu which counts as an explicit re-trigger).
         if (bot.pairingExhausted) {
-            if (bot.interactive && process.stdin.isTTY) {
-                log(`[ PAIRING:${bot.id} ] Previous pairing cycle exhausted — the login menu re-arms a fresh cycle.`, 'yellow')
-                bot.armPairingCycle()
-            } else {
-                log(`[ SESSION:${bot.id} ] Pairing exhausted — parked as needs-login. Send .restart to this session or restart the process for a fresh cycle.`, 'yellow')
-                bot.botState = 'needs-login'
-                return null
-            }
+            log(`[ SESSION:${bot.id} ] Pairing exhausted — parked as needs-login. Send .restart to this session or restart the process for a fresh cycle.`, 'yellow')
+            bot.botState = 'needs-login'
+            return null
         }
 
         log(chalk.black.bgYellowBright(`[ LOGIN:${bot.id} ] No sessionId found and no stored session.`), 'white')
         const loginMethod = await getLoginMethod(bot)
         if (!loginMethod) return null // needs-login; session stays registered
+        if (loginMethod === 'number' && !bot.hasActivePairingCycle()) {
+            // Phone selection is part of this process-start login operation.
+            bot.startPairingCycle('process-start')
+        }
         if (loginMethod === 'session') {
             try {
                 await downloadSessionData(bot)
@@ -3162,7 +3207,7 @@ let keepAliveServer = null
 // global.__JUNE_RESTART_SESSION(botId), falling back to process.exit(1) only
 // when the hook is unavailable (legacy single-session deployments).
 
-async function restartBot(id) {
+async function restartBot(id, { pairingReason = 'explicit-restart' } = {}) {
     const bot = sessionManager.get(id)
     if (!bot) {
         log(`[ SESSION ] Restart requested for unknown session: ${id}`, 'red', true)
@@ -3177,8 +3222,8 @@ async function restartBot(id) {
             bot.botState = 'connecting'
             // Explicit re-trigger: a parked/exhausted session gets a fresh
             // pairing cycle when the configured phone exists.
-            bot.clearPairingState()
-            if (bot.phone) bot.armPairingCycle()
+            if (bot.phone) bot.startPairingCycle(pairingReason)
+            else bot.terminatePairingCycle(pairingReason)
 
             // Tear down only this bot's socket. removeAllListeners prevents
             // the old socket's close event from re-entering the reconnect
@@ -3301,6 +3346,9 @@ async function main() {
     for (const entry of entries) {
         const bot = sessionManager.register(entry)
         bot.isInitialSession = true
+        // A full process start intentionally creates a fresh generation. It may
+        // be terminated unused if verified auth connects without pairing.
+        if (bot.phone) bot.startPairingCycle('process-start')
         try {
             await wireBotRuntime(bot)
         } catch (error) {

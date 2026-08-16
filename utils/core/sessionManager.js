@@ -138,11 +138,15 @@ class BotInstance {
         // `phone` is the CONFIGURED number and is never cleared: it re-arms
         // a fresh pairing cycle after every WhatsApp logout. `_pairingPhone`
         // is the transient target consumed while a pairing cycle is live.
-        this._pairingCodeRequested = false;
+        this._pairingCodeRequested = false; // retained for compatibility; cycle state is authoritative
         this._pairingPhone = null;
-        this._lastPairingCode = null; // for .addbot in-chat "Copy Code" button
-        this.pairingAttempts = 0;      // codes issued in the current cycle
+        this._lastPairingCode = null; // latest code in the active cycle
+        this.pairingAttempts = 0;      // atomically reserved requests in the active cycle
         this.pairingExhausted = false; // limit reached -> parked as needs-login
+        this._pairingGeneration = 0;   // incremented whenever a cycle starts or is invalidated
+        this._pairingCycleActive = false;
+        this._pairingCycleReason = null;
+        this._hasConnectedSuccessfully = false;
         this.loginMethod = null;
         this._lastSessionExport = 0;
         this._bootstrapRetries = 0;
@@ -153,39 +157,103 @@ class BotInstance {
         this.accountNumber = null;
     }
 
-    /**
-     * Start a fresh pairing cycle using the CONFIGURED phone. Resets the
-     * attempt counter and the exhausted flag so every logout/recovery begins
-     * with the full pairing-code budget again.
-     */
-    armPairingCycle() {
+    /** Start an explicitly new pairing cycle and invalidate every older token. */
+    startPairingCycle(reason = 'explicit') {
+        this._pairingGeneration += 1;
+        this._pairingCycleActive = true;
+        this._pairingCycleReason = String(reason || 'explicit');
+        // This generation has not connected yet. Once it opens, index.js sets
+        // the marker; a later 401 can then be identified as a genuine logout.
+        this._hasConnectedSuccessfully = false;
         this._pairingPhone = this.phone || this._pairingPhone || '';
         this.pairingAttempts = 0;
         this.pairingExhausted = false;
         this._pairingCodeRequested = false;
+        this._lastPairingCode = null;
+        return this._pairingGeneration;
+    }
+
+    // Backward-compatible name. Callers must use it only for an intentional
+    // new cycle; internal socket reconnects use the existing generation.
+    armPairingCycle(reason = 'explicit') {
+        this.startPairingCycle(reason);
         return this._pairingPhone;
     }
 
-    /**
-     * Record that one pairing code was successfully shown to the user.
-     * Marks the cycle exhausted when the per-cycle limit is reached.
-     */
-    notePairingAttempt(maxAttempts) {
-        this.pairingAttempts += 1;
-        const limit = Math.max(1, Number(maxAttempts) || 5);
-        if (this.pairingAttempts >= limit) this.pairingExhausted = true;
-        return this.pairingAttempts;
+    hasActivePairingCycle(generation = null) {
+        return this._pairingCycleActive &&
+            (generation === null || Number(generation) === this._pairingGeneration);
+    }
+
+    getPairingGeneration() {
+        return this._pairingGeneration;
     }
 
     /**
-     * Clear the TRANSIENT pairing state after a successful connection.
-     * The configured `phone` is intentionally left intact.
+     * Atomically reserve one request slot before WhatsApp is called. JavaScript
+     * executes this mutation synchronously, so simultaneous async handlers can
+     * never reserve the same slot or exceed the configured maximum.
      */
-    clearPairingState() {
+    reservePairingAttempt(maxAttempts, socket, generation = this._pairingGeneration) {
+        const limit = Math.max(1, Math.floor(Number(maxAttempts) || 5));
+        if (!this.hasActivePairingCycle(generation)) {
+            return { ok: false, reason: 'inactive-or-stale', generation };
+        }
+        if (this.pairingExhausted || this.pairingAttempts >= limit) {
+            this.pairingExhausted = true;
+            return { ok: false, reason: 'exhausted', generation, limit };
+        }
+        this.pairingAttempts += 1;
+        const attempt = this.pairingAttempts;
+        if (attempt >= limit) this.pairingExhausted = true;
+        return { ok: true, generation, attempt, limit, socket };
+    }
+
+    // Compatibility helper used by older callers/tests. New network requests
+    // must use reservePairingAttempt() before socket.requestPairingCode().
+    notePairingAttempt(maxAttempts) {
+        const reservation = this.reservePairingAttempt(maxAttempts, this.sock);
+        return reservation.ok ? reservation.attempt : this.pairingAttempts;
+    }
+
+    isPairingSocketCurrent(generation, socket) {
+        return Boolean(
+            this.hasActivePairingCycle(generation) &&
+            this.sock === socket &&
+            !this._shutdownRequested &&
+            this.botState !== 'connected'
+        );
+    }
+
+    /** Verify both generation and socket immediately before request/delivery. */
+    isPairingRequestCurrent(reservation, socket) {
+        return Boolean(
+            reservation?.ok &&
+            reservation.socket === socket &&
+            this.isPairingSocketCurrent(reservation.generation, socket)
+        );
+    }
+
+    /**
+     * Terminate and invalidate the active cycle immediately. Incrementing the
+     * generation makes every queued request stale, even if an async handler is
+     * already waiting. The configured phone remains available for a future
+     * explicit cycle.
+     */
+    terminatePairingCycle(reason = 'terminated') {
+        this._pairingGeneration += 1;
+        this._pairingCycleActive = false;
+        this._pairingCycleReason = String(reason || 'terminated');
         this._pairingPhone = null;
         this.pairingAttempts = 0;
         this.pairingExhausted = false;
         this._pairingCodeRequested = false;
+        this._lastPairingCode = null;
+        return this._pairingGeneration;
+    }
+
+    clearPairingState(reason = 'cleared') {
+        return this.terminatePairingCycle(reason);
     }
 
     get status() {
@@ -200,6 +268,8 @@ class BotInstance {
             connectedAt: this.connectedAt,
             pairingAttempts: this.pairingAttempts,
             pairingExhausted: this.pairingExhausted,
+            pairingActive: this._pairingCycleActive,
+            pairingGeneration: this._pairingGeneration,
             error: this.lastError,
         };
     }
@@ -271,6 +341,7 @@ class SessionManager {
     async stop(id) {
         const bot = this.get(id);
         if (!bot) return;
+        bot.terminatePairingCycle('session-stopped');
         bot._shutdownRequested = true;
         if (bot._reconnectTimer) {
             clearTimeout(bot._reconnectTimer);

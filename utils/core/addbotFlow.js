@@ -109,7 +109,10 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
         text:
             `🔑 *Pairing Code* (${attempt}/${max})\n\n` +
             `📱 Phone: ${phone}\n` +
-            `🔢 Code: \`\`\`${code}\`\`\`\n\n` +
+            `🔢 Code: \`\`\`${code}\`\`\`\n` +
+            (attempt > 1
+                ? `♻️ *All earlier pairing codes are expired. Only this newest code is active.*\n\n`
+                : `\n`) +
             `📲 *How to link:*\n` +
             `1️⃣ Open WhatsApp → Settings\n` +
             `2️⃣ Linked Devices → *Link a Device*\n` +
