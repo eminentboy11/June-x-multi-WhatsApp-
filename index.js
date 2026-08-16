@@ -916,14 +916,15 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
         // (PN/LID variants of the same conversation differ) — the sender is
         // still verified below, so this never widens the security boundary.
         const senderNumber = String(sender || '').split(':')[0].split('@')[0]
-const ownerSession = sessionManager.get(pending.viaBotId)
-if (!isPlatformOwner(senderNumber)) {
+        const ownerSession = sessionManager.get(pending.viaBotId)
+        if (!isPlatformOwnerForSession(senderNumber, ownerSession?.phone)) {
+           if (isPlatformOwner(senderNumber)) return
             await sendFlowMessage(pending.viaBotId, chatJid,
                 { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
                 pending.quotedMsg)
             return
         }
-if (isPlatformOwner(senderNumber)) return
+        
         const removed = await removeSessionViaRegistry(pending.phone)
         if (!removed.ok && removed.reason === 'unknown') {
             // The session may already be gone from the registry — treat the
