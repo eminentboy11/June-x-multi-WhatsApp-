@@ -2433,7 +2433,7 @@ async function startBotSocket(bot) {
                     const logBoxLabel = sessionLogLabel(
                         bot.accountNumber || sock?.user?.id?.split(':')[0]
                     )
-                    lolcatjs.fromString(`┏━━━━━━━━━━━━━『 ${logBoxLabel} 』━━━━━━━━━━━━━─`)
+                    lolcatjs.fromString(`┏━━━━━━━━━━━『 ${logBoxLabel} 』━━━━━━━━━━━━─`)
                     lolcatjs.fromString(`»  Sent Time: ${dayz}, ${timez}`)
                     lolcatjs.fromString(`»  Date: ${datez}`)
                     lolcatjs.fromString(`»  Message Type: ${mtype}`)
@@ -2444,7 +2444,7 @@ async function startBotSocket(bot) {
                         lolcatjs.fromString(`»  Group JID: ${from.split('@')[0]}`)
                     }
                     if (body) lolcatjs.fromString(`»  Message: ${body}`)
-                    lolcatjs.fromString('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─ ⳹\n')
+                    lolcatjs.fromString('┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━─⳹\n\n')
                 } catch (_) {}
             }
             // ───────────────────────────────────────────────────────────────────
