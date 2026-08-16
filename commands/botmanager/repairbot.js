@@ -19,6 +19,7 @@ module.exports = {
   description: 'Restart a parked session with a fresh pairing cycle',
   usage: '.repairbot <phone|id>',
   superOwnerOnly: true,
+  superOwnerSessionOnly: true,
 
   async execute(sock, msg, args, extra) {
     const identifier = String(args[0] || '').trim();

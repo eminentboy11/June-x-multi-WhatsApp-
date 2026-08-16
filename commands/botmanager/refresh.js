@@ -1,5 +1,5 @@
 /**
- * Refresh Command — reconnect only the session that receives the command.
+ * Refresh Command — reconnect the Super Owner's current bot session.
  * Other sessions remain online. Uses the per-session restart hook from index.js.
  */
 
@@ -51,7 +51,8 @@ module.exports = {
   category: 'botmanager',
   description: 'Refresh only the current bot session',
   usage: '.refresh',
-  ownerOnly: true,
+  superOwnerOnly: true,
+  superOwnerSessionOnly: true,
 
   async execute(sock, msg, args, extra) {
     const chatJid = msg.key.remoteJid;

@@ -282,8 +282,9 @@ from hardcoded source numbers, a WhatsApp command, or a session setting.
   `config.ownerNumber` (future session owners) + the Super Owner.
 - **Privacy**: the Super Owner number is never printed in logs or the
   connected message — sessions only display `Super Owner: ✅/❌`.
-- **Test command**: `.superowner` tells the sender whether THEY are the
-  Super Owner (`✅` / `❌` / `—`) — deliberately ungated and leak-free; it can
+- **Diagnostic command**: `.superowner` confirms the persisted Super Owner
+  status. Like every `botmanager` command, it is accepted only from the Super
+  Owner and answered only by the Super Owner's connected bot session; it can
   never change the Super Owner.
 
 No change, reset or recovery command exists — and none is planned yet.

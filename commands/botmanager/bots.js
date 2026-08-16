@@ -25,6 +25,7 @@ module.exports = {
   description: 'Show every bot session on this deployment',
   usage: '.bots',
   superOwnerOnly: true,
+  superOwnerSessionOnly: true,
 
   async execute(sock, msg, args, extra) {
     const snapshot = typeof global.__JUNE_SESSIONS_SNAPSHOT === 'function'

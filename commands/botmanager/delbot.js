@@ -16,6 +16,7 @@ module.exports = {
   description: 'Remove a bot session from the running process (hot-remove)',
   usage: '.delbot <phone|id>',
   superOwnerOnly: true,
+  superOwnerSessionOnly: true,
 
   async execute(sock, msg, args, extra) {
     const identifier = String(args[0] || '').trim();

@@ -3,9 +3,9 @@
  *
  * Replies whether the SENDER is this deployment's Super Owner.
  *
- * Deliberately NOT gated (no ownerOnly / superOwnerOnly): anyone may check
- * their own status. The persisted Super Owner number is NEVER displayed —
- * only a ✅ / ❌ / — indicator, so the command leaks nothing.
+ * Restricted to the persisted Super Owner and answered only by the Super
+ * Owner's connected bot session, matching every command in botmanager/.
+ * The persisted number is never revealed as a separate value.
  *
  * This command cannot create, change or reset the Super Owner in any way.
  */
@@ -16,11 +16,16 @@ module.exports = {
   name: 'superowner',
   aliases: ['amso', 'superownercheck', 'so'],
   category: 'botmanager',
-  description: 'Check whether you are this deployment\u2019s Super Owner (test command)',
+  description: 'Confirm the deployment Super Owner control session',
   usage: '.superowner',
+  superOwnerOnly: true,
+  superOwnerSessionOnly: true,
 
   async execute(sock, msg, args, extra) {
-    const sender = extra.sender || msg.key.participant || msg.key.remoteJid || '';
+    // The handler resolves participantAlt/LID before authorization and exposes
+    // the canonical phone JID here. Never display an opaque LID as a number.
+    const sender = extra.resolvedSender || extra.sender || msg.key.participantAlt ||
+      msg.key.participant || msg.key.remoteJidAlt || msg.key.remoteJid || '';
     const yourNumber = String(sender).split(':')[0].split('@')[0];
     const status = superOwnerStatusFor(yourNumber);
 

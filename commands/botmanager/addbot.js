@@ -26,11 +26,11 @@ module.exports = {
   category: 'botmanager',
   description: 'Add a new bot session to the running process (hot-add)',
   usage: '.addbot <phone> <sessionId?>',
-    ownerOnly: true,
   // PLATFORM-LEVEL command: resolves against the persisted deployment
   // Super Owner (config.ownerNumber only during the bootstrap window).
   // This command can never create, replace, modify or promote a Super Owner.
   superOwnerOnly: true,
+  superOwnerSessionOnly: true,
 
   async execute(sock, msg, args, extra) {
     const rawPhone = String(args[0] || '').trim();
