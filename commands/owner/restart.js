@@ -1,6 +1,10 @@
+/**
+ * Restart Command - Restart bot (Owner Only)
+ */
+
 module.exports = {
   name: 'restart',
-  aliases: ['reload'],
+  aliases: ['reboot', 'reload'],
   category: 'owner',
   description: 'Restart the bot (Owner Only)',
   usage: '.restart',
@@ -8,9 +12,9 @@ module.exports = {
 
   async execute(sock, msg, args, extra) {
     try {
-      const chatJid = msg.key.remoteJid;
       await extra.reply('🔁 Restarting bot...');
-      // an automatic restart.
+
+      // Exit with code 1 so nodemon triggers an automatic restart
       setTimeout(() => {
         process.exit(1);
       }, 500);

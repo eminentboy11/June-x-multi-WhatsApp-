@@ -16,9 +16,7 @@ const getTimezone = () => database.getBotSetting('timezone') || 'Africa/Nairobi'
 
 // ── In-memory status store ────────────────────────────────────────────────────
 // Map<msgId, entry>  — statuses all share jid = 'status@broadcast'
-const { scopedMap } = require('../../utils/botContext');
-// Per-bot scoped: each session tracks the statuses it has seen.
-const statusStore = scopedMap(() => new Map());
+const statusStore = new Map();
 
 const STATUS_JID = 'status@broadcast';
 

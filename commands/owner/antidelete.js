@@ -12,7 +12,6 @@
  */
 
 const database = require('../../database');
-const { getCurrentBotId, runInBot } = require('../../utils/botContext');
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
 const messageStore = new Map();
@@ -136,13 +135,11 @@ function schedulePersistence() {
 }
 
 function queuePersistentMessage(chatId, messageId, entry) {
-  const botId = getCurrentBotId();
-  pendingPersistence.set(`${recordKey(chatId, messageId)}|${botId}`, {
+  pendingPersistence.set(recordKey(chatId, messageId), {
     chatId: String(chatId),
     messageId: String(messageId),
     payload: toPersistentEntry(entry),
     storedAt: Date.now(),
-    botId,
   });
   schedulePersistence();
 }
@@ -156,11 +153,7 @@ function flushPersistentMessages() {
   let saved = 0;
   for (const [key, record] of [...pendingPersistence.entries()]) {
     try {
-      // Each record remembers which bot it came from so the write lands in
-      // that bot's own SQLite database.
-      runInBot(record.botId, () => {
-        database.saveAntideleteMessage(record.chatId, record.messageId, record.payload, record.storedAt);
-      });
+      database.saveAntideleteMessage(record.chatId, record.messageId, record.payload, record.storedAt);
       pendingPersistence.delete(key);
       saved += 1;
     } catch (error) {
@@ -194,7 +187,7 @@ function removeStoredEntry(chatId, messageId) {
     chatMap.delete(messageId);
     if (chatMap.size === 0) messageStore.delete(chatId);
   }
-  pendingPersistence.delete(`${recordKey(chatId, messageId)}|${getCurrentBotId()}`);
+  pendingPersistence.delete(recordKey(chatId, messageId));
 
   try {
     database.deleteAntideleteMessage(chatId, messageId);

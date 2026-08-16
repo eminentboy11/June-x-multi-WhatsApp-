@@ -1,6 +1,4 @@
-const database = require('../../database');
-const loadSettings = () => database.loadSettings();
-const saveSettings = (s) => database.saveSettings(s);
+const { loadSettings, saveSettings } = require('../../database');
 
 /**
  * Extract all pictographic emojis from a string, ignoring whatever
