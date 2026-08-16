@@ -255,6 +255,32 @@ function parseAddbotButton(buttonId) {
     return null;
 }
 
+/**
+ * Resolve a flow tap into { action, botId } — robust against WhatsApp's
+ * button-reply variants:
+ *   - id-based taps (addbot_copy_<id> / addbot_cancel_<id>)
+ *   - LABEL-ONLY taps: some replies arrive with an empty selectedId and only
+ *     the button's display text. Cancel then resolves the flow via the
+ *     chat (chatBotId — the pending flow registered for that chat); Copy is
+ *     a no-op action (WhatsApp already copied natively).
+ *
+ * @param {{ buttonId?: string, displayText?: string, chatBotId?: string }} tap
+ * @returns {{ action: 'copy'|'cancel', botId?: string } | null}
+ */
+function resolveFlowTap({ buttonId, displayText, chatBotId }) {
+    const parsed = parseAddbotButton(buttonId);
+    if (parsed) return parsed;
+    const label = String(displayText || '').toLowerCase();
+    if (/cancel/.test(label)) {
+        if (!chatBotId) return null;
+        return { action: 'cancel', botId: chatBotId };
+    }
+    if (/copy/.test(label)) {
+        return { action: 'copy' };
+    }
+    return null;
+}
+
 module.exports = {
     BUTTON_COPY_PREFIX,
     BUTTON_CANCEL_PREFIX,
@@ -276,4 +302,5 @@ module.exports = {
     buildSimpleButtons,
     buildStatusMessage,
     parseAddbotButton,
+    resolveFlowTap,
 };

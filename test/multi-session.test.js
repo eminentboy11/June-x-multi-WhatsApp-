@@ -1043,6 +1043,31 @@ function test(name, fn) {
         });
     });
 
+    await test('resolveFlowTap: id-based taps route as before', () => {
+        assert.deepStrictEqual(flow.resolveFlowTap({ buttonId: 'addbot_copy_b1' }), { action: 'copy', botId: 'b1' });
+        assert.deepStrictEqual(flow.resolveFlowTap({ buttonId: 'addbot_cancel_b1' }), { action: 'cancel', botId: 'b1' });
+    });
+
+    await test('resolveFlowTap: LABEL-ONLY cancel replies (empty selectedId) resolve via the chat', () => {
+        // The real panel showed templateButtonReplyMessage taps with an empty
+        // selectedId — only the label ('❌ Cancel') arrives. Cancel must still
+        // resolve the pending flow through the chat index.
+        const res = flow.resolveFlowTap({ buttonId: '', displayText: '❌ Cancel', chatBotId: '2348165321909' });
+        assert.deepStrictEqual(res, { action: 'cancel', botId: '2348165321909' });
+        // without a chat-indexed flow there is nothing to cancel
+        assert.strictEqual(flow.resolveFlowTap({ buttonId: '', displayText: '❌ Cancel' }), null);
+    });
+
+    await test('resolveFlowTap: label-only copy replies are a safe no-op action', () => {
+        assert.deepStrictEqual(flow.resolveFlowTap({ buttonId: '', displayText: '📋 Copy Code' }), { action: 'copy' });
+    });
+
+    await test('resolveFlowTap: unrecognized taps resolve to null', () => {
+        assert.strictEqual(flow.resolveFlowTap({ buttonId: '.ping' }), null);
+        assert.strictEqual(flow.resolveFlowTap({ buttonId: '', displayText: 'Menu' }), null);
+        assert.strictEqual(flow.resolveFlowTap({}), null);
+    });
+
     await test('parseAddbotButton: copy / cancel / garbage', () => {
         assert.deepStrictEqual(flow.parseAddbotButton('addbot_copy_b1'), { action: 'copy', botId: 'b1' });
         assert.deepStrictEqual(flow.parseAddbotButton('addbot_cancel_xyz'), { action: 'cancel', botId: 'xyz' });

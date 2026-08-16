@@ -713,8 +713,12 @@ async function deliverAddbotFlowStatus(bot, state, detail) {
     const ok = await sendFlowMessage(pending.viaBotId, pending.chatJid, { text }, pending.quotedMsg)
     await reactFlowMessage(pending.viaBotId, pending.chatJid,
         state === 'connected' ? '✅' : '⚠️', pending.quotedMsg?.key || null)
-    if (ok) _pendingAddRequests.delete(bot.id)
-    else log(`[ FLOW:${bot.id} ] Status delivery failed — retrying when the delivering session reconnects.`, 'yellow')
+    if (ok) {
+        _pendingAddRequests.delete(bot.id)
+        dropPendingChat(bot.id)
+    } else {
+        log(`[ FLOW:${bot.id} ] Status delivery failed — retrying when the delivering session reconnects.`, 'yellow')
+    }
 }
 
 // When the delivering session reconnects, re-attempt any outstanding flow
@@ -724,7 +728,10 @@ async function retryPendingFlowDeliveries(viaBotId) {
         if (String(pending.viaBotId) !== String(viaBotId)) continue
         if (pending.statusText) {
             const ok = await sendFlowMessage(viaBotId, pending.chatJid, { text: pending.statusText }, pending.quotedMsg)
-            if (ok) _pendingAddRequests.delete(newBotId)
+            if (ok) {
+                _pendingAddRequests.delete(newBotId)
+                dropPendingChat(newBotId)
+            }
         } else if (pending.lastCode) {
             const payload = addbotFlow.buildCodeMessage({
                 code: pending.lastCode,
@@ -779,6 +786,7 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
             quotedMsg: meta.quotedMsg || null,
             phone,
         })
+        rememberPendingChat(derivedId, meta.chatJid)
     }
 
     void reconcileSessions().catch((err) => {
@@ -836,38 +844,86 @@ async function repairSessionByIdentifier(identifier = '', meta = {}) {
             quotedMsg: meta.quotedMsg || null,
             phone: bot.phone,
         })
+        rememberPendingChat(bot.id, meta.chatJid)
     }
     const result = await restartBot(bot.id)
     return { ok: Boolean(result?.ok), id: bot.id, error: result?.error }
 }
 
 // ── Live-flow buttons (copy code / cancel) ────────────────────────────────────
+// Chat-indexed flow lookup: WhatsApp may deliver a button reply with an
+// EMPTY selectedId (label only), so the cancel handler can resolve the flow
+// purely from the chat the tap arrived in.
+const _pendingByChat = new Map() // normalized chatJid -> newBotId
+
+function normalizeFlowChat(jid) {
+    try { return normalizeJidWithLid(String(jid || '')) } catch (_) { return String(jid || '') }
+}
+
+function rememberPendingChat(newBotId, chatJid) {
+    const key = normalizeFlowChat(chatJid)
+    if (key) _pendingByChat.set(key, String(newBotId))
+}
+
+function dropPendingChat(newBotId) {
+    for (const [chatKey, botId] of [..._pendingByChat.entries()]) {
+        if (String(botId) === String(newBotId)) _pendingByChat.delete(chatKey)
+    }
+}
+
 async function handleAddbotButton(buttonId, chatJid, sender, msg) {
-    const parsed = addbotFlow.parseAddbotButton(buttonId)
-    if (!parsed) return
-    const pending = _pendingAddRequests.get(parsed.botId)
-    if (!pending || pending.chatJid !== chatJid) return
+    try {
+        log(`[ FLOW ] Button tap received: id=${String(buttonId || '(empty)')} chat=${chatJid}`, 'cyan')
+        const rawId = String(buttonId || '')
+        const displayText = String(
+            msg?.message?.templateButtonReplyMessage?.selectedDisplayText || rawId || ''
+        )
+        const resolved = addbotFlow.resolveFlowTap({
+            buttonId: rawId,
+            displayText,
+            chatBotId: _pendingByChat.get(normalizeFlowChat(chatJid)) || undefined,
+        })
+        if (!resolved) {
+            log('[ FLOW ] Unrecognized flow tap — ignoring.', 'yellow')
+            return
+        }
+        const { action, botId: newBotId } = resolved
+        if (action === 'copy') {
+            log('[ FLOW ] Copy tap — WhatsApp already copied the code natively; nothing to do.', 'cyan')
+            return
+        }
 
-    const senderNumber = String(sender || '').split(':')[0].split('@')[0]
-    if (!isPlatformOwner(senderNumber)) {
-        await sendFlowMessage(pending.viaBotId, chatJid,
-            { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
-            pending.quotedMsg)
-        return
-    }
+        // cancel path
+        const pending = newBotId ? _pendingAddRequests.get(newBotId) : null
+        if (!pending) {
+            log('[ FLOW ] Cancel tap but no matching pending flow (already resolved?) — ignoring.', 'yellow')
+            return
+        }
+        // Chat tolerance: accept the tap from the recorded chat OR any chat
+        // (PN/LID variants of the same conversation differ) — the sender is
+        // still verified below, so this never widens the security boundary.
+        const senderNumber = String(sender || '').split(':')[0].split('@')[0]
+        if (!isPlatformOwner(senderNumber)) {
+            log('[ FLOW ] Cancel tap rejected — sender is not the Super Owner.', 'red', true)
+            await sendFlowMessage(pending.viaBotId, chatJid,
+                { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
+                pending.quotedMsg)
+            return
+        }
 
-    if (parsed.action === 'copy') {
-        // WhatsApp NATIVELY copied the code when the cta_copy button was
-        // tapped — nothing to do here. (This branch only fires if WhatsApp
-        // also routed a response; older quick-reply versions used to re-send
-        // the message, which spammed the chat instead of copying.)
-        return
-    }
-
-    // cancel -> hot-remove through the same registry pipeline
-    await removeSessionViaRegistry(pending.phone)
-    if (_pendingAddRequests.has(parsed.botId)) {
-        await deliverAddbotFlowStatus({ id: parsed.botId }, 'cancelled')
+        log(`[ FLOW ] Cancel tap confirmed — hot-removing session ${newBotId}.`, 'yellow')
+        const removed = await removeSessionViaRegistry(pending.phone)
+        if (!removed.ok && removed.reason === 'unknown') {
+            // The session may already be gone from the registry — treat the
+            // flow as cancelled anyway.
+            log('[ FLOW ] Session already absent from registry — closing the flow.', 'yellow')
+        }
+        if (_pendingAddRequests.has(newBotId)) {
+            await deliverAddbotFlowStatus({ id: newBotId }, 'cancelled')
+        }
+        dropPendingChat(newBotId)
+    } catch (e) {
+        log(`[ FLOW ] Button handler error: ${e?.message || e}`, 'red', true)
     }
 }
 

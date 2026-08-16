@@ -806,6 +806,29 @@ const handleMessage = async (sock, msg) => {
 
     // Button / native-flow response. gifted-btns and current WhatsApp send
     // interactiveResponseMessage.paramsJson, not the old buttonsResponseMessage.
+    // Live addbot-flow taps: WhatsApp button replies sometimes arrive with an
+    // EMPTY selectedId (only the label text is echoed back). Route by label
+    // too, so Copy/Cancel taps can never fall through silently.
+    const _tapReply = msg?.message?.templateButtonReplyMessage
+        || msg?.message?.listResponseMessage;
+    if (_tapReply) {
+        const displayText = _tapReply.selectedDisplayText
+            || _tapReply.singleSelectReply?.selectedRowId
+            || '';
+        const flowTapId = extractButtonId(content, msg) || displayText;
+        const isFlowTap = String(flowTapId).startsWith('addbot_')
+            || /copy code|cancel/i.test(String(displayText || ''));
+        if (isFlowTap) {
+            const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
+            if (typeof addbotButtonHook === 'function') {
+                await addbotButtonHook(flowTapId, from, sender, msg).catch((e) => {
+                    console.error('[FLOW] addbot button hook error:', e?.message || e);
+                });
+            }
+            return;
+        }
+    }
+
     const buttonId = extractButtonId(content, msg);
     if (buttonId) {
 
@@ -814,7 +837,9 @@ const handleMessage = async (sock, msg) => {
       if (String(buttonId).startsWith('addbot_')) {
         const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
         if (typeof addbotButtonHook === 'function') {
-          await addbotButtonHook(buttonId, from, sender, msg).catch(() => {});
+          await addbotButtonHook(buttonId, from, sender, msg).catch((e) => {
+            console.error('[FLOW] addbot button hook error:', e?.message || e);
+          });
         }
         return;
       }
