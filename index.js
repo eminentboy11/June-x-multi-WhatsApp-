@@ -142,9 +142,9 @@ const moment = require('moment-timezone')
 const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
 const { applyFont } = require('./utils/fontConverter')
-const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/botContext')
-const { claimSuperOwner, superOwnerStatusFor, isPlatformOwner } = require('./utils/ownership')
-const addbotFlow = require('./utils/addbotFlow')
+const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/core/botContext')
+const { claimSuperOwner, superOwnerStatusFor, isPlatformOwner } = require('./utils/core/ownership')
+const addbotFlow = require('./utils/core/addbotFlow')
 const {
     SessionManager,
     loadSessionRegistry,
@@ -155,7 +155,7 @@ const {
     sessionLogPrefix,
     parsePairingMaxAttempts,
     VALID_PREFIXES,
-} = require('./utils/sessionManager')
+} = require('./utils/core/sessionManager')
 const {
     atomicWriteFile,
     createDiskManager,
