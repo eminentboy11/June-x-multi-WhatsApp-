@@ -10,7 +10,7 @@
  * This command cannot create, change or reset the Super Owner in any way.
  */
 
-const { superOwnerStatusFor } = require('../../utils/ownership');
+const { superOwnerStatusFor } = require('../../utils/core/ownership');
 
 module.exports = {
   name: 'superowner',
