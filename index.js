@@ -145,8 +145,8 @@ const { applyFont } = require('./utils/fontConverter')
 const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/core/botContext')
 const { claimSuperOwner, superOwnerStatusFor, isPlatformOwner } = require('./utils/core/ownership')
 const addbotFlow = require('./utils/core/addbotFlow')
-const { requestPairingCodeForCycle } = require('./utils/core/pairingLifecycle')
 const {
+    requestPairingCodeForCycle,
     SessionManager,
     loadSessionRegistry,
     parseSessionsJson,
@@ -488,9 +488,9 @@ if (!fs.existsSync(envPath)) {
         'MONGODB_URI=',
         '',
         '# ── SESSION / PAIRING TUNING (optional) ─────────────────────',
-        '# Pairing codes issued per login/recovery cycle (default 5);',
+        '# Pairing codes issued per login/recovery cycle (default 3);',
         '# after the limit the session parks as needs-login until .restart',
-        'JUNE_PAIRING_MAX_ATTEMPTS=5',
+        'JUNE_PAIRING_MAX_ATTEMPTS=3',
         '# Hot-add/hot-remove registry poll interval ms (default 15000)',
         'JUNE_SESSIONS_POLL_MS=15000',
         '# Auto-export refreshed session creds back to .env JUNE_SESSIONS',
@@ -1073,7 +1073,7 @@ function rememberSessionIdFingerprint(bot, fingerprint) {
     }
 
     bot.db.markDatabaseDirty('session-id-fingerprint')
-    log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
+    //log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
     return true
 }
 
@@ -1262,7 +1262,7 @@ async function autoExportSessionToRegistry(bot, force = false) {
         bot.sessionId = sessionID
         rememberSessionIdFingerprint(bot, fingerprintSessionId(sessionID))
         bot._lastSessionExport = now
-        log(`[ SESSION:${bot.id} ] Session export completed; .env JUNE_SESSIONS updated.`, 'cyan')
+        //log(`[ SESSION:${bot.id} ] Session export completed; .env JUNE_SESSIONS updated.`, 'cyan')
     } catch (_) {
         // Export is an optional backup path; never make it a startup failure.
     }
