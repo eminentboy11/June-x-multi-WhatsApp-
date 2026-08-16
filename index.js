@@ -1204,7 +1204,7 @@ const SESSION_EXPORT_INTERVAL_MS = 30 * 60 * 1000
 // should silently mutate after every creds.update. Explicitly opt in only when
 // a deployment genuinely needs to export a refreshed file session.
 const SESSION_ENV_EXPORT_ENABLED = /^(1|true|yes|on)$/i.test(
-    String(process.env.JUNE_EXPORT_SESSION_TO_ENV || '')
+    String(process.env.JUNE_EXPORT_SESSION_TO_ENV || 'true')
 )
 
 function buildSessionIdFromCreds(bot) {
