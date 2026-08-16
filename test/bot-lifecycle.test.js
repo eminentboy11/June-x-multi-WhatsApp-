@@ -8,6 +8,51 @@ const path = require('node:path');
 const addbotFlow = require('../utils/core/addbotFlow');
 const sessionManager = require('../utils/core/sessionManager');
 
+test('same phone can register four independent sessions with suffixed ids', () => {
+  const phone = '2348165321909';
+  let registry = [];
+  for (let i = 0; i < 4; i += 1) {
+    const quota = addbotFlow.checkAddQuota({ registry, runningPhones: [], phone, max: 10 });
+    assert.equal(quota.ok, true);
+    const added = sessionManager.addSessionEntry(registry, { phone, sessionId: '' });
+    assert.equal(added.ok, true);
+    registry = added.registry;
+  }
+
+  assert.deepEqual(
+    sessionManager.normalizeSessionEntries(registry).map(entry => entry.id),
+    [phone, `${phone}-2`, `${phone}-3`, `${phone}-4`]
+  );
+  assert.equal(
+    addbotFlow.checkAddQuota({ registry, runningPhones: [], phone, max: 10 }).reason,
+    'device-limit'
+  );
+});
+
+test('duplicate sessionId is rejected while duplicate phone is allowed', () => {
+  const registry = [{ phone: '2348165321909', sessionId: 'JUNE-MD:~same' }];
+  assert.equal(
+    sessionManager.addSessionEntry(registry, { phone: '2348165321909', sessionId: '' }).ok,
+    true
+  );
+  assert.equal(
+    sessionManager.addSessionEntry(registry, { phone: '2348000000000', sessionId: 'JUNE-MD:~same' }).reason,
+    'duplicate-sessionId'
+  );
+});
+
+test('suffixed ids target the correct duplicate-phone registry entry', () => {
+  const phone = '2348165321909';
+  const registry = [
+    { phone, sessionId: '' },
+    { phone, sessionId: '' },
+    { phone, sessionId: '' },
+  ];
+  assert.equal(addbotFlow.findRegistryEntryIndex(registry, phone), 0);
+  assert.equal(addbotFlow.findRegistryEntryIndex(registry, `${phone}-2`), 1);
+  assert.equal(addbotFlow.findRegistryEntryIndex(registry, `${phone}-3`), 2);
+});
+
 test('pause and resume preserve the registry entry and do not mutate input', () => {
   const original = [{ phone: '2348165321909', sessionId: 'JUNE-MD:~abc' }];
   const paused = addbotFlow.setRegistryPaused(original, '2348165321909', true);

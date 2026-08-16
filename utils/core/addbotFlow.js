@@ -84,11 +84,23 @@ function checkAddQuota({ registry = [], runningPhones = [], phone, max }) {
 function findRegistryEntryIndex(registry, identifier) {
     const list = Array.isArray(registry) ? registry : [];
     const raw = String(identifier || '').trim();
-    const needle = digitsOnly(identifier);
-    return list.findIndex((entry) =>
-        String(entry?.id || '') === raw ||
-        (needle && digitsOnly(entry?.phone) === needle)
-    );
+    const needle = /^\d+$/.test(raw) ? raw : '';
+    const phoneOccurrences = new Map();
+
+    for (let index = 0; index < list.length; index += 1) {
+        const entry = list[index] || {};
+        const phone = digitsOnly(entry.phone);
+        let derivedId = String(entry.id || '').trim();
+        if (!derivedId && phone) {
+            const ordinal = (phoneOccurrences.get(phone) || 0) + 1;
+            phoneOccurrences.set(phone, ordinal);
+            derivedId = ordinal === 1 ? phone : `${phone}-${ordinal}`;
+        }
+        if (derivedId === raw || String(entry.id || '') === raw) return index;
+        // A bare phone intentionally selects its first registry occurrence.
+        if (needle && phone === needle) return index;
+    }
+    return -1;
 }
 
 function removeRegistryEntry(registry, identifier) {

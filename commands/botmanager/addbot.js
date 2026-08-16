@@ -72,11 +72,10 @@ module.exports = {
 
     if (!result.ok) {
       try { await extra.react('⚠️'); } catch (_) {}
-      if (result.reason === 'duplicate') {
+      if (result.reason === 'duplicate-sessionId') {
         return extra.reply(
-          `❌ *Session already registered.*\n\n` +
-          `A session with phone *${check.phone}*${check.sessionId ? ` or sessionId *${check.sessionId}*` : ''} already exists.\n` +
-          `Remove the existing entry first (.delbot) or use a different number.`
+          `❌ *Session credential already registered.*\n\n` +
+          `That sessionId is already assigned to another bot. Use pairing-code login or provide a different sessionId.`
         );
       }
       if (result.reason === 'quota') {

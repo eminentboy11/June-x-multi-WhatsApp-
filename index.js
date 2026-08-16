@@ -760,10 +760,12 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
     // check the running sessions for storage/credential conflicts too.
     const phone = base.entry.phone
     const sessionId = base.entry.sessionId
-    const runningConflict = sessionManager.list().some((bot) =>
-        bot.phone === phone || (sessionId && bot.sessionId === sessionId)
+    // The same phone may own up to four independent linked-device sessions.
+    // Only credential reuse is a conflict; phone quota is checked below.
+    const runningConflict = Boolean(sessionId) && sessionManager.list().some((bot) =>
+        bot.sessionId === sessionId
     )
-    if (runningConflict) return { ok: false, reason: 'duplicate' }
+    if (runningConflict) return { ok: false, reason: 'duplicate-sessionId' }
 
     // Quotas: global session cap (JUNE_MAX_SESSIONS) and WhatsApp's per-number
     // device cap. Initial-registry sessions are never quota-checked — this is
@@ -784,7 +786,10 @@ async function addSessionViaRegistry(entry = {}, meta = {}) {
     // moment it is generated), then reconcile immediately — no debounce
     // wait, the hot-add starts right away. reconcileSessions is guarded by
     // _reconcileRunning, so the watcher/poll can never double-run it.
-    const derivedId = (normalizeSessionEntries([base.entry])[0] || {}).id || phone
+    // Normalize the COMPLETE registry so duplicate-phone ordinals are stable:
+    // phone, phone-2, phone-3, phone-4.
+    const normalizedRegistry = normalizeSessionEntries(base.registry)
+    const derivedId = normalizedRegistry[normalizedRegistry.length - 1]?.id || phone
     if (meta && meta.chatJid && meta.viaBotId) {
         _pendingAddRequests.set(derivedId, {
             chatJid: meta.chatJid,

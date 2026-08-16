@@ -107,8 +107,10 @@ the `sessionId` path produced it — so the combo self-heals end to end.
   the pairing code reaches the chat as fast as the WhatsApp handshake allows.
 - Appends to the existing `JUNE_SESSIONS` registry and reuses the SAME
   hot-add pipeline — no restart, existing sessions untouched.
-- Duplicates rejected (same phone = same storage identity, same sessionId =
-  same credential).
+- The same phone may be added up to four times for independent linked-device
+  sessions. IDs are assigned as `<phone>`, `<phone>-2`, `<phone>-3`, and
+  `<phone>-4`. A duplicate non-empty sessionId is still rejected because it is
+  the same credential.
 - Quotas: `JUNE_MAX_SESSIONS` global cap (default 10) and WhatsApp's
   4-linked-devices-per-number cap.
 

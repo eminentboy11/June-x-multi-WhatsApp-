@@ -432,12 +432,13 @@ function addSessionEntry(registry, entry = {}) {
     const check = validateSessionEntry(entry);
     if (!check.ok) return check;
     const list = Array.isArray(registry) ? registry : [];
-    const duplicate = list.some((e) => {
-        if (digitsOnly(e.phone) === check.phone) return true;
-        const sid = String(e.sessionId || '').trim();
-        return Boolean(check.sessionId && sid === check.sessionId);
-    });
-    if (duplicate) return { ok: false, reason: 'duplicate' };
+    // Multiple linked-device sessions may intentionally share one phone.
+    // Credential reuse is unsafe, so only a non-empty duplicate sessionId is
+    // rejected here; the per-phone four-device cap is enforced separately.
+    const duplicateSessionId = Boolean(check.sessionId) && list.some((e) =>
+        String(e.sessionId || '').trim() === check.sessionId
+    );
+    if (duplicateSessionId) return { ok: false, reason: 'duplicate-sessionId' };
     return {
         ok: true,
         entry: { sessionId: check.sessionId, phone: check.phone },
