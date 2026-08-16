@@ -145,7 +145,7 @@ function probeNativeBetterSqlite() {
 
 if (forceSqlJs) {
   dbDriver = 'sql.js-fallback';
-  console.warn('[DB] sql.js selected by configuration');
+  //console.warn('[DB] sql.js selected by configuration');
 } else {
   const signature = nativeProbeSignature();
   // A failed native binary is cached for this exact Node/ABI/module build so
@@ -160,17 +160,17 @@ if (forceSqlJs) {
     try {
       Database = require('better-sqlite3');
       dbDriver = 'better-sqlite3';
-      console.log(`[DB] Native SQLite probe passed (${process.version}/${process.platform}/${process.arch})`);
+     // console.log(`[DB] Native SQLite probe passed (${process.version}/${process.platform}/${process.arch})`);
     } catch (_) {
       dbDriver = 'sql.js-fallback';
-      console.warn('[DB] Native SQLite loaded in probe but failed in parent; using sql.js fallback');
+     // console.warn('[DB] Native SQLite loaded in probe but failed in parent; using sql.js fallback');
     }
   } else {
     if (!String(nativeProbe.reason).startsWith('cached-')) {
       cacheFailedNativeProbe(signature, nativeProbe);
     }
     dbDriver = 'sql.js-fallback';
-    console.warn(`[DB] Native SQLite probe failed (${nativeProbe.reason}); using sql.js fallback`);
+//console.warn(`[DB] Native SQLite probe failed (${nativeProbe.reason}); using sql.js fallback`);
   }
 }
 
@@ -646,7 +646,7 @@ function createBotDatabase(options = {}) {
       }
 
       fs.copyFileSync(DB_BACKUP_FILE, DB_FILE);
-      console.warn(`[DB] ✅ Restored from backup`);
+//      console.warn(`[DB] ✅ Restored from backup`);
       return true;
     } catch (error) {
       console.error(`[DB] ❌ Restore failed: ${error.message}`);
@@ -830,8 +830,8 @@ function createBotDatabase(options = {}) {
       } catch (error) {
         // Do not print the native error: on incompatible VPS images it contains
         // a very noisy GLIBC/native-loader stack. Fall back cleanly instead.
-        console.warn('[DB] Native SQLite unavailable on this VPS');
-        console.warn('[DB] Falling back to sql.js WASM');
+   //     console.warn('[DB] Native SQLite unavailable on this VPS');
+       // console.warn('[DB] Falling back to sql.js WASM');
         dbDriver = 'sql.js-fallback';
         return openDatabase();
       }
@@ -852,11 +852,11 @@ function createBotDatabase(options = {}) {
 
       configureDatabase(connection);
       lastIntegrityCheck = { ok: true, result: 'ok', checkedAt: Date.now() };
-      console.log('[DB] ✅ Integrity check passed');
+   //console.log('[DB] ✅ Integrity check passed');
       return connection;
 
     } else if (dbDriver === 'sql.js-fallback') {
-      console.log('[DB] Loading sql.js WASM...');
+ //     console.log('[DB] Loading sql.js WASM...');
 
       try {
         const sqlJsModule = require('sql.js');
@@ -886,7 +886,7 @@ function createBotDatabase(options = {}) {
 
         configureDatabase(connection);
         lastIntegrityCheck = { ok: true, result: 'ok', checkedAt: Date.now() };
-        console.log('[DB] Using sql.js WASM fallback');
+ //       console.log('[DB] Using sql.js WASM fallback');
         return connection;
 
       } catch (error) {
@@ -1293,7 +1293,7 @@ function createBotDatabase(options = {}) {
         remoteSync,
       };
       if (removed > 0) {
-        console.log(`[DB] Maintenance removed ${removed} expired/excess antidelete record(s).`);
+     //   console.log(`[DB] Maintenance removed ${removed} expired/excess antidelete record(s).`);
       }
       return lastMaintenance;
     } catch (error) {
