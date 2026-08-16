@@ -1,6 +1,6 @@
 {
     "name": "June-X Ultra",
-    "version": "3.8.0",
+    "version": "3.8.1",
     "description": "WhatsApp MD-Style Multi-Command Bot by Supreme",
     "main": "index.js",
     "type": "commonjs",

@@ -822,7 +822,7 @@ const handleMessage = async (sock, msg) => {
             const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
             if (typeof addbotButtonHook === 'function') {
                 await addbotButtonHook(flowTapId, from, sender, msg).catch((e) => {
-                    console.error('[FLOW] addbot button hook error:', e?.message || e);
+                    console.error('addbot button hook error:', e?.message || e);
                 });
             }
             return;
@@ -838,7 +838,7 @@ const handleMessage = async (sock, msg) => {
         const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
         if (typeof addbotButtonHook === 'function') {
           await addbotButtonHook(buttonId, from, sender, msg).catch((e) => {
-            console.error('[FLOW] addbot button hook error:', e?.message || e);
+            console.error('addbot button hook error:', e?.message || e);
           });
         }
         return;

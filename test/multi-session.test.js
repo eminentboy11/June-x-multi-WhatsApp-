@@ -986,7 +986,8 @@ function test(name, fn) {
         // if button delivery fails, this text alone is what gets delivered.
         assert.strictEqual(payload.withButtons, true);
         assert.strictEqual(payload.buttons, undefined, 'no inline button array on the payload');
-        assert.ok(payload.text.includes('.delbot 2348154853640'), 'cancel hint always in the text (fallback path)');
+        // No .delbot hint: cancellation lives in the ❌ Cancel button.
+        assert.ok(!payload.text.includes('.delbot'), 'no cancel-command hint in the text');
     });
 
     await test('buildSimpleButtons: REAL copy semantics — cta_copy carries copy_code, Cancel is a quick-reply', () => {

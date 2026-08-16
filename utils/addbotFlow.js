@@ -114,8 +114,7 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
             `1️⃣ Open WhatsApp → Settings\n` +
             `2️⃣ Linked Devices → *Link a Device*\n` +
             `3️⃣ Enter the code above\n\n` +
-            `⏳ _Waiting for pairing…_\n` +
-            `❌ _Cancel with_ *.delbot ${phone}*`,
+            `⏳ _Waiting for pairing…_`,
         withButtons: true,
         code,
         attempt,

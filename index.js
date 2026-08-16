@@ -613,8 +613,8 @@ const FLOW_SEND_RETRY_DELAY_MS = 1500
 //   1) gifted-btns with the panel-proven quick-reply style ({ id, text } —
 //      the same shape botinfo.js sends and which renders on real panels)
 //   2) plain text (guaranteed to render)
-// Button delivery failures are loud ([ FLOW ] logs) and always fall through
-// to text — the code can never be lost again.
+// Button delivery failures always fall through to text — the code can
+// never be lost again.
 async function sendFlowMessage(viaBotId, chatJid, content, quotedMsg) {
     const candidates = [
         sessionManager.get(viaBotId),
@@ -635,27 +635,21 @@ async function sendFlowMessage(viaBotId, chatJid, content, quotedMsg) {
                 try {
                     const { sendButtons } = require('gifted-btns')
                     await sendButtons(bot.sock, chatJid, addbotFlow.buildSimpleButtons(content), quoteOpt)
-                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (copy + cancel buttons).`, 'cyan')
                     return true
                 } catch (e) {
-                    log(`[ FLOW:${viaBotId} ] Button send via ${bot.id} failed (${e?.message || e}); falling back to plain text.`, 'yellow')
                 }
             }
 
             // 2) Plain text — always renders.
             try {
                 await bot.sock.sendMessage(chatJid, { text }, quoteOpt)
-                log(`[ FLOW:${viaBotId} ] Message delivered via ${bot.id} (plain text).`, 'cyan')
                 return true
             } catch (e) {
-                log(`[ FLOW:${viaBotId} ] Plain-text send via ${bot.id} failed (${e?.message || e}); retrying without quote.`, 'yellow')
             }
             try {
                 await bot.sock.sendMessage(chatJid, { text })
-                log(`[ FLOW:${viaBotId} ] Message delivered via ${bot.id} (plain text, no quote).`, 'cyan')
                 return true
             } catch (e) {
-                log(`[ FLOW:${viaBotId} ] Unquoted plain-text send via ${bot.id} failed (${e?.message || e}).`, 'yellow')
             }
         }
         if (attempt < FLOW_SEND_ATTEMPTS - 1) {
@@ -684,7 +678,6 @@ async function reactFlowMessage(viaBotId, chatJid, emoji, key) {
 function deliverPairingCodeToRequester(bot, code, attempt) {
     const pending = _pendingAddRequests.get(bot.id)
     if (!pending) {
-        log(`[ FLOW:${bot.id} ] Pairing code generated but no live .addbot request is waiting for it (console-only delivery).`, 'yellow')
         return Promise.resolve(false)
     }
     pending.lastCode = code
@@ -698,7 +691,6 @@ function deliverPairingCodeToRequester(bot, code, attempt) {
     })
     return sendFlowMessage(pending.viaBotId, pending.chatJid, payload, pending.quotedMsg).then((ok) => {
         if (!ok) {
-            log(`[ FLOW:${bot.id} ] Code delivery failed for now — will retry on the next code or reconnect.`, 'yellow')
         }
         return ok
     })
@@ -717,7 +709,6 @@ async function deliverAddbotFlowStatus(bot, state, detail) {
         _pendingAddRequests.delete(bot.id)
         dropPendingChat(bot.id)
     } else {
-        log(`[ FLOW:${bot.id} ] Status delivery failed — retrying when the delivering session reconnects.`, 'yellow')
     }
 }
 
@@ -873,7 +864,6 @@ function dropPendingChat(newBotId) {
 
 async function handleAddbotButton(buttonId, chatJid, sender, msg) {
     try {
-        log(`[ FLOW ] Button tap received: id=${String(buttonId || '(empty)')} chat=${chatJid}`, 'cyan')
         const rawId = String(buttonId || '')
         const displayText = String(
             msg?.message?.templateButtonReplyMessage?.selectedDisplayText || rawId || ''
@@ -884,19 +874,16 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
             chatBotId: _pendingByChat.get(normalizeFlowChat(chatJid)) || undefined,
         })
         if (!resolved) {
-            log('[ FLOW ] Unrecognized flow tap — ignoring.', 'yellow')
             return
         }
         const { action, botId: newBotId } = resolved
         if (action === 'copy') {
-            log('[ FLOW ] Copy tap — WhatsApp already copied the code natively; nothing to do.', 'cyan')
             return
         }
 
         // cancel path
         const pending = newBotId ? _pendingAddRequests.get(newBotId) : null
         if (!pending) {
-            log('[ FLOW ] Cancel tap but no matching pending flow (already resolved?) — ignoring.', 'yellow')
             return
         }
         // Chat tolerance: accept the tap from the recorded chat OR any chat
@@ -904,26 +891,24 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
         // still verified below, so this never widens the security boundary.
         const senderNumber = String(sender || '').split(':')[0].split('@')[0]
         if (!isPlatformOwner(senderNumber)) {
-            log('[ FLOW ] Cancel tap rejected — sender is not the Super Owner.', 'red', true)
+            log('Cancel tap rejected — sender is not the Super Owner.', 'red', true)
             await sendFlowMessage(pending.viaBotId, chatJid,
                 { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
                 pending.quotedMsg)
             return
         }
 
-        log(`[ FLOW ] Cancel tap confirmed — hot-removing session ${newBotId}.`, 'yellow')
         const removed = await removeSessionViaRegistry(pending.phone)
         if (!removed.ok && removed.reason === 'unknown') {
             // The session may already be gone from the registry — treat the
             // flow as cancelled anyway.
-            log('[ FLOW ] Session already absent from registry — closing the flow.', 'yellow')
         }
         if (_pendingAddRequests.has(newBotId)) {
             await deliverAddbotFlowStatus({ id: newBotId }, 'cancelled')
         }
         dropPendingChat(newBotId)
     } catch (e) {
-        log(`[ FLOW ] Button handler error: ${e?.message || e}`, 'red', true)
+        log(`Button tap handler error: ${e?.message || e}`, 'red', true)
     }
 }
 
@@ -1922,7 +1907,6 @@ async function startBotSocket(bot) {
                 if (_pendingAddRequests.has(bot.id)) {
                     // Live flow waiting for this session's code — skip the
                     // 10s countdown and restart immediately.
-                    log(`[ FLOW:${bot.id} ] Live flow pending — restarting login immediately (skipping countdown).`, 'yellow')
                     await delay(1500)
                 } else {
                     for (let i = 10; i > 0; i--) {
