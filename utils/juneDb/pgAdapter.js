@@ -635,8 +635,25 @@ function shutdownAll() {
   return Promise.allSettled([..._instances.values()].map((i) => i.close()));
 }
 
+/**
+ * Hot-remove support: close only this bot's PostgreSQL adapter and remove it
+ * from the registry. A later hot-add receives a fresh adapter/pool, while every
+ * other bot keeps its own pool untouched.
+ */
+function unregister(botId) {
+  const id = String(botId || _DEFAULT_BOT_ID);
+  const instance = _instances.get(id);
+  if (!instance) return false;
+
+  // Delete synchronously so forBot(id) can never return the closing instance.
+  _instances.delete(id);
+  try { Promise.resolve(instance.close?.()).catch(() => {}); } catch (_) {}
+  return true;
+}
+
 module.exports = forBot(_DEFAULT_BOT_ID);
 module.exports.forBot = forBot;
 module.exports.create = createAdapter;
 module.exports.listBotIds = listBotIds;
 module.exports.shutdownAll = shutdownAll;
+module.exports.unregister = unregister;
