@@ -2433,7 +2433,7 @@ async function startBotSocket(bot) {
                     const logBoxLabel = sessionLogLabel(
                         bot.accountNumber || sock?.user?.id?.split(':')[0]
                     )
-                    lolcatjs.fromString(`┏━━━━━━━━━━『${logBoxLabel} 』━━━━━━━━━━━━─`)
+                    lolcatjs.fromString(`┏━━━━━━━━━━『${logBoxLabel}』━━━━━━━━━━━─`)
                     lolcatjs.fromString(`»  Sent Time: ${dayz}, ${timez}`)
                     lolcatjs.fromString(`»  Date: ${datez}`)
                     lolcatjs.fromString(`»  Message Type: ${mtype}`)
