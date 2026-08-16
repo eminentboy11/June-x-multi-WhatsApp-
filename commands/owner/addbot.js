@@ -17,8 +17,8 @@
  * 4-devices-per-number cap.
  */
 
-const { validateSessionEntry, VALID_PREFIXES } = require('../../utils/sessionManager');
-const { getCurrentBotId } = require('../../utils/botContext');
+const { validateSessionEntry, VALID_PREFIXES } = require('../../utils/core/sessionManager');
+const { getCurrentBotId } = require('../../utils/core/botContext');
 
 module.exports = {
   name: 'addbot',
