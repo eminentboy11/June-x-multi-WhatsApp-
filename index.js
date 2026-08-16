@@ -891,7 +891,7 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
         // still verified below, so this never widens the security boundary.
         const senderNumber = String(sender || '').split(':')[0].split('@')[0]
         if (!isPlatformOwner(senderNumber)) {
-            log('Cancel tap rejected — sender is not the Super Owner.', 'red', true)
+           // log('Cancel tap rejected — sender is not the Super Owner.', 'red', true)
             await sendFlowMessage(pending.viaBotId, chatJid,
                 { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
                 pending.quotedMsg)
@@ -922,7 +922,7 @@ global.__JUNE_SESSIONS_SNAPSHOT = () => sessionManager.snapshot()
 
 function clearSessionFiles(bot) {
     try {
-        log(`[ CLEARING:${bot.id} ] session folder...`, 'blue')
+        //log(`[ CLEARING:${bot.id} ] session folder...`, 'blue')
         if (fs.existsSync(bot.sessionDir)) {
             const quarantinePath = `${bot.sessionDir}.quarantine-${Date.now()}`
             try {
@@ -943,7 +943,7 @@ function clearSessionFiles(bot) {
         bot.db.clearRemoteAuthState()
         clearSessionIdFingerprint(bot)
         bot.db.markDatabaseDirty('session-cleared')
-        log(`[ SESSION:${bot.id} ] files cleared successfully.`, 'green')
+       // log(`[ SESSION:${bot.id} ] files cleared successfully.`, 'green')
     } catch (e) {
         log(`Failed to clear session files (${bot.id}): ${e.message}`, 'red', true)
     }
@@ -1703,7 +1703,7 @@ async function startBotSocket(bot) {
     }
     for (const interval of bot._activeIntervals || []) clearInterval(interval)
     bot._activeIntervals = []
-    log(`[ CLEANUP:${bot.id} ] Cleared stale intervals from previous connection.`, 'yellow')
+    //log(`[ CLEANUP:${bot.id} ] Cleared stale intervals from previous connection.`, 'yellow')
 
     const version = await getBaileysVersion()
     const authStatsBeforeStart = getSQLiteAuthStats(bot.db._db)
@@ -1764,7 +1764,7 @@ async function startBotSocket(bot) {
     }
     const { state, saveCreds } = authState
     bot.authState = authState
-    log(`[ AUTH:${bot.id} ] ${authState.source === 'sqlite' ? 'SQLite' : 'file'} auth active (${authState.stats.totalKeys} signal key rows in SQLite).`, 'cyan')
+   // log(`[ AUTH:${bot.id} ] ${authState.source === 'sqlite' ? 'SQLite' : 'file'} auth active (${authState.stats.totalKeys} signal key rows in SQLite).`, 'cyan')
     const msgRetryCounterCache = new NodeCache()
     let fileMigrationInFlight = null
     let fileMigrationComplete = false
@@ -1790,7 +1790,7 @@ async function startBotSocket(bot) {
                 authState.stats = result.stats
                 fileMigrationComplete = true
                 fileMigrationBlockedReason = null
-                log(`[ AUTH:${bot.id} ] File-auth snapshot migrated to SQLite after ${trigger}; quarantine will complete on the next start.`, 'green')
+              //  log(`[ AUTH:${bot.id} ] File-auth snapshot migrated to SQLite after ${trigger}; quarantine will complete on the next start.`, 'green')
                 return result
             } catch (error) {
                 if (error.message?.startsWith('AUTH_MIGRATION_NO_VALID_KEY_FILES')) {
@@ -2568,7 +2568,7 @@ async function bootBot(bot) {
         )
         const usableFileSession = hasUsableFileSession(bot)
 
-        log(`[ sessionId:${bot.id} ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
+        //log(`[ sessionId:${bot.id} ] ${hasValidEnvSessionID ? 'Configured (redacted)' : '(none)'}`, 'cyan')
 
         if (sessionIdRevoked) {
             if (bot.phone) {
@@ -2665,7 +2665,7 @@ async function bootBot(bot) {
                 rememberSessionIdFingerprint(bot, currentSessionFingerprint)
                 log(`[ AUTH:${bot.id} ] Linked the existing verified SQLite auth to the configured sessionId fingerprint.`, 'cyan')
             }
-            log(`[ AUTH:${bot.id} ] Verified SQLite auth found; sessionId is retained only as a recovery backup.`, 'green')
+           // log(`[ AUTH:${bot.id} ] Verified SQLite auth found; sessionId is retained only as a recovery backup.`, 'green')
         } else if (hasValidEnvSessionID && usableFileSession) {
             // The file session is usable. If fingerprint metadata is absent (for
             // example after the move from marker files to session_auth_meta), adopt
