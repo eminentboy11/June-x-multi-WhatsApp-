@@ -252,17 +252,18 @@ const getGroupMetadata = getCachedGroupMetadata;
 //   isOwner          — SESSION-level owner check (config.ownerNumber) UNION the
 //                      deployment Super Owner (so the Super Owner can operate
 //                      the entire deployment).
-//   isPlatformOwner  — PLATFORM-level check (superOwnerOnly commands such as
-//                      .addbot): resolves ONLY against the persisted
+//   isPlatformOwner  — PLATFORM-level sender check (superOwnerOnly commands
+//                      such as .addbot): resolves against the persisted
 //                      deployment Super Owner; the legacy config.ownerNumber
-//                      list authorizes only during the bootstrap window before
-//                      a Super Owner has been established.
+//                      list authorizes only during bootstrap.
+//   platformGatePassed — sender check plus current-session check, so only the
+//                      Super Owner bot session executes fleet-management work.
 //   isSuperOwner     — strict match against the persisted Super Owner.
 const ownership = require('./utils/ownership');
 const {
   isPlatformOwner: platformOwnerCheck,
+  isPlatformOwnerForSession: platformOwnerForSessionCheck,
   isSuperOwner: superOwnerCheck,
-  hasSuperOwner,
 } = ownership;
 
 const isOwner = (sender) => {
@@ -295,20 +296,11 @@ const isOwner = (sender) => {
 const isPlatformOwner = (sender) => platformOwnerCheck(sender);
 const isSuperOwner = (sender) => superOwnerCheck(sender);
 
-// Once established, only the bot session logged into the persisted Super Owner
-// account hosts Bot Manager commands. During first-install bootstrap, retain the
-// existing platform-owner fallback so the deployment cannot lock itself out.
-const isBotManagerControlSession = (sock) => {
-  const self = getSelfJid(sock);
-  return hasSuperOwner() ? isSuperOwner(self) : isPlatformOwner(self);
-};
-
-// Platform-command gate: the ONLY thing that grants superOwnerOnly access is
-// the resolved sender's number matching the persisted deployment Super Owner
-// (or config.ownerNumber during the bootstrap window). Deliberately ignores
-// msg.key.fromMe — messaging the bot from its own account grants session-level
-// owner rights, NEVER platform authority. Exported for regression tests.
-const platformGatePassed = (_msg, resolvedSender) => isPlatformOwner(resolvedSender);
+// Platform-command gate: the sender must be the deployment Super Owner AND
+// the current bot session must be the Super Owner session. This prevents every
+// connected bot from replying to the same fleet-management command.
+const platformGatePassed = (_msg, resolvedSender, sock) =>
+  platformOwnerForSessionCheck(resolvedSender, sock?.user?.id);
 
 const isSudo = (sender) => {
   if (!sender) return false;
@@ -748,15 +740,11 @@ const handleMessage = async (sock, msg) => {
       ? getSelfJid(sock)
       : msg.key.participant || msg.key.remoteJid;
     const _isGroupJid = from.endsWith('@g.us');
-    // Baileys may provide the sender's phone JID alongside an @lid participant.
-    // In groups this is participantAlt; in LID-based DMs it is remoteJidAlt.
-    const _senderAlt = msg.key.participantAlt || (!_isGroupJid ? msg.key.remoteJidAlt : null);
-    const _hasPhoneAlt = _senderAlt && !isLidJid(_senderAlt) && !_senderAlt.endsWith('@g.us');
-    const sender = (isLidJid(_rawSender) && _hasPhoneAlt)
-      ? _senderAlt
+    const sender = (!_isGroupJid && isLidJid(_rawSender) && msg.key.remoteJidAlt)
+      ? msg.key.remoteJidAlt   // phone JID available directly — skip async LID lookup
       : _rawSender;
-    if (isLidJid(_rawSender) && _hasPhoneAlt) {
-      rememberLidPair(_rawSender, _senderAlt);
+    if (!_isGroupJid && isLidJid(_rawSender) && msg.key.remoteJidAlt) {
+      rememberLidPair(_rawSender, msg.key.remoteJidAlt);
     }
     const isGroup = _isGroupJid;
 
@@ -835,12 +823,9 @@ const handleMessage = async (sock, msg) => {
         const isFlowTap = String(flowTapId).startsWith('addbot_')
             || /copy code|cancel/i.test(String(displayText || ''));
         if (isFlowTap) {
-            if (!isBotManagerControlSession(sock)) return;
-            const flowSender = msg.key.participantAlt ||
-                (!isGroup ? msg.key.remoteJidAlt : null) || sender;
             const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
             if (typeof addbotButtonHook === 'function') {
-                await addbotButtonHook(flowTapId, from, flowSender, msg).catch((e) => {
+                await addbotButtonHook(flowTapId, from, sender, msg).catch((e) => {
                     console.error('addbot button hook error:', e?.message || e);
                 });
             }
@@ -854,13 +839,9 @@ const handleMessage = async (sock, msg) => {
       // Live addbot-flow buttons (copy code / cancel) are handled by the
       // session bridge in index.js — never routed as commands.
       if (String(buttonId).startsWith('addbot_')) {
-        // Pairing controls belong to the same single Super Owner control plane.
-        if (!isBotManagerControlSession(sock)) return;
-        const buttonSender = msg.key.participantAlt ||
-          (!isGroup ? msg.key.remoteJidAlt : null) || sender;
         const addbotButtonHook = global.__JUNE_ADD_BOT_BUTTON;
         if (typeof addbotButtonHook === 'function') {
-          await addbotButtonHook(buttonId, from, buttonSender, msg).catch((e) => {
+          await addbotButtonHook(buttonId, from, sender, msg).catch((e) => {
             console.error('addbot button hook error:', e?.message || e);
           });
         }
@@ -868,27 +849,22 @@ const handleMessage = async (sock, msg) => {
       }
 
       // Helper to build the standard extra object for command execution
-      const makeExtra = async () => {
-        const buttonSender = msg.key.participantAlt ||
-          (!isGroup ? msg.key.remoteJidAlt : null) || sender;
-        return {
+      const makeExtra = async () => ({
         from,
-        sender: buttonSender,
-        resolvedSender: buttonSender,
+        sender,
         isGroup,
         groupMetadata,
-        isOwner: isOwner(buttonSender),
-        isPlatformOwner: isPlatformOwner(buttonSender),
-        isAdmin: await isAdmin(sock, buttonSender, from, groupMetadata),
+        isOwner: isOwner(sender),
+         isPlatformOwner: platformGatePassed(msg, sender, sock),
+        isAdmin: await isAdmin(sock, sender, from, groupMetadata),
         isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
-        isMod: isMod(buttonSender),
-        isSudo: isMod(buttonSender),
+        isMod: isMod(sender),
+        isSudo: isMod(sender),
         prefix: config.prefix || '.',
         command: '',
         reply: (text) => sock.sendMessage(from, { text }, { quoted: msg }),
         react: (emoji) => sock.sendMessage(from, { react: { text: emoji, key: msg.key } })
-        };
-      };
+      });
 
       // Handle button clicks by routing to commands
       if (buttonId === 'btn_menu') {
@@ -937,13 +913,16 @@ const handleMessage = async (sock, msg) => {
           extra.isOwner = msg.key.fromMe || extra.isOwner;
           extra.isSudo = extra.isOwner || extra.isSudo;
           extra.isMod = extra.isSudo;
-          if (dynCmd.superOwnerSessionOnly && !isBotManagerControlSession(sock)) {
-            return;
-          }
-          if (dynCmd.superOwnerOnly && !extra.isPlatformOwner) {
-            await sock.sendMessage(from, { text: config.messages.superOwnerOnly }, { quoted: msg });
-            return;
-          }
+           if (dynCmd.superOwnerOnly && !extra.isPlatformOwner) {
+             // The Super Owner's command can be visible to every connected
+             // session in a group. Only the designated session should reply;
+             // other sessions stay silent instead of creating duplicate
+             // denial messages.
+             if (!isPlatformOwner(sender)) {
+               await sock.sendMessage(from, { text: config.messages.superOwnerOnly }, { quoted: msg });
+             }
+             return;
+           }
           if (dynCmd.ownerOnly && !extra.isOwner && !extra.isSudo) {
             await sock.sendMessage(from, { text: config.messages.ownerOnly }, { quoted: msg });
             return;
@@ -1350,15 +1329,7 @@ const handleMessage = async (sock, msg) => {
             const pn = matched.phoneNumber || matched.pn;
             if (pn) resolvedSender = pn.includes('@') ? pn : `${pn}@s.whatsapp.net`;
           }
-          // Fall back to Baileys' live LID repository, then SQLite, when group
-          // metadata contains only opaque LID participant ids.
-          if (resolvedSender === sender) {
-            try {
-              const { resolvePhone } = require('./utils/jidHelper');
-              const pn = await resolvePhone(sock, sender);
-              if (pn) resolvedSender = `${pn}@s.whatsapp.net`;
-            } catch (_) {}
-          }
+          // Fallback to the SQLite LID map if participant data had no phone number
           if (resolvedSender === sender) {
             const pnUser = getLidMappingValue(decoded.user, 'lidToPn');
             if (pnUser) resolvedSender = `${pnUser}@s.whatsapp.net`;
@@ -1385,21 +1356,11 @@ const handleMessage = async (sock, msg) => {
 
     const senderIsOwner = msg.key.fromMe || isOwner(resolvedSender);
     const senderIsSudo  = senderIsOwner || isSudo(resolvedSender);
-    // Platform authority is STRICTLY number-based. Try only trusted JIDs that
-    // Baileys attached to this same message; participantAlt is especially
-    // important for group messages whose primary participant is an opaque LID.
-    const platformSenderCandidates = [
-      resolvedSender,
-      msg.key.participantAlt,
-      !isGroup ? msg.key.remoteJidAlt : null,
-    ].filter(Boolean);
-    const senderIsPlatformOwner = platformSenderCandidates.some(candidate =>
-      platformGatePassed(msg, candidate)
-    );
-    // Bot Manager commands are a single control plane: only the session whose
-    // connected WhatsApp account is the persisted Super Owner may answer them.
-    // Other bot sessions silently ignore the same group command.
-    const receivingSessionIsSuperOwner = isBotManagerControlSession(sock);
+    // Platform authority is STRICTLY number-based. No fromMe shortcut: the
+    // account holder of a session is not the deployment Super Owner just
+    // because they message the bot's own chat. (fromMe still grants
+    // SESSION-level owner rights via isOwner — separate concept.)
+    const senderIsPlatformOwner = platformGatePassed(msg, resolvedSender, sock);
 
     // Self mode — bot only responds to its own messages (self-bot mode)
     if (config.selfMode && !msg.key.fromMe) return;
@@ -1421,17 +1382,12 @@ const handleMessage = async (sock, msg) => {
     }
 
     // Permission checks
-    // Bot Manager commands are answered only by the Super Owner's own bot
-    // session. This silent gate prevents every connected bot in one group from
-    // producing duplicate usage, denial, or status replies.
-    if (command.superOwnerSessionOnly && !receivingSessionIsSuperOwner) {
-      return;
-    }
-
-    // superOwnerOnly resolves ONLY against the persisted deployment Super Owner
-    // (legacy config.ownerNumber authorizes only during bootstrap).
+    // superOwnerOnly = platform-level command (.addbot …): resolves ONLY
+    // against the persisted deployment Super Owner (legacy config.ownerNumber
+    // authorizes just during the pre-establishment bootstrap window).
     if (command.superOwnerOnly && !senderIsPlatformOwner) {
-      return sock.sendMessage(from, { text: config.messages.superOwnerOnly }, { quoted: msg });
+      if (!isPlatformOwner(resolvedSender)) return;
+      return;
     }
 
     if (command.ownerOnly && !senderIsOwner && !senderIsSudo) {
@@ -1496,12 +1452,10 @@ const handleMessage = async (sock, msg) => {
     await command.execute(sock, msg, args, {
       from,
       sender,
-      resolvedSender,
       isGroup,
       groupMetadata,
       groupName: groupMetadata?.subject || null,
       isOwner: senderIsOwner,
-      isPlatformOwner: senderIsPlatformOwner,
       isAdmin: await isAdmin(sock, sender, from, groupMetadata),
       isBotAdmin: await isBotAdmin(sock, from, groupMetadata),
       isMod: senderIsSudo,

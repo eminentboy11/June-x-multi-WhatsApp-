@@ -270,10 +270,12 @@ from hardcoded source numbers, a WhatsApp command, or a session setting.
   disconnect, get removed, reordered or replaced.
 - **Hot-added sessions** (`.addbot`, `.env` hot-reload additions) can never
   claim the Super Owner — eligibility is reserved for initial sessions only.
-- **Platform-level commands** (`superOwnerOnly`, currently `.addbot`) resolve
-  ONLY against the persisted Super Owner. Before establishment, the legacy
-  `config.ownerNumber` list authorizes as a bootstrap fallback; afterwards it
-  loses platform authority.
+- **Platform-level commands** (`superOwnerOnly`, including `.addbot`, `.delbot`,
+  `.bots` and `.repairbot`) require both the persisted Super Owner sender and
+  the Super Owner session that established the deployment. This prevents every
+  connected bot from replying to the same fleet-management command. Before
+  establishment, the legacy `config.ownerNumber` list authorizes as a
+  bootstrap fallback; afterwards it loses platform authority.
 - **No fromMe shortcut**: messaging a bot from its own account grants only
   SESSION-level owner rights — never platform authority. A session's account
   holder who is not the Super Owner cannot run `.addbot`, even from the bot's
@@ -282,9 +284,8 @@ from hardcoded source numbers, a WhatsApp command, or a session setting.
   `config.ownerNumber` (future session owners) + the Super Owner.
 - **Privacy**: the Super Owner number is never printed in logs or the
   connected message — sessions only display `Super Owner: ✅/❌`.
-- **Diagnostic command**: `.superowner` confirms the persisted Super Owner
-  status. Like every `botmanager` command, it is accepted only from the Super
-  Owner and answered only by the Super Owner's connected bot session; it can
+- **Test command**: `.superowner` tells the sender whether THEY are the
+  Super Owner (`✅` / `❌` / `—`) — deliberately ungated and leak-free; it can
   never change the Super Owner.
 
 No change, reset or recovery command exists — and none is planned yet.
