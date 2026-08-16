@@ -9,14 +9,14 @@
  * standalone use), the original process.exit(1) behaviour is preserved.
  */
 
-const { getCurrentBotId } = require('../../utils/botContext');
+const { getCurrentBotId } = require('../../utils/core/botContext');
 
 module.exports = {
-  name: 'restart',
-  aliases: ['reboot', 'reload'],
+  name: 'refresh',
+  aliases: ['reloadbot'],
   category: 'owner',
-  description: 'Restart the bot (Owner Only)',
-  usage: '.restart',
+  description: 'Refresh the bot (Owner Only)',
+  usage: '.refresh',
   ownerOnly: true,
 
   async execute(sock, msg, args, extra) {
