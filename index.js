@@ -1,4 +1,4 @@
-/**
+      /**
  * June X Ultra — Multi-Session WhatsApp Bot
  * Built on Baileys | Inspired by JUNE-X structure
  *
@@ -2320,11 +2320,22 @@ async function startBotSocket(bot) {
             if (msg.messageStubType) continue
 
             const rawPart  = msg.key.participant
-            const normPart = rawPart ? normalizeJidWithLid(rawPart) : null
 
-            // Skip if the status came from the bot itself
-            const myJid = normalizeJidWithLid(sock.user.id)
-            if (normPart === myJid) continue
+            // IMPORTANT (Baileys v7 / LID): msg.key.participant may be a @lid JID.
+            // Read receipts and status reactions must echo the EXACT identity
+            // WhatsApp delivered — normalizeJidWithLid would otherwise fabricate a
+            // "<lid>@s.whatsapp.net" phone JID that does not exist, and WhatsApp
+            // silently drops receipts/reacts addressed to it.
+            const receiptPart = rawPart || msg.key.participantAlt || null
+            const normPart = rawPart ? normalizeJidWithLid(rawPart) : (msg.key.participantAlt || null)
+
+            // Skip if the status came from the bot itself (check BOTH the
+            // connected account's phone JID and its LID).
+            const partBare = receiptPart ? String(receiptPart).split(':')[0].split('@')[0] : null
+            const myBares = [sock.user?.id, sock.user?.lid]
+                .filter(Boolean)
+                .map((id) => String(id).split(':')[0].split('@')[0])
+            if (partBare && myBares.includes(partBare)) continue
 
             // Store status for .getsw command
             if (normPart && msg.message) {
@@ -2352,11 +2363,11 @@ async function startBotSocket(bot) {
                 // type for status@broadcast keys. Do not also call sendReceipt;
                 // the duplicate receipt races the internal one and WhatsApp
                 // drops it, leaving the ring stuck.
-                if (s.enabled && normPart) {
+                if (s.enabled && receiptPart) {
                     const readKey = {
                         remoteJid: 'status@broadcast',
                         id: msg.key.id,
-                        participant: normPart,
+                        participant: receiptPart,
                         fromMe: false,
                     }
                     await new Promise(r => setTimeout(r, 500 + Math.floor(Math.random() * 500)))
@@ -2366,7 +2377,7 @@ async function startBotSocket(bot) {
                 }
 
                 // Auto React — routed through the serialized queue, no inline setTimeout
-                if (s.react && normPart) {
+                if (s.react && receiptPart) {
                     if (!bot._sReactedIds.has(msg.key.id)) {
                         bot._sReactedIds.add(msg.key.id)
                         // Keep set bounded
@@ -2380,9 +2391,10 @@ async function startBotSocket(bot) {
                             reactKey: {
                                 remoteJid:   'status@broadcast',
                                 id:          msg.key.id,
-                                participant: normPart,
+                                participant: receiptPart,
+                                fromMe:      false,
                             },
-                            normPart,
+                            normPart: receiptPart,
                         })
                     }
                 }
