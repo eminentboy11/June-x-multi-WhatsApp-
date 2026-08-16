@@ -3242,9 +3242,11 @@ async function restartBot(id, { pairingReason = 'explicit-restart' } = {}) {
             }
 
             const sock = await startBotSocket(bot)
-            // Wait (bounded) for the fresh socket to finish connecting so
-            // callers can reply through a live connection.
-            if (!sock.user) {
+            // `sock.user` may already exist from restored credentials while the
+            // replacement socket is still connecting. Wait on the real session
+            // state instead, otherwise refresh confirmations are sent too early
+            // through a socket that cannot deliver them yet.
+            if (bot.botState !== 'connected') {
                 await new Promise((resolve) => {
                     const onOpen = (update) => {
                         if (update.connection === 'open') {
@@ -3259,8 +3261,9 @@ async function restartBot(id, { pairingReason = 'explicit-restart' } = {}) {
                     }, 30000).unref?.()
                 })
             }
-            log(`[ SESSION:${bot.id} ] Restart complete.`, 'green')
-            return { ok: true, id: bot.id, sock }
+            const connected = bot.botState === 'connected'
+            log(`[ SESSION:${bot.id} ] Restart ${connected ? 'complete' : 'still connecting'}.`, connected ? 'green' : 'yellow')
+            return { ok: true, id: bot.id, sock, connected }
         } catch (error) {
             log(`[ SESSION:${bot.id} ] Restart failed: ${error?.message || error}`, 'red', true)
             bot.lastError = String(error?.message || error)
