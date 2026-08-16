@@ -22,7 +22,7 @@ module.exports = {
   async execute(sock, msg, args, extra) {
     try {
       const chatJid = msg.key.remoteJid;
-      await extra.reply('🔁 Restarting this session...');
+      await extra.reply('🔁 Refreshing this session...');
 
       const hook = global.__JUNE_RESTART_SESSION;
       if (typeof hook === 'function') {
