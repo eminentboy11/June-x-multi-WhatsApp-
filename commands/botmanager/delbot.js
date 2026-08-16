@@ -12,7 +12,7 @@
 module.exports = {
   name: 'delbot',
   aliases: ['removesession', 'rmbot', 'deletebot'],
-  category: 'owner',
+  category: 'botmanager',
   description: 'Remove a bot session from the running process (hot-remove)',
   usage: '.delbot <phone|id>',
   superOwnerOnly: true,

@@ -23,7 +23,7 @@ const { getCurrentBotId } = require('../../utils/core/botContext');
 module.exports = {
   name: 'addbot',
   aliases: ['addsession', 'newbot'],
-  category: 'owner',
+  category: 'botmanager',
   description: 'Add a new bot session to the running process (hot-add)',
   usage: '.addbot <phone> <sessionId?>',
   // PLATFORM-LEVEL command: resolves against the persisted deployment

@@ -15,7 +15,7 @@ const { superOwnerStatusFor } = require('../../utils/core/ownership');
 module.exports = {
   name: 'superowner',
   aliases: ['amso', 'superownercheck', 'so'],
-  category: 'owner',
+  category: 'botmanager',
   description: 'Check whether you are this deployment\u2019s Super Owner (test command)',
   usage: '.superowner',
 

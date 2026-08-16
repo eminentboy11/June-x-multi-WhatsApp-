@@ -82,7 +82,7 @@ JUNE_SESSIONS=[{"sessionId":"JUNE-MD:~...","phone":"2348154853640"},{"sessionId"
 
 ## ⚡ Features
 
-- **~300 commands in 21 categories** — admin (59), owner (52), general (41), design (30), media (25), fun (20), textmaker (19), tools (18), stalker, anime, ai, aivideo, ephoto, convert, notes, sports, reaction, religion, movies, utility
+- **~300 commands in 22 categories** — botmanager (5), admin (59), owner (52), general (41), design (30), media (25), fun (20), textmaker (19), tools (18), stalker, anime, ai, aivideo, ephoto, convert, notes, sports, reaction, religion, movies, utility
 - **Anti-features**: antilink, antispam, antibadword, antibot, antiviewonce, antiforward, antitag, antidelete (+ status), anticall, antigif/image/sticker/video/audio/contact, autosticker, welcome/goodbye, hide-tag, and more
 - **Auth**: SQLite-backed Signal keys with integrity validation, backups, quarantines, session-ID fingerprints, remote auth mirror (Postgres / MongoDB) with recovery
 - **Notes system** (`addnote` / `mynotes`) per user, per bot

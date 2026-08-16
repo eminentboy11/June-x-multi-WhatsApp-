@@ -21,7 +21,7 @@ function maskAccount(account) {
 module.exports = {
   name: 'bots',
   aliases: ['sessions', 'listbots', 'botlist'],
-  category: 'owner',
+  category: 'botmanager',
   description: 'Show every bot session on this deployment',
   usage: '.bots',
   superOwnerOnly: true,

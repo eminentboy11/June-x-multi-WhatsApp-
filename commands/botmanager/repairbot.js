@@ -15,7 +15,7 @@ const { getCurrentBotId } = require('../../utils/botContext');
 module.exports = {
   name: 'repairbot',
   aliases: ['fixbot', 'healbot', 'rearmbot'],
-  category: 'owner',
+  category: 'botmanager',
   description: 'Restart a parked session with a fresh pairing cycle',
   usage: '.repairbot <phone|id>',
   superOwnerOnly: true,

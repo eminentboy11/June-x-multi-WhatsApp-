@@ -88,16 +88,17 @@ const progressBar = (used, total, size = 10) => {
 };
 
 const CATEGORY_ORDER = [
-  'general', 'ai', 'admin', 'owner', 'media',
+  'general', 'ai', 'admin', 'botmanager', 'owner', 'media',
   'sports', 'fun', 'utility', 'anime', 'textmaker',
 ];
 
 const CATEGORY_LABELS = {
-  general:   'GEN-CMD',
-  ai:        'AI-CMD',
-  admin:     'ADM-CMD',
-  owner:     'OWN-CMD',
-  media:     'MEDIA-CMD',
+  general:    'GEN-CMD',
+  ai:         'AI-CMD',
+  admin:      'ADM-CMD',
+  botmanager: 'BOT-MANAGER',
+  owner:      'OWN-CMD',
+  media:      'MEDIA-CMD',
   sports:    'SPORT-CMD',
   fun:       'FUN-CMD',
   utility:   'UTIL-CMD',
