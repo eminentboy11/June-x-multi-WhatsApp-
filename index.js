@@ -635,7 +635,7 @@ async function sendFlowMessage(viaBotId, chatJid, content, quotedMsg) {
                 try {
                     const { sendButtons } = require('gifted-btns')
                     await sendButtons(bot.sock, chatJid, addbotFlow.buildSimpleButtons(content), quoteOpt)
-                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (quick-reply buttons).`, 'cyan')
+                    log(`[ FLOW:${viaBotId} ] Pairing-code message delivered via ${bot.id} (copy + cancel buttons).`, 'cyan')
                     return true
                 } catch (e) {
                     log(`[ FLOW:${viaBotId} ] Button send via ${bot.id} failed (${e?.message || e}); falling back to plain text.`, 'yellow')
@@ -857,17 +857,10 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
     }
 
     if (parsed.action === 'copy') {
-        const bot = sessionManager.get(parsed.botId)
-        if (bot?._lastPairingCode) {
-            const payload = addbotFlow.buildCodeMessage({
-                code: bot._lastPairingCode,
-                attempt: bot.pairingAttempts || 1,
-                max: PAIRING_MAX_ATTEMPTS,
-                phone: pending.phone,
-                botId: bot.id,
-            })
-            await sendFlowMessage(pending.viaBotId, chatJid, payload, pending.quotedMsg)
-        }
+        // WhatsApp NATIVELY copied the code when the cta_copy button was
+        // tapped — nothing to do here. (This branch only fires if WhatsApp
+        // also routed a response; older quick-reply versions used to re-send
+        // the message, which spammed the chat instead of copying.)
         return
     }
 

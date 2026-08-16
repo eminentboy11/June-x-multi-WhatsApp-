@@ -89,10 +89,12 @@ the `sessionId` path produced it — so the combo self-heals end to end.
 **Live in-chat flow** (everything happens in the chat where you ran it):
 
 1. `.addbot …` → ⏳ reaction on your command message — no processing spam
-2. 🔑 pairing-code message delivered into the same chat with quick-reply
-   buttons (📋 Copy Code / ❌ Cancel — the panel-proven `{ id, text }` style
-   botinfo.js uses). If button delivery ever fails, the same message falls
-   back to plain text automatically, so the code always arrives.
+2. 🔑 pairing-code message delivered into the same chat with buttons:
+   📋 *Copy Code* is a native `cta_copy` button (WhatsApp really copies it —
+   same semantics as the repo's savestatus "Copy Text" button), ❌ *Cancel*
+   is a quick-reply that routes back and hot-removes the session. If button
+   delivery ever fails, the same message falls back to plain text (with a
+   *.delbot <phone>* hint), so the code always arrives.
 3. terminal status in the same chat: ✅ connected, ⚠️ pairing limit,
    ❌ cancelled/failed — with a final ✅/⚠️ reaction on the command
 

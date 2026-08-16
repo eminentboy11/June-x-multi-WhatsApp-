@@ -986,23 +986,32 @@ function test(name, fn) {
         // if button delivery fails, this text alone is what gets delivered.
         assert.strictEqual(payload.withButtons, true);
         assert.strictEqual(payload.buttons, undefined, 'no inline button array on the payload');
+        assert.ok(payload.text.includes('.delbot 2348154853640'), 'cancel hint always in the text (fallback path)');
     });
 
-    await test('buildSimpleButtons: panel-proven { id, text } quick-reply shape with flow ids', () => {
+    await test('buildSimpleButtons: REAL copy semantics — cta_copy carries copy_code, Cancel is a quick-reply', () => {
         const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });
         const simple = flow.buildSimpleButtons(payload);
         assert.strictEqual(simple.text, payload.text);
-        assert.deepStrictEqual(simple.buttons, [
-            { id: 'addbot_copy_b1', text: '📋 Copy Code' },
-            { id: 'addbot_cancel_b1', text: '❌ Cancel' },
-        ]);
+        assert.strictEqual(simple.buttons.length, 2);
+        // Copy = cta_copy (the ONLY button type WhatsApp natively copies —
+        // the quick-reply version sent its label as a chat message instead).
+        const copy = simple.buttons[0];
+        assert.strictEqual(copy.name, 'cta_copy');
+        const copyParams = JSON.parse(copy.buttonParamsJson);
+        assert.strictEqual(copyParams.display_text, '📋 Copy Code');
+        assert.strictEqual(copyParams.id, 'addbot_copy_b1');
+        assert.strictEqual(copyParams.copy_code, 'ABCD-1234');
+        // Cancel = quick-reply (its tap must ROUTE back to the bot).
+        assert.deepStrictEqual(simple.buttons[1], { id: 'addbot_cancel_b1', text: '❌ Cancel' });
     });
 
-    await test('buildSimpleButtons payload passes gifted-btns validation (botinfo.js-proven shape)', async () => {
-        // commands/general/botinfo.js sends this exact { id, text } shape via
-        // sendButtons and its buttons render on the real panel. The library
-        // validates the payload BEFORE touching the socket, so a recording
-        // socket distinguishes accepted from rejected.
+    await test('buildSimpleButtons payload passes gifted-btns validation (savestatus-style mixed shape)', async () => {
+        // commands/owner/savestatus.js sends cta_copy + copy_code through
+        // sendButtons and its '📋 Copy Text' button NATIVELY copies on the
+        // real panel — the exact semantics .addbot's copy button now uses.
+        // The library validates the payload BEFORE touching the socket, so a
+        // recording socket distinguishes accepted from rejected.
         const { sendButtons } = require('gifted-btns');
         const recorder = { sendMessage: async () => ({}) };
         const payload = flow.buildCodeMessage({ code: 'ABCD-1234', attempt: 1, max: 5, phone: '2348154853640', botId: 'b1' });

@@ -114,7 +114,8 @@ function buildCodeMessage({ code, attempt = 1, max = 5, phone = '', botId }) {
             `1️⃣ Open WhatsApp → Settings\n` +
             `2️⃣ Linked Devices → *Link a Device*\n` +
             `3️⃣ Enter the code above\n\n` +
-            `⏳ _Waiting for pairing…_`,
+            `⏳ _Waiting for pairing…_\n` +
+            `❌ _Cancel with_ *.delbot ${phone}*`,
         withButtons: true,
         code,
         attempt,
@@ -190,19 +191,37 @@ function buildFlowQuoteOptions(quotedMsg) {
 }
 
 /**
- * Fallback button set in the SIMPLE shape this repo's button library is
- * proven to render on real panels (the same { id, text } shape used by
- * commands/general/botinfo.js). Both buttons are quick-reply style: their
- * ids round-trip through buttonsResponseMessage.selectedButtonId and are
- * routed to the live flow by handler.js exactly like the native-flow ids.
+ * Button set for the pairing-code message — traced from the repo's OWN
+ * panel-proven copy flows (commands/owner/savestatus.js "📋 Copy Text" and
+ * commands/general/pair.js "📋 Copy Code"):
+ *
+ *   - Copy Code  -> `cta_copy` with copy_code = the pairing code. WhatsApp
+ *                   NATIVELY copies cta_copy buttons (no message is sent).
+ *                   The earlier quick-reply version sent its label as a chat
+ *                   message instead of copying — cta_copy is the only button
+ *                   type with real clipboard semantics.
+ *   - Cancel     -> quick-reply { id, text }: a tap MUST route back to the
+ *                   bot, and quick-reply taps are delivered as button
+ *                   responses (routed via the addbot_cancel_ id). It carries
+ *                   the same mixed-shape pattern menu.js menuStyle '3' uses.
  */
 function buildSimpleButtons(payload) {
     return {
         text: payload.text,
         footer: payload.footer || 'June X — live pairing',
         buttons: [
-            { id: `${BUTTON_COPY_PREFIX}${payload.botId}`, text: '📋 Copy Code' },
-            { id: `${BUTTON_CANCEL_PREFIX}${payload.botId}`, text: '❌ Cancel' },
+            {
+                name: 'cta_copy',
+                buttonParamsJson: JSON.stringify({
+                    display_text: '📋 Copy Code',
+                    id: `${BUTTON_COPY_PREFIX}${payload.botId}`,
+                    copy_code: payload.code,
+                }),
+            },
+            {
+                id: `${BUTTON_CANCEL_PREFIX}${payload.botId}`,
+                text: '❌ Cancel',
+            },
         ],
     };
 }
