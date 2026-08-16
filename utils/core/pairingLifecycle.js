@@ -15,6 +15,7 @@ async function requestPairingCodeForCycle(options = {}) {
         maxAttempts = 5,
         stabilizeMs = 0,
         delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+        requestCode = (phone) => socket.requestPairingCode(phone),
         onCode = async () => {},
         onExhausted = async () => {},
     } = options;
@@ -39,7 +40,7 @@ async function requestPairingCodeForCycle(options = {}) {
 
     let code;
     try {
-        code = await socket.requestPairingCode(bot._pairingPhone || bot.phone);
+        code = await requestCode(bot._pairingPhone || bot.phone);
     } catch (error) {
         return {
             ok: false,

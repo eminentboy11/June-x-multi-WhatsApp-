@@ -1357,6 +1357,10 @@ async function requestPairingCode(socket, bot) {
             maxAttempts: PAIRING_MAX_ATTEMPTS,
             stabilizeMs,
             delay,
+            // Used by BOTH the original/default session and hot-added sessions.
+            // Baileys requires the raw custom code to be exactly 8 characters;
+            // the display formatter below renders JUNEXBOT as JUNE-XBOT.
+            requestCode: (phone) => socket.requestPairingCode(phone, 'JUNEXBOT'),
             onCode: async (rawCode, reservation) => {
                 const code = rawCode?.match(/.{1,4}/g)?.join('-') || rawCode
                 // The lifecycle helper validates before this callback; validate

@@ -238,3 +238,24 @@ test('I: concurrent triggers reserve no more than five total requests', async ()
     assert.equal(bot.pairingExhausted, true);
     assert.equal(bot.botState, 'needs-login');
 });
+
+test('J: requests use the hard-coded JUNEXBOT custom pairing code', async () => {
+    const bot = makeBot('custom-code');
+    const received = [];
+    const socket = {
+        async requestPairingCode(phone, customCode) {
+            received.push({ phone, customCode });
+            return customCode;
+        },
+    };
+    bot.sock = socket;
+
+    const result = await request(bot, socket, {
+        // Mirrors the explicit callback supplied by index.js for both default
+        // and hot-added sessions.
+        requestCode: (phone) => socket.requestPairingCode(phone, 'JUNEXBOT'),
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(received, [{ phone: '2348000000000', customCode: 'JUNEXBOT' }]);
+    assert.equal(result.code, 'JUNEXBOT');
+});
