@@ -143,11 +143,16 @@ const lolcatjs = require('lolcatjs')
 const { normalizeJidWithLid } = require('./utils/jidHelper')
 const { applyFont } = require('./utils/fontConverter')
 const { runInBot, DEFAULT_BOT_ID, getCurrentBotId } = require('./utils/core/botContext')
-const { claimSuperOwner, superOwnerStatusFor, isPlatformOwner } = require('./utils/core/ownership')
+const {
+    claimSuperOwner,
+    superOwnerStatusFor,
+    isPlatformOwner,
+    isPlatformOwnerForSession,
+} = require('./utils/core/ownership')
 const addbotFlow = require('./utils/core/addbotFlow')
-const { requestPairingCodeForCycle } = require('./utils/core/pairingLifecycle')
 const {
     SessionManager,
+    requestPairingCodeForCycle,
     loadSessionRegistry,
     parseSessionsJson,
     addSessionEntry,
@@ -488,9 +493,9 @@ if (!fs.existsSync(envPath)) {
         'MONGODB_URI=',
         '',
         '# ── SESSION / PAIRING TUNING (optional) ─────────────────────',
-        '# Pairing codes issued per login/recovery cycle (default 5);',
+        '# Pairing codes issued per login/recovery cycle (default 3);',
         '# after the limit the session parks as needs-login until .restart',
-        'JUNE_PAIRING_MAX_ATTEMPTS=5',
+        'JUNE_PAIRING_MAX_ATTEMPTS=3',
         '# Hot-add/hot-remove registry poll interval ms (default 15000)',
         'JUNE_SESSIONS_POLL_MS=15000',
         '# Auto-export refreshed session creds back to .env JUNE_SESSIONS',
@@ -911,14 +916,14 @@ async function handleAddbotButton(buttonId, chatJid, sender, msg) {
         // (PN/LID variants of the same conversation differ) — the sender is
         // still verified below, so this never widens the security boundary.
         const senderNumber = String(sender || '').split(':')[0].split('@')[0]
-        if (!isPlatformOwner(senderNumber)) {
-           // log('Cancel tap rejected — sender is not the Super Owner.', 'red', true)
+const ownerSession = sessionManager.get(pending.viaBotId)
+if (!isPlatformOwner(senderNumber)) {
             await sendFlowMessage(pending.viaBotId, chatJid,
                 { text: config.messages.superOwnerOnly || '👑 Super Owner only!' },
                 pending.quotedMsg)
             return
         }
-
+if (isPlatformOwner(senderNumber)) return
         const removed = await removeSessionViaRegistry(pending.phone)
         if (!removed.ok && removed.reason === 'unknown') {
             // The session may already be gone from the registry — treat the
@@ -1073,7 +1078,7 @@ function rememberSessionIdFingerprint(bot, fingerprint) {
     }
 
     bot.db.markDatabaseDirty('session-id-fingerprint')
-    log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
+   // log(`[ AUTH META:${bot.id} ] sessionId fingerprint saved in SQLite.`, 'green')
     return true
 }
 
@@ -3339,9 +3344,9 @@ async function main() {
     if (entries.length !== unique.length) {
         log('[ MULTI-SESSION ] Duplicate session ids detected — later entries override earlier ones.', 'yellow')
     }
-    log(`[ MULTI-SESSION ] ${unique.length} session(s) registered: ${unique.join(', ')}`, 'cyan')
+    log(`[ MULTI-SESSION ] ${unique.length} session(s) registered`, 'cyan')
     if (unique.length > 1) {
-        log('[ MULTI-SESSION ] Multi-session mode: each session uses its own SQLite database (june-<id>.db) and auth directory.', 'cyan')
+        //log('[ MULTI-SESSION ] Multi-session mode: each session uses its own SQLite database (june-<id>.db) and auth directory.', 'cyan')
     }
 
     // Wire every session: database, config, remote adapters, recovery.
